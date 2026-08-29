@@ -143,6 +143,7 @@ class LocalState:
                 "lastTraining": (self.project or {}).get("lastTraining"),
                 "trainingHistory": (self.project or {}).get("trainingHistory", []),
                 "modelLibrary": model_library_snapshot(self.project_root),
+                "benchmark": benchmark_snapshot(self.project_root),
                 "frames": frames,
                 "log": "\n".join(self.log[-80:]),
             }
@@ -191,6 +192,83 @@ def model_library_snapshot(root: Path | None) -> dict:
         except (OSError, ValueError, TypeError, json.JSONDecodeError):
             pass
     return {"packages": packages, "activePackageID": active_id}
+
+
+def benchmark_snapshot(root: Path | None) -> dict:
+    if root is None:
+        return {"groundTruth": None, "latest": None}
+    benchmark_root = root / "benchmarks"
+    ground_truth = None
+    latest = None
+    try:
+        document = json.loads((benchmark_root / "ground-truth.json").read_text(encoding="utf-8"))
+        ground_truth = {
+            "createdAt": document.get("createdAt"),
+            "datasetID": document.get("datasetID"),
+            "sport": document.get("sport"),
+            "frameCount": len(document.get("frames", [])),
+            "annotationCount": sum(len(frame.get("annotations", [])) for frame in document.get("frames", [])),
+            "classes": sorted({annotation.get("category") for frame in document.get("frames", []) for annotation in frame.get("annotations", []) if annotation.get("category")}),
+        }
+    except (OSError, ValueError, TypeError, json.JSONDecodeError):
+        pass
+    try:
+        latest = json.loads((benchmark_root / "latest.json").read_text(encoding="utf-8"))
+        if isinstance(latest, dict):
+            latest["matchesGroundTruth"] = bool(ground_truth and latest.get("datasetID") == ground_truth.get("datasetID"))
+    except (OSError, ValueError, TypeError, json.JSONDecodeError):
+        latest = None
+    return {"groundTruth": ground_truth, "latest": latest}
+
+
+def freeze_ground_truth() -> dict:
+    root = STATE.project_root
+    project = STATE.project
+    if root is None or project is None:
+        raise RuntimeError("Kein lokales Projekt geöffnet.")
+    frames = project.get("frames", [])
+    if not frames:
+        raise RuntimeError("Das Projekt enthält keine Testbilder.")
+    pending = sum(annotation.get("source") == "auto" for frame in frames for annotation in frame.get("annotations", []))
+    if pending:
+        raise RuntimeError("Vor dem Modelltest alle automatischen Vorschläge übernehmen, korrigieren oder verwerfen.")
+    allowed = set(SPORT_CATEGORIES.get(project.get("sport"), []))
+    reference_frames = []
+    for frame in frames:
+        annotations = []
+        for annotation in frame.get("annotations", []):
+            category = str(annotation.get("category", ""))
+            if category not in allowed:
+                continue
+            annotations.append({
+                "category": category,
+                "x": max(0.0, float(annotation.get("x", 0))),
+                "y": max(0.0, float(annotation.get("y", 0))),
+                "width": max(1.0, float(annotation.get("width", 1))),
+                "height": max(1.0, float(annotation.get("height", 1))),
+            })
+        reference_frames.append({
+            "id": str(frame.get("id")),
+            "relativePath": str(frame.get("relativePath")),
+            "width": int(frame.get("width", 0)),
+            "height": int(frame.get("height", 0)),
+            "annotations": annotations,
+        })
+    annotation_count = sum(len(frame["annotations"]) for frame in reference_frames)
+    if annotation_count == 0:
+        raise RuntimeError("Mindestens eine richtige Box muss vor dem Modelltest festgelegt sein.")
+    canonical = json.dumps({"sport": project.get("sport"), "frames": reference_frames}, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    reference = {
+        "schemaVersion": 1,
+        "createdAt": utc_now(),
+        "sport": project.get("sport"),
+        "datasetID": hashlib.sha256(canonical.encode("utf-8")).hexdigest(),
+        "frames": reference_frames,
+        "reviewStatement": "Every frame was explicitly frozen as ground truth; frames without boxes are intentional negatives.",
+    }
+    atomic_json(root / "benchmarks" / "ground-truth.json", reference)
+    STATE.update(message=f"Referenz mit {len(reference_frames)} Bildern und {annotation_count} Boxen festgelegt.")
+    return benchmark_snapshot(root)
 
 
 def select_folder() -> Path:
@@ -518,6 +596,9 @@ def ml_action(action: str, payload: dict) -> None:
                 backup_project(root, "automatisch")
                 threshold = min(0.95, max(0.05, float(payload.get("threshold", 0.25))))
                 args = ["autolabel", "--project", str(root), "--model", model, "--category", payload.get("category", "ball"), "--threshold", str(threshold), "--language", language]
+            elif action == "benchmark":
+                threshold = min(0.95, max(0.01, float(payload.get("threshold", 0.05))))
+                args = ["benchmark", "--project", str(root), "--threshold", str(threshold), "--language", language]
             elif action == "train":
                 backup_project(root, "training")
                 args = ["train", "--project", str(root), "--model", model, "--epochs", str(int(payload.get("epochs", 20))), "--language", language]
@@ -653,13 +734,17 @@ class Handler(BaseHTTPRequestHandler):
             elif self.path == "/api/annotations":
                 save_annotations(payload)
                 self.json_response({"ok": True, "status": STATE.snapshot()})
+            elif self.path == "/api/benchmark-ground-truth":
+                if STATE.busy:
+                    raise RuntimeError("Ein lokaler Vorgang läuft bereits.")
+                self.json_response({"ok": True, "benchmark": freeze_ground_truth()})
             elif self.path == "/api/import-model":
                 if STATE.busy:
                     raise RuntimeError("Ein lokaler Vorgang läuft bereits.")
                 package_file = select_model_package()
                 threading.Thread(target=ml_action, args=("import-model", {**payload, "file": str(package_file)}), daemon=True).start()
                 self.json_response({"ok": True, "fileName": package_file.name})
-            elif self.path in {"/api/setup", "/api/autolabel", "/api/train", "/api/export-coreml", "/api/export-onnx", "/api/package-model"}:
+            elif self.path in {"/api/setup", "/api/autolabel", "/api/train", "/api/export-coreml", "/api/export-onnx", "/api/package-model", "/api/benchmark"}:
                 if STATE.busy:
                     raise RuntimeError("Ein lokaler Vorgang läuft bereits.")
                 action = self.path.removeprefix("/api/")

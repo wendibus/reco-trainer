@@ -115,6 +115,81 @@ class DatasetTests(unittest.TestCase):
         self.assertIn("goalkeeper", ml_worker.sport_categories("lacrosse"))
         self.assertIn("goalpost", ml_worker.sport_categories("american_football"))
 
+    def test_benchmark_scores_a_perfect_detection(self):
+        truth = [{"id": "frame-1", "annotations": [{"category": "ball", "x": 10, "y": 20, "width": 10, "height": 10}]}]
+        predictions = [{"frameID": "frame-1", "category": "ball", "confidence": .9, "box": [10, 20, 20, 30]}]
+        metrics = ml_worker.evaluate_predictions(truth, predictions, ["ball"])
+        self.assertEqual(metrics["truePositives"], 1)
+        self.assertEqual(metrics["falsePositives"], 0)
+        self.assertEqual(metrics["falseNegatives"], 0)
+        self.assertAlmostEqual(metrics["mAP50"], 1.0)
+        self.assertAlmostEqual(metrics["qualityScore"], 100.0)
+
+    def test_benchmark_penalizes_false_positives_and_missed_objects(self):
+        truth = [{"id": "frame-1", "annotations": [
+            {"category": "ball", "x": 10, "y": 20, "width": 10, "height": 10},
+            {"category": "ball", "x": 50, "y": 50, "width": 10, "height": 10},
+        ]}]
+        predictions = [
+            {"frameID": "frame-1", "category": "ball", "confidence": .9, "box": [10, 20, 20, 30]},
+            {"frameID": "frame-1", "category": "ball", "confidence": .8, "box": [80, 80, 90, 90]},
+        ]
+        metrics = ml_worker.evaluate_predictions(truth, predictions, ["ball"])
+        self.assertEqual(metrics["truePositives"], 1)
+        self.assertEqual(metrics["falsePositives"], 1)
+        self.assertEqual(metrics["falseNegatives"], 1)
+        self.assertAlmostEqual(metrics["precision"], .5)
+        self.assertAlmostEqual(metrics["recall"], .5)
+        self.assertAlmostEqual(metrics["f1"], .5)
+
+    def test_benchmark_maps_model_class_ids_to_sport_schema(self):
+        self.assertEqual(ml_worker.benchmark_detection_category("", 0, "basketball", {"ball", "player"}), "ball")
+        self.assertEqual(ml_worker.benchmark_detection_category("sports ball", 32, "hockey", {"puck"}), "puck")
+        self.assertIsNone(ml_worker.benchmark_detection_category("person", 0, "football", {"ball"}))
+
+    def test_benchmark_command_writes_local_ranking_and_predictions(self):
+        class FakeDetections:
+            data = {"class_name": ["ball"]}
+            xyxy = [[10.0, 20.0, 20.0, 30.0]]
+            class_id = [0]
+            confidence = [.95]
+
+        class FakeModel:
+            def __init__(self, **_): pass
+            def predict(self, paths, threshold):
+                self.threshold = threshold
+                return FakeDetections() if len(paths) == 1 else [FakeDetections() for _ in paths]
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            frame = root / "frames" / "one.jpg"
+            frame.parent.mkdir(parents=True)
+            frame.write_bytes(b"synthetic")
+            ml_worker.atomic_json(root / "project.json", {"sport": "basketball", "frames": []})
+            ml_worker.atomic_json(root / "benchmarks" / "ground-truth.json", {
+                "schemaVersion": 1, "createdAt": "2026-08-29T10:00:00Z", "sport": "basketball", "datasetID": "synthetic-dataset",
+                "frames": [{"id": "one", "relativePath": "frames/one.jpg", "width": 100, "height": 80, "annotations": [{"category": "ball", "x": 10, "y": 20, "width": 10, "height": 10}]}],
+            })
+            model_dir = root / "models" / "library" / "synthetic-model"
+            (model_dir / "weights").mkdir(parents=True)
+            (model_dir / "weights" / "model.pth").write_bytes(b"synthetic")
+            ml_worker.atomic_json(model_dir / "manifest.json", {"packageID": "synthetic-model", "sport": "basketball", "modelSize": "nano", "classes": ["ball"], "weights": {"file": "weights/model.pth"}})
+            original_import = ml_worker.import_model_class
+            original_device = ml_worker.detect_device
+            try:
+                ml_worker.import_model_class = lambda *_: FakeModel
+                ml_worker.detect_device = lambda: "cpu"
+                ml_worker.benchmark(type("Args", (), {"project": str(root), "threshold": .05, "language": "en"})())
+            finally:
+                ml_worker.import_model_class = original_import
+                ml_worker.detect_device = original_device
+            report = ml_worker.load_json(root / "benchmarks" / "latest.json")
+            self.assertEqual(report["results"][0]["rank"], 1)
+            self.assertAlmostEqual(report["results"][0]["metrics"]["qualityScore"], 100.0)
+            prediction_files = list((root / "benchmarks" / "runs").rglob("*.predictions.json"))
+            self.assertEqual(len(prediction_files), 1)
+            self.assertNotIn("imageData", prediction_files[0].read_text())
+
     def test_mps_profile_scales_batch_and_parallel_data_loading(self):
         profile = ml_worker.training_profile(
             "nano", "mps", memory_bytes=16 * 1024**3, cpu_count=8

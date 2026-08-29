@@ -24,6 +24,7 @@ body { background:#fff; color:var(--ink); font-family:Inter,ui-sans-serif,-apple
 .local-note span,.privacy-lock span { color:var(--green); font-size:9px; }
 .header-actions { justify-self:end; display:flex; align-items:center; gap:14px; }
 .walkthrough-launch { min-height:32px; padding:6px 10px; border:1px solid #cbd4df; border-radius:8px; background:#fff; color:#31435f; font-size:10px; font-weight:700; }
+.walkthrough-launch.active-view { border-color:var(--blue); background:#edf4ff; color:var(--blue); }
 
 .preview-stage { flex:1 1 0; height:100%; min-height:0; display:flex; overflow:hidden; }
 .app-window { --accent:#1769ff; flex:1 1 auto; width:100%; height:100%; min-height:0; display:flex; overflow:hidden; background:#fff; transition:.2s ease; }
@@ -133,12 +134,60 @@ select { height:34px; padding:0 9px; border:1px solid #cbd3df; border-radius:7px
 .platform-windows .training-card,.platform-windows .editor-shell { border-radius:6px; }
 .platform-linux .language-inside span:first-child { box-shadow:none; }
 
+.benchmark-workspace { min-width:0; min-height:0; display:flex; flex-direction:column; gap:13px; padding:20px 22px; overflow:auto; background:#f7f9fc; }
+.benchmark-heading { display:flex; align-items:flex-start; justify-content:space-between; gap:24px; }
+.benchmark-kicker { color:var(--accent); font-size:9px; font-weight:850; letter-spacing:.11em; }
+.benchmark-heading h2 { margin:5px 0 4px; font-size:24px; letter-spacing:-.035em; }
+.benchmark-heading p { max-width:720px; margin:0; color:#657287; font-size:11px; line-height:1.5; }
+.benchmark-private { display:flex; align-items:center; gap:7px; max-width:310px; padding:8px 10px; border:1px solid #bfe2d4; border-radius:8px; background:#effaf5; color:#397a63; font-size:8px; line-height:1.35; }
+.benchmark-private span { color:var(--green); }
+.benchmark-steps { display:grid; grid-template-columns:1.1fr .95fr .85fr; gap:10px; }
+.benchmark-step { position:relative; min-width:0; min-height:188px; padding:16px; overflow:hidden; border:1px solid #d8e0ea; border-radius:11px; background:#fff; box-shadow:0 4px 14px rgba(24,38,61,.04); }
+.benchmark-step.complete { border-color:#addbc9; }
+.step-number { position:absolute; top:12px; right:13px; width:28px; height:28px; display:grid; place-items:center; border-radius:9px; background:#edf2f8; color:#66758b; font-size:11px; font-weight:800; }
+.benchmark-step.complete .step-number { background:#e6f7f0; color:#14805a; }
+.benchmark-step h3 { margin:0 38px 7px 0; font-size:12px; }
+.benchmark-step > p { min-height:38px; margin:0 0 10px; color:#6d798b; font-size:9px; line-height:1.45; }
+.benchmark-step > button { width:100%; margin-top:11px; }
+.benchmark-facts { display:grid; grid-template-columns:repeat(3,1fr); gap:5px; }
+.benchmark-facts span { min-width:0; padding:7px; border-radius:7px; background:#f3f6f9; color:#727e90; font-size:7px; }
+.benchmark-facts strong { display:block; overflow:hidden; color:#26364d; font-size:12px; text-overflow:ellipsis; }
+.benchmark-facts span.warning { background:#fff2e3; color:#9b6120; }
+.model-count { display:block; margin-bottom:8px; color:#285a49; font-size:10px; }
+.benchmark-model-list { max-height:118px; display:flex; flex-direction:column; gap:5px; overflow:auto; }
+.benchmark-model-list > span { display:grid; grid-template-columns:42px 1fr; gap:1px 7px; padding:6px 7px; border-radius:7px; background:#f4f7fa; color:#38475d; font-size:8px; }
+.benchmark-model-list b { grid-row:1 / 3; align-self:center; color:var(--accent); font-size:8px; }
+.benchmark-model-list small { overflow:hidden; color:#778397; font-size:7px; text-overflow:ellipsis; white-space:nowrap; }
+.benchmark-empty-small { padding:10px; border:1px dashed #cad3df; border-radius:7px; }
+.benchmark-threshold { display:grid; grid-template-columns:1fr auto; gap:5px; margin:17px 0 7px; color:#66758b; font-size:9px; }
+.benchmark-threshold input { grid-column:1 / -1; width:100%; accent-color:var(--accent); }
+.benchmark-progress { height:4px; margin-top:8px; overflow:hidden; border-radius:4px; background:#e4eaf2; }
+.benchmark-progress span { display:block; height:100%; border-radius:inherit; background:var(--accent); transition:width .3s ease; }
+.benchmark-error { padding:9px 11px; border:1px solid #efb5ae; border-radius:8px; background:#fff3f1; color:#9b342a; font-size:9px; }
+.ranking-card { min-height:210px; padding:15px; border:1px solid #d8e0ea; border-radius:11px; background:#fff; box-shadow:0 4px 14px rgba(24,38,61,.04); }
+.ranking-title { display:flex; align-items:flex-start; justify-content:space-between; gap:16px; margin-bottom:11px; }
+.ranking-title h3 { margin:0 0 4px; font-size:13px; }
+.ranking-title p { margin:0; color:#748094; font-size:8px; }
+.ranking-title > span { color:#7b8798; font-size:8px; }
+.ranking-scroll { overflow:auto; }
+.ranking-card table { width:100%; border-collapse:collapse; font-size:8px; }
+.ranking-card th { padding:7px 8px; border-bottom:1px solid #dbe2eb; color:#788497; font-weight:750; text-align:left; white-space:nowrap; }
+.ranking-card td { padding:8px; border-bottom:1px solid #edf0f4; color:#435167; white-space:nowrap; }
+.ranking-card tr.winner td { background:#effaf5; }
+.ranking-card td:nth-child(3) strong { color:var(--accent); font-size:13px; }
+.ranking-card td:nth-child(2) b,.ranking-card td:nth-child(2) small,.ranking-card td:nth-child(2) em { display:block; max-width:260px; overflow:hidden; text-overflow:ellipsis; }
+.ranking-card td:nth-child(2) small { margin-top:2px; color:#8691a1; font-size:7px; }
+.ranking-card td:nth-child(2) em { margin-top:3px; color:#aa4035; font-size:7px; font-style:normal; }
+.benchmark-empty { display:grid; min-height:145px; place-items:center; border:1px dashed #cbd4df; border-radius:8px; color:#7b8798; font-size:10px; text-align:center; }
+.benchmark-empty.stale { border-color:#e7c38d; background:#fff9ef; color:#906028; }
+.benchmark-log { margin-top:0; }
+
 .walkthrough-backdrop { position:fixed; inset:0; z-index:50; display:grid; place-items:center; padding:24px; background:rgba(12,20,34,.58); backdrop-filter:blur(5px); }
 .walkthrough-dialog { position:relative; width:min(610px,100%); padding:30px; border:1px solid rgba(255,255,255,.55); border-radius:20px; background:#fff; box-shadow:0 28px 80px rgba(8,20,42,.34); }
 .walkthrough-close { position:absolute; top:14px; right:14px; width:32px; height:32px; border:0; border-radius:50%; background:#eef2f7; color:#45536a; font-size:20px; line-height:1; }
 .walkthrough-kicker { color:var(--blue); font-size:10px; font-weight:800; letter-spacing:.08em; text-transform:uppercase; }
 .walkthrough-dialog h2 { margin:7px 42px 18px 0; font-size:24px; letter-spacing:-.025em; }
-.walkthrough-progress { display:grid; grid-template-columns:repeat(6,1fr); gap:5px; margin-bottom:24px; }
+.walkthrough-progress { display:grid; grid-template-columns:repeat(7,1fr); gap:5px; margin-bottom:24px; }
 .walkthrough-progress span { height:4px; border-radius:4px; background:#e0e6ef; }
 .walkthrough-progress span.active { background:var(--blue); }
 .walkthrough-dialog article { display:grid; grid-template-columns:52px 1fr; gap:17px; align-items:start; min-height:135px; padding:22px; border-radius:14px; background:#f5f8fc; }
@@ -166,6 +215,7 @@ select { height:34px; padding:0 9px; border:1px solid #cbd3df; border-radius:7px
   .preview-header { grid-template-columns:1fr auto; } .local-note { display:none; }
   .app-body { grid-template-columns:230px minmax(0,1fr); }
   .dataset-summary { grid-template-columns:repeat(3,1fr); } .dataset-summary span:last-child { grid-column:1 / -1; }
+  .benchmark-steps { grid-template-columns:1fr; } .benchmark-step { min-height:0; }
 }
 @media (max-width:760px) {
   .preview-header { display:flex; flex-direction:column; align-items:stretch; } .switches { justify-content:flex-start; overflow-x:auto; }
@@ -173,4 +223,5 @@ select { height:34px; padding:0 9px; border:1px solid #cbd3df; border-radius:7px
   .app-sidebar { display:none; } .workspace { padding:11px; } .annotation-toolbar > span,.instruction { display:none; }
   .walkthrough-backdrop { padding:10px; } .walkthrough-dialog,.language-dialog { padding:24px 18px 18px; } .walkthrough-dialog article { grid-template-columns:1fr; min-height:210px; }
   .language-choices { grid-template-columns:1fr; }
+  .benchmark-workspace { padding:14px; } .benchmark-heading { flex-direction:column; } .benchmark-private { max-width:none; } .benchmark-steps { grid-template-columns:1fr; }
 }

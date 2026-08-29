@@ -1,5 +1,6 @@
 import AppKit
 import Combine
+import CryptoKit
 import Foundation
 import UniformTypeIdentifiers
 
@@ -21,6 +22,9 @@ final class AppState: ObservableObject {
     @Published var hardware: HardwareStatus?
     @Published var activeModelPackageID: String?
     @Published var activeModelDescription: String?
+    @Published var benchmarkThreshold = 0.05
+    @Published var benchmarkGroundTruth: BenchmarkGroundTruthRecord?
+    @Published var benchmarkReport: BenchmarkReport?
     @Published var errorMessage: String?
 
     var store: ProjectStore? {
@@ -30,6 +34,16 @@ final class AppState: ObservableObject {
     var selectedFrame: FrameRecord? {
         guard let id = selectedFrameID else { return project?.frames.first }
         return project?.frames.first(where: { $0.id == id })
+    }
+
+    var installedModelCount: Int {
+        guard let root = store?.rootURL.appending(path: "models/library", directoryHint: .isDirectory),
+              let directories = try? FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: [.isDirectoryKey]) else { return 0 }
+        return directories.filter { FileManager.default.fileExists(atPath: $0.appending(path: "manifest.json").path) }.count
+    }
+
+    var benchmarkReportIsCurrent: Bool {
+        benchmarkReport?.datasetID == benchmarkGroundTruth?.datasetID
     }
 
     func tr(_ german: String, _ english: String, _ spanish: String? = nil, _ french: String? = nil) -> String {
@@ -65,6 +79,7 @@ final class AppState: ObservableObject {
                 activeModelPackageID = nil
                 activeModelDescription = nil
             }
+            loadBenchmarkState()
             status = tr(
                 "Projekt geladen: \(loaded.frames.count) Frames.",
                 "Project loaded: \(loaded.frames.count) frames.",
@@ -75,6 +90,8 @@ final class AppState: ObservableObject {
             project = nil
             selectedFrameID = nil
             selectedCategory = sport.categories.first ?? "ball"
+            benchmarkGroundTruth = nil
+            benchmarkReport = nil
             status = tr("Ordner gewählt. Jetzt Videos analysieren.", "Folder selected. Analyze the videos next.", "Carpeta seleccionada. Analiza ahora los vídeos.", "Dossier sélectionné. Analysez maintenant les vidéos.")
         }
     }
@@ -200,6 +217,59 @@ final class AppState: ObservableObject {
         try await worker.packageModel(modelSize: self.modelSize, language: self.language, onOutput: output)
     }}
 
+    func freezeBenchmarkGroundTruth() {
+        guard let project, let store else { return }
+        do {
+            guard !project.frames.isEmpty else {
+                throw NSError(domain: "RecoBenchmark", code: 1, userInfo: [NSLocalizedDescriptionKey: tr("Das Projekt enthält keine Testbilder.", "The project contains no test images.", "El proyecto no contiene imágenes de prueba.", "Le projet ne contient aucune image de test.")])
+            }
+            guard !project.frames.flatMap(\.annotations).contains(where: { $0.source == "auto" }) else {
+                throw NSError(domain: "RecoBenchmark", code: 2, userInfo: [NSLocalizedDescriptionKey: tr("Vor dem Modelltest alle automatischen Vorschläge übernehmen, korrigieren oder verwerfen.", "Accept, correct, or reject every automatic suggestion before benchmarking.", "Acepta, corrige o rechaza todas las sugerencias automáticas antes de comparar.", "Acceptez, corrigez ou refusez toutes les suggestions automatiques avant la comparaison.")])
+            }
+            let frames = project.frames.map { frame in
+                BenchmarkFrameRecord(
+                    id: frame.id.uuidString,
+                    relativePath: frame.relativePath,
+                    width: frame.width,
+                    height: frame.height,
+                    annotations: frame.annotations.map {
+                        BenchmarkAnnotationRecord(category: $0.category, x: $0.x, y: $0.y, width: $0.width, height: $0.height)
+                    }
+                )
+            }
+            let count = frames.reduce(0) { $0 + $1.annotations.count }
+            guard count > 0 else {
+                throw NSError(domain: "RecoBenchmark", code: 3, userInfo: [NSLocalizedDescriptionKey: tr("Mindestens eine richtige Box muss festgelegt sein.", "At least one correct box must be defined.", "Debe definirse al menos un cuadro correcto.", "Au moins une boîte correcte doit être définie.")])
+            }
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = [.sortedKeys]
+            let identity = try encoder.encode(BenchmarkDatasetIdentity(sport: project.sport.rawValue, frames: frames))
+            let digest = SHA256.hash(data: identity).map { String(format: "%02x", $0) }.joined()
+            let reference = BenchmarkGroundTruthRecord(
+                schemaVersion: 1,
+                createdAt: ISO8601DateFormatter().string(from: Date()),
+                sport: project.sport.rawValue,
+                datasetID: digest,
+                frames: frames,
+                reviewStatement: "Every frame was explicitly frozen as ground truth; frames without boxes are intentional negatives."
+            )
+            let directory = store.rootURL.appending(path: "benchmarks", directoryHint: .isDirectory)
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            let prettyEncoder = JSONEncoder()
+            prettyEncoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+            try prettyEncoder.encode(reference).write(to: directory.appending(path: "ground-truth.json"), options: .atomic)
+            benchmarkGroundTruth = reference
+            status = tr("Referenz mit \(frames.count) Bildern und \(count) Boxen festgelegt.", "Ground truth frozen with \(frames.count) images and \(count) boxes.", "Referencia fijada con \(frames.count) imágenes y \(count) cuadros.", "Référence figée avec \(frames.count) images et \(count) boîtes.")
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    func benchmarkModels() { runWorkerAction(tr("Vergleiche alle lokalen Modelle …", "Comparing every local model …", "Comparando todos los modelos locales …", "Comparaison de tous les modèles locaux …")) { worker, output in
+        try await worker.benchmark(threshold: self.benchmarkThreshold, language: self.language, onOutput: output)
+        await MainActor.run { self.loadBenchmarkState() }
+    }}
+
     func importModelPackage() {
         guard let store else { return }
         let panel = NSOpenPanel()
@@ -284,6 +354,21 @@ final class AppState: ObservableObject {
                 status = tr("Vorgang fehlgeschlagen.", "Operation failed.")
             }
             isWorking = false
+        }
+    }
+
+    private func loadBenchmarkState() {
+        guard let root = store?.rootURL.appending(path: "benchmarks", directoryHint: .isDirectory) else { return }
+        let decoder = JSONDecoder()
+        if let data = try? Data(contentsOf: root.appending(path: "ground-truth.json")) {
+            benchmarkGroundTruth = try? decoder.decode(BenchmarkGroundTruthRecord.self, from: data)
+        } else {
+            benchmarkGroundTruth = nil
+        }
+        if let data = try? Data(contentsOf: root.appending(path: "latest.json")) {
+            benchmarkReport = try? decoder.decode(BenchmarkReport.self, from: data)
+        } else {
+            benchmarkReport = nil
         }
     }
 }

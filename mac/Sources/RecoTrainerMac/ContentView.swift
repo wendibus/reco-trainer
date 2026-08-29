@@ -8,6 +8,7 @@ struct ContentView: View {
     @State private var showWalkthrough = false
     @State private var showLanguagePicker = false
     @State private var walkthroughIndex = 0
+    @State private var showBenchmark = false
 
     var body: some View {
         NavigationSplitView {
@@ -28,6 +29,18 @@ struct ContentView: View {
             ToolbarItem(placement: .principal) {
                 Label("Reco Trainer", systemImage: "lock.shield.fill")
                     .font(.headline)
+            }
+            ToolbarItem(placement: .primaryAction) {
+                Button {
+                    showBenchmark.toggle()
+                } label: {
+                    Label(
+                        showBenchmark
+                            ? app.tr("Training", "Training", "Entrenamiento", "Entraînement")
+                            : app.tr("Modelle testen", "Test models", "Probar modelos", "Tester les modèles"),
+                        systemImage: showBenchmark ? "arrow.left" : "chart.bar.xaxis"
+                    )
+                }
             }
             ToolbarItem(placement: .primaryAction) {
                 Button {
@@ -161,7 +174,9 @@ struct ContentView: View {
 
     @ViewBuilder
     private var detail: some View {
-        if let frame = app.selectedFrame, let store = app.store {
+        if showBenchmark {
+            benchmarkPanel
+        } else if let frame = app.selectedFrame, let store = app.store {
             VStack(spacing: 14) {
                 annotationToolbar
                 AnnotationEditor(
@@ -179,6 +194,107 @@ struct ContentView: View {
         } else {
             welcome
         }
+    }
+
+    private var benchmarkPanel: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 18) {
+                VStack(alignment: .leading, spacing: 5) {
+                    Label(app.tr("Lokaler Modellvergleich", "Local model benchmark", "Comparación local de modelos", "Comparaison locale des modèles"), systemImage: "chart.bar.xaxis")
+                        .font(.largeTitle.bold())
+                    Text(app.tr(
+                        "Alle kompatiblen Modelle erhalten dieselben geprüften Bilder. Bilder und Vorhersagen verlassen diesen Mac nicht.",
+                        "Every compatible model receives the same reviewed images. Images and predictions never leave this Mac.",
+                        "Todos los modelos compatibles reciben las mismas imágenes revisadas. Las imágenes y predicciones nunca salen de este Mac.",
+                        "Tous les modèles compatibles reçoivent les mêmes images vérifiées. Les images et prédictions ne quittent jamais ce Mac."
+                    ))
+                    .foregroundStyle(.secondary)
+                }
+
+                HStack(alignment: .top, spacing: 12) {
+                    GroupBox(app.tr("1 · Richtige Antworten", "1 · Correct answers", "1 · Respuestas correctas", "1 · Bonnes réponses")) {
+                        VStack(alignment: .leading, spacing: 10) {
+                            Text(app.tr(
+                                "Prüfe alle Boxen. Bilder ohne Box gelten nach dem Festlegen bewusst als negative Beispiele.",
+                                "Review every box. Images without boxes become intentional negative examples when frozen.",
+                                "Revisa cada cuadro. Las imágenes sin cuadros se convierten en ejemplos negativos intencionados.",
+                                "Vérifiez chaque boîte. Les images sans boîte deviennent des exemples négatifs intentionnels."
+                            )).font(.caption).foregroundStyle(.secondary)
+                            if let reference = app.benchmarkGroundTruth {
+                                Label("\(reference.frames.count) \(app.tr("Bilder", "images", "imágenes", "images")) · \(reference.annotationCount) \(app.tr("Boxen", "boxes", "cuadros", "boîtes"))", systemImage: "checkmark.seal.fill")
+                                    .foregroundStyle(.green)
+                            }
+                            Button(app.tr("Geprüfte Antworten festlegen", "Freeze reviewed answers", "Fijar respuestas revisadas", "Figer les réponses vérifiées"), action: app.freezeBenchmarkGroundTruth)
+                                .buttonStyle(.borderedProminent)
+                                .disabled(app.project == nil || app.isWorking || (app.project?.frames.flatMap(\.annotations).contains { $0.source == "auto" } ?? false))
+                        }.frame(maxWidth: .infinity, minHeight: 125, alignment: .topLeading)
+                    }
+                    GroupBox(app.tr("2 · Lokale Modelle", "2 · Local models", "2 · Modelos locales", "2 · Modèles locaux")) {
+                        VStack(alignment: .leading, spacing: 10) {
+                            Text("\(app.installedModelCount) " + app.tr("installierte Austauschmodelle", "installed exchange models", "modelos de intercambio instalados", "modèles d’échange installés"))
+                                .font(.title3.bold())
+                            Text(app.tr("Nur Modelle derselben Sportart werden bewertet.", "Only models for the same sport are evaluated.", "Solo se evalúan modelos del mismo deporte.", "Seuls les modèles du même sport sont évalués."))
+                                .font(.caption).foregroundStyle(.secondary)
+                        }.frame(maxWidth: .infinity, minHeight: 125, alignment: .topLeading)
+                    }
+                    GroupBox(app.tr("3 · Vergleich starten", "3 · Start comparison", "3 · Iniciar comparación", "3 · Lancer la comparaison")) {
+                        VStack(alignment: .leading, spacing: 9) {
+                            HStack { Text(app.tr("Schwelle", "Threshold", "Umbral", "Seuil")); Spacer(); Text("\(Int(app.benchmarkThreshold * 100)) %").monospacedDigit() }
+                            Slider(value: $app.benchmarkThreshold, in: 0.01...0.5, step: 0.01)
+                            Button(app.tr("Alle Modelle lokal testen", "Test every model locally", "Probar todos los modelos localmente", "Tester tous les modèles localement"), action: app.benchmarkModels)
+                                .buttonStyle(.borderedProminent)
+                                .disabled(app.benchmarkGroundTruth == nil || app.installedModelCount == 0 || app.isWorking)
+                            if app.isWorking { ProgressView() }
+                        }.frame(maxWidth: .infinity, minHeight: 125, alignment: .topLeading)
+                    }
+                }
+
+                GroupBox(app.tr("Automatisches Ranking", "Automatic ranking", "Clasificación automática", "Classement automatique")) {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text(app.tr(
+                            "Qualität = 70 % mAP@0.50 + 30 % F1. Die Geschwindigkeit entscheidet nur bei Gleichstand.",
+                            "Quality = 70% mAP@0.50 + 30% F1. Speed is only the tie-breaker.",
+                            "Calidad = 70 % mAP@0.50 + 30 % F1. La velocidad solo desempata.",
+                            "Qualité = 70 % mAP@0.50 + 30 % F1. La vitesse départage seulement les égalités."
+                        )).font(.caption).foregroundStyle(.secondary)
+                        if let report = app.benchmarkReport, app.benchmarkReportIsCurrent {
+                            Grid(alignment: .leading, horizontalSpacing: 18, verticalSpacing: 8) {
+                                GridRow {
+                                    Text("#").bold(); Text(app.tr("Modell", "Model", "Modelo", "Modèle")).bold(); Text(app.tr("Qualität", "Quality", "Calidad", "Qualité")).bold(); Text("mAP@.50").bold(); Text(app.tr("Präzision", "Precision", "Precisión", "Précision")).bold(); Text("Recall").bold(); Text("F1").bold(); Text("ms/" + app.tr("Bild", "image", "imagen", "image")).bold(); Text("FP/FN").bold()
+                                }
+                                Divider().gridCellColumns(9)
+                                ForEach(report.results) { result in
+                                    GridRow {
+                                        Text(result.rank.map { "#\($0)" } ?? "–").bold()
+                                        VStack(alignment: .leading) { Text(result.packageID).lineLimit(1); Text(result.modelSize?.uppercased() ?? "").font(.caption2).foregroundStyle(.secondary) }
+                                        Text(result.metrics.map { String(format: "%.1f", $0.qualityScore) } ?? "–").foregroundStyle(result.rank == 1 ? .green : .primary).bold()
+                                        Text(percent(result.metrics?.mAP50)); Text(percent(result.metrics?.precision)); Text(percent(result.metrics?.recall)); Text(percent(result.metrics?.f1))
+                                        Text(result.meanLatencyMs.map { String(format: "%.0f", $0) } ?? "–")
+                                        Text(result.metrics.map { "\($0.falsePositives)/\($0.falseNegatives)" } ?? "–")
+                                    }
+                                    Divider().gridCellColumns(9)
+                                }
+                            }
+                            .font(.caption)
+                        } else {
+                            ContentUnavailableView(
+                                app.benchmarkReport == nil ? app.tr("Noch kein Vergleich", "No benchmark yet", "Aún no hay comparación", "Aucune comparaison") : app.tr("Referenz geändert", "Ground truth changed", "La referencia ha cambiado", "La référence a changé"),
+                                systemImage: "chart.bar",
+                                description: Text(app.tr("Lege die richtigen Antworten fest und starte den Vergleich.", "Freeze the correct answers and start the comparison.", "Fija las respuestas correctas e inicia la comparación.", "Figez les bonnes réponses et lancez la comparaison."))
+                            )
+                            .frame(minHeight: 190)
+                        }
+                    }
+                }
+                Text(app.status).font(.callout).foregroundStyle(.secondary)
+                if !app.log.isEmpty { Text(app.log).font(.system(.caption, design: .monospaced)).textSelection(.enabled).padding(10).frame(maxWidth: .infinity, alignment: .leading).background(.black.opacity(0.05), in: RoundedRectangle(cornerRadius: 8)) }
+            }
+            .padding(22)
+        }
+    }
+
+    private func percent(_ value: Double?) -> String {
+        value.map { String(format: "%.1f%%", $0 * 100) } ?? "–"
     }
 
     private var annotationToolbar: some View {

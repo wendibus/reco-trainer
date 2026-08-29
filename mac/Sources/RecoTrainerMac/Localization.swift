@@ -110,6 +110,7 @@ extension AppLanguage {
                 .init(title: "Automatisch markieren und prüfen", detail: "Wähle eine Klasse, starte die automatische Markierung, korrigiere Boxen und lösche falsche Treffer."),
                 .init(title: "Lokal trainieren", detail: "Richte ML einmalig ein und trainiere anschließend das sportartspezifische Modell auf deiner lokalen Hardware."),
                 .init(title: "Exportieren oder austauschen", detail: "Exportiere ein Gerätemodell oder erstelle ein .recomodel-Paket. Es enthält keine Videos oder Frames."),
+                .init(title: "Modelle objektiv vergleichen", detail: "Lege geprüfte Boxen als richtige Antworten fest und teste alle kompatiblen lokalen Modelle auf denselben Bildern."),
             ]
         case .en:
             [
@@ -119,6 +120,7 @@ extension AppLanguage {
                 .init(title: "Auto-label and review", detail: "Choose a class, run auto-labeling, correct boxes, and delete false detections."),
                 .init(title: "Train locally", detail: "Set up ML once, then train the sport-specific model on your local hardware."),
                 .init(title: "Export or exchange", detail: "Export a device model or create a .recomodel package. It contains no videos or frames."),
+                .init(title: "Compare models objectively", detail: "Freeze reviewed boxes as the correct answers and test every compatible local model on the same images."),
             ]
         case .es:
             [
@@ -128,6 +130,7 @@ extension AppLanguage {
                 .init(title: "Marca automáticamente y revisa", detail: "Elige una clase, ejecuta el marcado automático, corrige cuadros y elimina detecciones falsas."),
                 .init(title: "Entrena localmente", detail: "Configura ML una vez y entrena el modelo específico del deporte con tu hardware local."),
                 .init(title: "Exporta o intercambia", detail: "Exporta un modelo o crea un paquete .recomodel. No contiene vídeos ni fotogramas."),
+                .init(title: "Compara modelos objetivamente", detail: "Fija los cuadros revisados como respuestas correctas y prueba todos los modelos locales compatibles con las mismas imágenes."),
             ]
         case .fr:
             [
@@ -137,6 +140,7 @@ extension AppLanguage {
                 .init(title: "Marquez automatiquement et vérifiez", detail: "Choisissez une classe, lancez le marquage automatique, corrigez les boîtes et supprimez les détections erronées."),
                 .init(title: "Entraînez localement", detail: "Configurez le ML une fois, puis entraînez le modèle propre au sport sur votre matériel local."),
                 .init(title: "Exportez ou échangez", detail: "Exportez un modèle ou créez un paquet .recomodel. Il ne contient ni vidéos ni images."),
+                .init(title: "Comparez objectivement les modèles", detail: "Figez les boîtes vérifiées comme bonnes réponses et testez tous les modèles locaux compatibles sur les mêmes images."),
             ]
         }
     }

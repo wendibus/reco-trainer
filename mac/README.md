@@ -21,6 +21,7 @@ Ein lokaler macOS-Prototyp zum Erstellen sportartspezifischer Objekterkennungsmo
 - COCO-Datensatz mit Train-/Valid-/Test-Splits
 - lokale Projektsicherungen vor Änderungen (maximal 30)
 - datenschutzfreundliche `.recomodel`-Austauschpakete ohne Videos, Frames, Pfade oder Videodateinamen
+- lokaler Modell-Benchmark mit eingefrorener Ground Truth, mAP@0.50, Präzision, Recall, F1, Fehlalarmen, übersehenen Objekten und Zeit pro Bild
 
 #
 
@@ -57,6 +58,7 @@ Beim ersten Start:
 7. **CPU-Modell (ONNX)** beziehungsweise **Apple-Modell (Core ML)** exportieren.
 8. Optional **Paket erstellen** anklicken. Die erzeugte `.recomodel`-Datei kann separat geprüft und anschließend bewusst in ein GitHub Release hochgeladen werden.
 9. Ein erhaltenes Paket kann über **Modell importieren** ausgewählt werden. Reco Trainer prüft Struktur, Prüfsumme, Sportart, RF-DETR-Größe und Klassen, installiert es unter `.reco-training/models/library/` und aktiviert es lokal.
+10. **Modelle testen** öffnen, alle automatischen Vorschläge vorher prüfen und die richtigen Antworten festlegen. Danach bewertet Reco Trainer alle kompatiblen importierten Modelle nacheinander auf denselben Bildern und erstellt ein lokales Ranking.
 
 Alle Projektdaten liegen unter:
 
@@ -75,6 +77,10 @@ GEWÄHLTER_VIDEOORDNER/.reco-training/
 ├── models/
 │   ├── active.json
 │   └── library/
+├── benchmarks/
+│   ├── ground-truth.json
+│   ├── latest.json
+│   └── runs/
 └── .runtime/
 ```
 

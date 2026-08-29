@@ -137,3 +137,75 @@ struct InstalledModelResponse: Codable {
     var installed: Bool
     var active: ActiveModelRecord
 }
+
+struct BenchmarkAnnotationRecord: Codable, Equatable {
+    var category: String
+    var x: Double
+    var y: Double
+    var width: Double
+    var height: Double
+}
+
+struct BenchmarkFrameRecord: Codable, Equatable {
+    var id: String
+    var relativePath: String
+    var width: Int
+    var height: Int
+    var annotations: [BenchmarkAnnotationRecord]
+}
+
+struct BenchmarkDatasetIdentity: Codable {
+    var sport: String
+    var frames: [BenchmarkFrameRecord]
+}
+
+struct BenchmarkGroundTruthRecord: Codable {
+    var schemaVersion: Int
+    var createdAt: String
+    var sport: String
+    var datasetID: String
+    var frames: [BenchmarkFrameRecord]
+    var reviewStatement: String
+
+    var annotationCount: Int { frames.reduce(0) { $0 + $1.annotations.count } }
+    var classes: [String] { Array(Set(frames.flatMap(\.annotations).map(\.category))).sorted() }
+}
+
+struct BenchmarkMetrics: Codable {
+    var qualityScore: Double
+    var mAP50: Double
+    var precision: Double
+    var recall: Double
+    var f1: Double
+    var meanIoU: Double
+    var truePositives: Int
+    var falsePositives: Int
+    var falseNegatives: Int
+}
+
+struct BenchmarkResult: Codable, Identifiable {
+    var rank: Int?
+    var packageID: String
+    var modelSize: String?
+    var status: String
+    var metrics: BenchmarkMetrics?
+    var meanLatencyMs: Double?
+    var error: String?
+    var id: String { packageID }
+}
+
+struct BenchmarkReport: Codable {
+    var schemaVersion: Int
+    var runID: String
+    var createdAt: String
+    var sport: String
+    var datasetID: String
+    var frameCount: Int
+    var annotationCount: Int
+    var modelCount: Int
+    var successfulModelCount: Int
+    var threshold: Double
+    var device: String
+    var rankingMethod: String
+    var results: [BenchmarkResult]
+}

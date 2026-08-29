@@ -18,6 +18,7 @@ import os
 import platform
 import shutil
 import sys
+import time
 import uuid
 import zipfile
 from collections import defaultdict
@@ -289,6 +290,241 @@ def detection_category_map(target_category: str) -> dict[str, str]:
     elif target_category == "player":
         mapping["person"] = "player"
     return mapping
+
+
+def box_iou(first: list[float], second: list[float]) -> float:
+    """Intersection over union for two [x1, y1, x2, y2] boxes."""
+    left = max(first[0], second[0])
+    top = max(first[1], second[1])
+    right = min(first[2], second[2])
+    bottom = min(first[3], second[3])
+    intersection = max(0.0, right - left) * max(0.0, bottom - top)
+    first_area = max(0.0, first[2] - first[0]) * max(0.0, first[3] - first[1])
+    second_area = max(0.0, second[2] - second[0]) * max(0.0, second[3] - second[1])
+    union = first_area + second_area - intersection
+    return intersection / union if union > 0 else 0.0
+
+
+def average_precision(recalls: list[float], precisions: list[float]) -> float:
+    """All-points interpolated AP used for the transparent local benchmark."""
+    padded_recalls = [0.0, *recalls, 1.0]
+    padded_precisions = [0.0, *precisions, 0.0]
+    for index in range(len(padded_precisions) - 2, -1, -1):
+        padded_precisions[index] = max(padded_precisions[index], padded_precisions[index + 1])
+    return sum(
+        (padded_recalls[index] - padded_recalls[index - 1]) * padded_precisions[index]
+        for index in range(1, len(padded_recalls))
+        if padded_recalls[index] != padded_recalls[index - 1]
+    )
+
+
+def evaluate_predictions(
+    ground_truth_frames: list[dict[str, Any]],
+    predictions: list[dict[str, Any]],
+    classes: list[str],
+    iou_threshold: float = 0.5,
+) -> dict[str, Any]:
+    """Evaluate class-aware detections without uploading images or using COCO tooling."""
+    per_class: dict[str, Any] = {}
+    total_tp = total_fp = total_fn = 0
+    aps: list[float] = []
+    matched_ious: list[float] = []
+    for category in classes:
+        truth_by_frame: dict[str, list[list[float]]] = defaultdict(list)
+        for frame in ground_truth_frames:
+            for annotation in frame.get("annotations", []):
+                if annotation.get("category") != category:
+                    continue
+                x = float(annotation.get("x", 0))
+                y = float(annotation.get("y", 0))
+                width = max(0.0, float(annotation.get("width", 0)))
+                height = max(0.0, float(annotation.get("height", 0)))
+                truth_by_frame[str(frame.get("id"))].append([x, y, x + width, y + height])
+        candidates = sorted(
+            (item for item in predictions if item.get("category") == category),
+            key=lambda item: float(item.get("confidence", 0)),
+            reverse=True,
+        )
+        used: dict[str, set[int]] = defaultdict(set)
+        cumulative_tp = cumulative_fp = 0
+        recalls: list[float] = []
+        precisions: list[float] = []
+        class_ious: list[float] = []
+        truth_count = sum(len(items) for items in truth_by_frame.values())
+        for prediction in candidates:
+            frame_id = str(prediction.get("frameID"))
+            box = [float(value) for value in prediction.get("box", [0, 0, 0, 0])]
+            best_index = -1
+            best_iou = 0.0
+            for index, truth in enumerate(truth_by_frame.get(frame_id, [])):
+                if index in used[frame_id]:
+                    continue
+                overlap = box_iou(box, truth)
+                if overlap > best_iou:
+                    best_index, best_iou = index, overlap
+            if best_index >= 0 and best_iou >= iou_threshold:
+                used[frame_id].add(best_index)
+                cumulative_tp += 1
+                class_ious.append(best_iou)
+            else:
+                cumulative_fp += 1
+            recalls.append(cumulative_tp / truth_count if truth_count else 0.0)
+            precisions.append(cumulative_tp / max(cumulative_tp + cumulative_fp, 1))
+        false_negatives = max(0, truth_count - cumulative_tp)
+        precision = cumulative_tp / max(cumulative_tp + cumulative_fp, 1)
+        recall = cumulative_tp / truth_count if truth_count else (1.0 if not candidates else 0.0)
+        f1 = 2 * precision * recall / max(precision + recall, 1e-12)
+        ap50 = average_precision(recalls, precisions) if truth_count else 0.0
+        if truth_count:
+            aps.append(ap50)
+        total_tp += cumulative_tp
+        total_fp += cumulative_fp
+        total_fn += false_negatives
+        matched_ious.extend(class_ious)
+        per_class[category] = {
+            "groundTruth": truth_count,
+            "predictions": len(candidates),
+            "truePositives": cumulative_tp,
+            "falsePositives": cumulative_fp,
+            "falseNegatives": false_negatives,
+            "precision": precision,
+            "recall": recall,
+            "f1": f1,
+            "ap50": ap50,
+            "meanIoU": sum(class_ious) / len(class_ious) if class_ious else 0.0,
+        }
+    precision = total_tp / max(total_tp + total_fp, 1)
+    recall = total_tp / max(total_tp + total_fn, 1)
+    f1 = 2 * precision * recall / max(precision + recall, 1e-12)
+    map50 = sum(aps) / len(aps) if aps else 0.0
+    return {
+        "iouThreshold": iou_threshold,
+        "truePositives": total_tp,
+        "falsePositives": total_fp,
+        "falseNegatives": total_fn,
+        "precision": precision,
+        "recall": recall,
+        "f1": f1,
+        "mAP50": map50,
+        "meanIoU": sum(matched_ious) / len(matched_ious) if matched_ious else 0.0,
+        "qualityScore": 100.0 * (0.7 * map50 + 0.3 * f1),
+        "perClass": per_class,
+    }
+
+
+def benchmark_detection_category(detected_name: str, class_id: int | None, sport: str, package_classes: set[str]) -> str | None:
+    categories = sport_categories(sport)
+    normalized = detected_name.strip().lower()
+    if normalized in package_classes:
+        return normalized
+    if normalized == "sports ball":
+        target = "puck" if sport == "hockey" else "ball"
+        return target if target in package_classes else None
+    if normalized == "person":
+        return "player" if "player" in package_classes else None
+    if class_id is not None and 0 <= class_id < len(categories):
+        indexed = categories[class_id]
+        if indexed in package_classes:
+            return indexed
+    return None
+
+
+def benchmark(args: argparse.Namespace) -> None:
+    project_root = Path(args.project).resolve()
+    document = require_project(project_root, args.language)
+    ground_truth_path = project_root / "benchmarks" / "ground-truth.json"
+    if not ground_truth_path.is_file():
+        raise SystemExit(localized(args.language, "Zuerst die geprüften Antworten als Referenz festlegen.", "Freeze the reviewed answers as ground truth first.", "Primero fija las respuestas revisadas como referencia.", "Définissez d’abord les réponses vérifiées comme référence."))
+    ground_truth = load_json(ground_truth_path)
+    if ground_truth.get("sport") != document.get("sport"):
+        raise SystemExit(localized(args.language, "Die Referenz gehört zu einer anderen Sportart.", "The ground truth belongs to a different sport."))
+    frames = ground_truth.get("frames", [])
+    classes = sorted({annotation.get("category") for frame in frames for annotation in frame.get("annotations", []) if annotation.get("category")})
+    if not frames or not classes:
+        raise SystemExit(localized(args.language, "Die Referenz enthält keine auswertbaren Markierungen.", "The ground truth contains no evaluable annotations."))
+    library_root = (project_root / "models" / "library").resolve()
+    candidates: list[tuple[Path, dict[str, Any], Path]] = []
+    for manifest_path in sorted(library_root.glob("*/manifest.json")) if library_root.is_dir() else []:
+        try:
+            manifest = load_json(manifest_path)
+            weight_path = (manifest_path.parent / "weights" / Path(str(manifest.get("weights", {}).get("file", ""))).name).resolve()
+            if manifest.get("sport") == document.get("sport") and manifest.get("modelSize") in MODEL_CLASSES and library_root in weight_path.parents and weight_path.is_file():
+                candidates.append((manifest_path.parent, manifest, weight_path))
+        except (OSError, ValueError, TypeError, json.JSONDecodeError):
+            continue
+    if not candidates:
+        raise SystemExit(localized(args.language, "Keine kompatiblen Modelle in der lokalen Bibliothek gefunden. Zuerst .recomodel-Pakete importieren.", "No compatible models were found in the local library. Import .recomodel packages first."))
+    run_id = f"benchmark-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}"
+    run_dir = project_root / "benchmarks" / "runs" / run_id
+    run_dir.mkdir(parents=True, exist_ok=False)
+    device = detect_device()
+    results: list[dict[str, Any]] = []
+    threshold = min(0.95, max(0.01, float(args.threshold)))
+    for model_index, (_, manifest, weight_path) in enumerate(candidates, start=1):
+        package_id = str(manifest.get("packageID") or weight_path.parent.parent.name)
+        emit(localized(args.language, f"Modelltest {model_index}/{len(candidates)}: {package_id}", f"Model test {model_index}/{len(candidates)}: {package_id}"))
+        started = time.perf_counter()
+        predictions: list[dict[str, Any]] = []
+        try:
+            model_class = import_model_class(str(manifest["modelSize"]), args.language)
+            model = model_class(pretrain_weights=str(weight_path), device=device)
+            package_classes = {str(item) for item in manifest.get("classes", [])}
+            profile = training_profile(str(manifest["modelSize"]), device)
+            batch_size = profile["batch_size"] if device != "cpu" else 1
+            inference_seconds = 0.0
+            for start in range(0, len(frames), batch_size):
+                batch = frames[start : start + batch_size]
+                paths: list[str] = []
+                for frame in batch:
+                    candidate_path = (project_root / str(frame.get("relativePath", ""))).resolve()
+                    frames_root = (project_root / "frames").resolve()
+                    if frames_root not in candidate_path.parents or not candidate_path.is_file():
+                        raise RuntimeError(f"Benchmark frame is missing: {frame.get('id')}")
+                    paths.append(str(candidate_path))
+                inference_started = time.perf_counter()
+                detected_batch = model.predict(paths, threshold=threshold)
+                inference_seconds += time.perf_counter() - inference_started
+                if len(batch) == 1:
+                    detected_batch = [detected_batch]
+                for frame, detections in zip(batch, detected_batch):
+                    detection_data = (getattr(detections, "data", {}) or {})
+                    names = detection_data.get("class_name")
+                    for index, box in enumerate(detections.xyxy):
+                        class_id = int(detections.class_id[index]) if getattr(detections, "class_id", None) is not None else None
+                        detected_name = str(names[index]) if names is not None else ""
+                        category = benchmark_detection_category(detected_name, class_id, str(document["sport"]), package_classes)
+                        if not category:
+                            continue
+                        predictions.append({"frameID": str(frame.get("id")), "category": category, "confidence": float(detections.confidence[index]), "box": [float(value) for value in box]})
+                emit(localized(args.language, f"{package_id}: {min(start + batch_size, len(frames))}/{len(frames)}", f"{package_id}: {min(start + batch_size, len(frames))}/{len(frames)}"))
+            metrics = evaluate_predictions(frames, predictions, classes)
+            result = {"packageID": package_id, "modelSize": manifest.get("modelSize"), "classes": sorted(package_classes), "status": "completed", "metrics": metrics, "predictionCount": len(predictions), "totalSeconds": time.perf_counter() - started, "meanLatencyMs": 1000.0 * inference_seconds / max(len(frames), 1)}
+            atomic_json(run_dir / f"{package_id}.predictions.json", {"schemaVersion": 1, "packageID": package_id, "datasetID": ground_truth.get("datasetID"), "threshold": threshold, "predictions": predictions})
+        except Exception as error:
+            result = {"packageID": package_id, "modelSize": manifest.get("modelSize"), "classes": sorted(str(item) for item in manifest.get("classes", [])), "status": "failed", "error": str(error), "totalSeconds": time.perf_counter() - started}
+        results.append(result)
+        try:
+            del model
+            import gc
+            gc.collect()
+            if device == "mps":
+                import torch
+                torch.mps.empty_cache()
+            elif device == "cuda":
+                import torch
+                torch.cuda.empty_cache()
+        except (NameError, ImportError, AttributeError):
+            pass
+    successful = [item for item in results if item.get("status") == "completed"]
+    successful.sort(key=lambda item: (-float(item["metrics"].get("qualityScore", 0)), -float(item["metrics"].get("mAP50", 0)), float(item.get("meanLatencyMs", math.inf)), str(item.get("packageID"))))
+    ranks = {item["packageID"]: index for index, item in enumerate(successful, start=1)}
+    for item in results:
+        item["rank"] = ranks.get(item.get("packageID"))
+    results.sort(key=lambda item: (item.get("rank") is None, item.get("rank") or math.inf, str(item.get("packageID"))))
+    report = {"schemaVersion": 1, "runID": run_id, "createdAt": datetime.now(timezone.utc).isoformat(), "sport": document.get("sport"), "datasetID": ground_truth.get("datasetID"), "groundTruthCreatedAt": ground_truth.get("createdAt"), "frameCount": len(frames), "annotationCount": sum(len(frame.get("annotations", [])) for frame in frames), "classes": classes, "modelCount": len(candidates), "successfulModelCount": len(successful), "threshold": threshold, "device": device, "rankingMethod": "70% mAP@0.50 + 30% F1; mean latency is the tie-breaker", "results": results, "privacy": "Images and predictions remained local. This report contains no image data or source video paths."}
+    atomic_json(run_dir / "report.json", report)
+    atomic_json(project_root / "benchmarks" / "latest.json", report)
+    emit(localized(args.language, "Modellvergleich abgeschlossen.", "Model comparison completed.", "Comparación de modelos finalizada.", "Comparaison des modèles terminée."))
 
 
 def frame_has_category(frame: dict[str, Any], target_category: str) -> bool:
@@ -988,6 +1224,12 @@ def build_parser() -> argparse.ArgumentParser:
     install_parser.add_argument("--file", required=True)
     install_parser.add_argument("--language", choices=["de", "en", "es", "fr"], default="de")
     install_parser.set_defaults(func=install_model_package)
+
+    benchmark_parser = commands.add_parser("benchmark")
+    benchmark_parser.add_argument("--project", required=True)
+    benchmark_parser.add_argument("--threshold", type=float, default=0.05)
+    benchmark_parser.add_argument("--language", choices=["de", "en", "es", "fr"], default="de")
+    benchmark_parser.set_defaults(func=benchmark)
     return parser
 
 

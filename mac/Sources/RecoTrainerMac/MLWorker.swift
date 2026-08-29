@@ -155,6 +155,21 @@ struct MLWorker: Sendable {
         )
     }
 
+    func benchmark(
+        threshold: Double,
+        language: AppLanguage,
+        onOutput: @escaping @Sendable (String) async -> Void
+    ) async throws {
+        _ = try await runPython(
+            arguments: [
+                try workerURL.path, "benchmark", "--project", projectRoot.path,
+                "--threshold", String(threshold), "--language", language.rawValue
+            ],
+            preferVenv: true,
+            onOutput: onOutput
+        )
+    }
+
     func installModelPackage(
         fileURL: URL,
         language: AppLanguage

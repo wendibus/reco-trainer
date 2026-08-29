@@ -1,5 +1,14 @@
 # Änderungen
 
+## 0.7.0
+
+- Vollständig lokaler Modell-Benchmark für alle kompatiblen importierten `.recomodel`-Pakete.
+- Geprüfte manuelle Boxen können als unveränderliche Ground-Truth-Referenz festgelegt werden; Bilder ohne Box gelten dabei ausdrücklich als negative Beispiele.
+- Automatisches Ranking aus 70 % mAP@0.50 und 30 % F1; mittlere Inferenzzeit dient nur als Tie-Breaker.
+- Präzision, Recall, F1, False Positives, False Negatives, mittlere IoU und Zeit pro Bild werden pro Modell lokal ausgewiesen.
+- Modellvorhersagen und Benchmark-Berichte bleiben unter `.reco-training/benchmarks/`; Bilder und Videos werden nicht übertragen.
+- Benchmark-Oberfläche und siebter Walkthrough-Schritt auf Deutsch, Englisch, Spanisch und Französisch.
+
 ## 0.6.0
 
 - Sprachauswahl beim ersten Start mit Deutsch, Englisch, Spanisch und Französisch.

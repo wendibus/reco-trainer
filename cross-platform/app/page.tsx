@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import BenchmarkPanel from './BenchmarkPanel';
 
 type Platform = 'mac' | 'windows' | 'linux';
 type Language = 'de' | 'en' | 'es' | 'fr';
@@ -12,6 +13,8 @@ type ModelSize = 'nano' | 'small';
 type LocalAnnotation = { id: string; category: string; x: number; y: number; width: number; height: number; source: string; confidence?: number | null };
 type LocalFrame = { id: string; relativePath: string; videoName: string; timestamp: number; width: number; height: number; annotations: LocalAnnotation[] };
 type TrainingResult = { completedAt: string; model: string; device: string; epochsRequested: number; frameCount: number; annotatedFrames: number; annotationCount: number; classes: string[]; splits: Record<string, number>; independentTest: boolean; checkpoint?: string | null; validationMetrics?: Record<string, number> };
+type BenchmarkMetrics = { qualityScore: number; mAP50: number; precision: number; recall: number; f1: number; meanIoU: number; truePositives: number; falsePositives: number; falseNegatives: number };
+type BenchmarkReport = { createdAt?: string; runID?: string; datasetID?: string; matchesGroundTruth?: boolean; frameCount: number; annotationCount: number; modelCount: number; successfulModelCount: number; threshold: number; device: string; rankingMethod: string; results: Array<{ rank?: number | null; packageID: string; modelSize?: string; status: string; metrics?: BenchmarkMetrics; meanLatencyMs?: number; error?: string }> };
 type WorkerStatus = {
   connected: boolean; selectedFolder: string | null; folderName: string | null; sport?: Sport | null; operation: string; progress: number;
   message: string; busy: boolean; error: string | null; frames: LocalFrame[]; log: string;
@@ -20,6 +23,7 @@ type WorkerStatus = {
   lastTraining?: TrainingResult | null;
   trainingHistory?: TrainingResult[];
   modelLibrary?: { packages: Array<{ packageID: string; createdAt?: string; sport: Sport; modelSize: ModelSize; classes: string[]; description?: string; statistics?: Record<string, number>; validationMetrics?: Record<string, number> }>; activePackageID: string | null };
+  benchmark?: { groundTruth?: { createdAt?: string; datasetID?: string; sport?: string; frameCount: number; annotationCount: number; classes: string[] } | null; latest?: BenchmarkReport | null };
 };
 type Gesture =
   | { type: 'draw'; pointerId: number; startX: number; startY: number; x: number; y: number; width: number; height: number }
@@ -41,6 +45,7 @@ const copy = {
       ['Automatisch markieren und prüfen', 'Wähle eine Klasse und starte die automatische Markierung. Korrigiere Boxen, lösche falsche Treffer und bestätige nur geprüfte Markierungen.'],
       ['Lokal trainieren', 'Richte ML einmalig ein und trainiere anschließend das sportartspezifische Modell auf deiner lokalen Hardware.'],
       ['Exportieren oder austauschen', 'Exportiere ein Gerätemodell oder erstelle ein .recomodel-Paket. Das Paket enthält nur Gewichte und zusammengefasste Metadaten – keine Videos oder Frames.'],
+      ['Modelle objektiv vergleichen', 'Lege geprüfte Markierungen als richtige Antworten fest und teste alle kompatiblen lokalen Modelle auf denselben Bildern. Das Ranking kombiniert mAP@0.50 und F1.'],
     ],
   },
   en: {
@@ -52,6 +57,7 @@ const copy = {
       ['Auto-label and review', 'Choose a class and run auto-labeling. Correct boxes, delete false detections, and accept only reviewed annotations.'],
       ['Train locally', 'Set up ML once, then train the sport-specific model on your local hardware.'],
       ['Export or exchange', 'Export a device model or create a .recomodel package. The package contains only weights and aggregate metadata—no videos or frames.'],
+      ['Compare models objectively', 'Freeze reviewed annotations as the correct answers and test every compatible local model on the same images. The ranking combines mAP@0.50 and F1.'],
     ],
   },
   es: {
@@ -63,6 +69,7 @@ const copy = {
       ['Marca automáticamente y revisa', 'Elige una clase y ejecuta el marcado automático. Corrige cuadros, elimina detecciones falsas y acepta solo las marcas revisadas.'],
       ['Entrena localmente', 'Configura ML una vez y entrena el modelo específico del deporte con tu hardware local.'],
       ['Exporta o intercambia', 'Exporta un modelo para el dispositivo o crea un paquete .recomodel. Solo contiene pesos y metadatos agregados; nunca vídeos ni fotogramas.'],
+      ['Compara modelos objetivamente', 'Fija las anotaciones revisadas como respuestas correctas y prueba todos los modelos locales compatibles con las mismas imágenes. La clasificación combina mAP@0.50 y F1.'],
     ],
   },
   fr: {
@@ -74,6 +81,7 @@ const copy = {
       ['Marquez automatiquement et vérifiez', 'Choisissez une classe et lancez le marquage automatique. Corrigez les boîtes, supprimez les détections erronées et n’acceptez que les annotations vérifiées.'],
       ['Entraînez localement', 'Configurez le ML une fois, puis entraînez le modèle propre au sport sur votre matériel local.'],
       ['Exportez ou échangez', 'Exportez un modèle pour l’appareil ou créez un paquet .recomodel. Il contient uniquement les poids et des métadonnées agrégées, sans vidéos ni images.'],
+      ['Comparez objectivement les modèles', 'Figez les annotations vérifiées comme bonnes réponses et testez tous les modèles locaux compatibles sur les mêmes images. Le classement combine mAP@0.50 et F1.'],
     ],
   },
 };
@@ -88,6 +96,7 @@ export default function Home() {
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [threshold, setThreshold] = useState(.35);
   const [modelSize, setModelSize] = useState<ModelSize>('nano');
+  const [workspaceView, setWorkspaceView] = useState<'training' | 'benchmark'>('training');
   const [walkthroughOpen, setWalkthroughOpen] = useState(false);
   const [walkthroughStep, setWalkthroughStep] = useState(0);
   const [languagePromptOpen, setLanguagePromptOpen] = useState(false);
@@ -288,12 +297,14 @@ export default function Home() {
   const hardware = worker?.hardware;
   const hardwareText = hardware ? `${hardware.accelerator} · ${hardware.memoryGB ?? '?'} GB · ${hardware.cpuCores} CPU` : 'Lokale Hardware';
   const validationScore = worker?.lastTraining ? Object.entries(worker.lastTraining.validationMetrics ?? {}).find(([key]) => key.includes('mAP_50_95'))?.[1] : undefined;
+  const benchmarkLabel = language === 'de' ? 'Modelle testen' : language === 'es' ? 'Probar modelos' : language === 'fr' ? 'Tester les modèles' : 'Test models';
+  const trainingLabel = language === 'de' ? 'Training' : language === 'es' ? 'Entrenamiento' : language === 'fr' ? 'Entraînement' : 'Training';
 
   return <main className="preview-page">
     <header className="preview-header">
-      <div className="brand-block"><div className="brand-mark" aria-hidden="true">R</div><div><h1>Reco Trainer <small>0.6</small></h1><p>{t.preview}</p></div></div>
+      <div className="brand-block"><div className="brand-mark" aria-hidden="true">R</div><div><h1>Reco Trainer <small>0.7</small></h1><p>{t.preview}</p></div></div>
       <div className="switches"><div className="segmented" role="group" aria-label="Plattform">{(['mac', 'windows', 'linux'] as Platform[]).map((item) => <button type="button" key={item} className={platform === item ? 'active' : ''} onClick={() => setPlatform(item)}>{item === 'mac' ? 'macOS' : item === 'windows' ? 'Windows' : 'Linux'}</button>)}</div><div className="segmented language-switch" role="group" aria-label="Sprache">{(['de', 'en', 'es', 'fr'] as Language[]).map((item) => <button type="button" key={item} className={language === item ? 'active' : ''} onClick={() => chooseLanguage(item)}>{item.toUpperCase()}</button>)}</div></div>
-      <div className="header-actions"><button type="button" className="walkthrough-launch" onClick={() => { setWalkthroughStep(0); setWalkthroughOpen(true); }}>? {t.help}</button><div className="local-note"><span>●</span>{t.note}</div></div>
+      <div className="header-actions"><button type="button" className={workspaceView === 'benchmark' ? 'walkthrough-launch active-view' : 'walkthrough-launch'} onClick={() => setWorkspaceView((view) => view === 'training' ? 'benchmark' : 'training')}>{workspaceView === 'training' ? `◇ ${benchmarkLabel}` : `← ${trainingLabel}`}</button><button type="button" className="walkthrough-launch" onClick={() => { setWalkthroughStep(0); setWalkthroughOpen(true); }}>? {t.help}</button><div className="local-note"><span>●</span>{t.note}</div></div>
     </header>
     <section className="preview-stage" aria-label={`${platform} Vorschau`}><div className={`app-window platform-${platform}`}><div className="app-body">
       <aside className="app-sidebar">
@@ -302,7 +313,7 @@ export default function Home() {
         <section className="side-section frames-section"><label>3 · {t.images}</label><div className="frame-list">{framesReady ? frames.map((frame) => <button type="button" className={selectedFrame?.id === frame.id ? 'frame active' : 'frame'} key={frame.id} onClick={() => chooseFrame(frame.id)}><img className="frame-thumb" src={`${api}/api/frame?id=${encodeURIComponent(frame.id)}`} alt="" loading="lazy" decoding="async" /><span>{frame.videoName}<small>{String(Math.floor(frame.timestamp / 60)).padStart(2, '0')}:{String(Math.floor(frame.timestamp % 60)).padStart(2, '0')} · {frame.annotations.length}</small></span></button>) : <p className="empty-frames">{worker?.message || t.emptyFrames}</p>}</div></section>
         <div className="privacy-lock"><span>●</span> {t.privacy}</div>
       </aside>
-      <section className={`workspace ${framesReady ? '' : 'empty-workspace'}`}>
+      {workspaceView === 'benchmark' ? <BenchmarkPanel language={language} busy={isWorking} operation={worker?.operation} progress={worker?.progress ?? 0} message={worker?.message} error={worker?.error} log={worker?.log} frameCount={stats.frameCount} automaticCount={stats.automaticCount} sport={worker?.sport ?? sport} models={worker?.modelLibrary?.packages ?? []} benchmark={worker?.benchmark} post={post} /> : <section className={`workspace ${framesReady ? '' : 'empty-workspace'}`}>
         {framesReady && <div className="annotation-toolbar"><div className="tool-group"><button type="button" className={mode === 'select' ? 'active' : ''} onClick={() => setMode('select')}>⌖ {t.select}</button><button type="button" className={mode === 'draw' ? 'active' : ''} onClick={() => setMode('draw')}>＋ {t.draw}</button><button type="button" className={mode === 'pan' ? 'active' : ''} onClick={() => setMode('pan')}>↔ {t.pan}</button></div><label htmlFor="category">{t.annotate}</label><select id="category" value={category} onChange={(event) => setCategory(event.target.value)}>{categories.map((item) => <option value={item} key={item}>{categoryName(item)}</option>)}</select><div className="edit-actions"><button type="button" onClick={() => void undo()} disabled={!history.length} title={t.undo}>↶</button><button type="button" onClick={() => void redo()} disabled={!future.length} title={t.redo}>↷</button><button type="button" onClick={() => void removeSelected()} disabled={!selectedAnnotation}>{t.remove}</button>{autoOnFrame > 0 && <><button type="button" className="accept" onClick={() => void acceptAutomatic()}>{t.accept}</button><button type="button" className="reject" onClick={() => void rejectAutomatic()}>{t.reject}</button></>}</div></div>}
         <div className={`editor-shell ${framesReady ? 'video-ready' : ''}`}>
           {selectedFrame ? <div className="local-frame-viewport" onWheel={(event) => { event.preventDefault(); setZoom((value) => clamp(value * (event.deltaY < 0 ? 1.12 : .89), 1, 5)); }}><div className="frame-transform" style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})` }}><img className="local-frame-image" src={`${api}/api/frame?id=${encodeURIComponent(selectedFrame.id)}`} alt={`${selectedFrame.videoName} ${selectedFrame.timestamp.toFixed(1)}s`} decoding="async" draggable={false} /><svg ref={svgRef} className={`local-frame-canvas mode-${mode}`} viewBox={`0 0 ${selectedFrame.width} ${selectedFrame.height}`} preserveAspectRatio="xMidYMid meet" aria-label={`${selectedFrame.videoName} ${selectedFrame.timestamp.toFixed(1)}s`} onPointerDown={startPointer} onPointerMove={movePointer} onPointerUp={(event) => void endPointer(event)} onPointerCancel={(event) => void endPointer(event)}>
@@ -318,7 +329,7 @@ export default function Home() {
           <div className="exchange-status"><strong>{t.activeModel}:</strong> {activeModel ? `${activeModel.packageID} · ${activeModel.modelSize.toUpperCase()} · ${activeModel.classes.map(categoryName).join(', ')}` : t.noModel}{activeModel?.description && <span className="package-description">{activeModel.description}</span>}<small>{t.trustWarning}</small></div>
           <div className="progress-row"><span style={{ width: `${Math.max(worker?.progress ?? 0, .02) * 100}%` }} /><i>{worker?.error || worker?.message || t.localReady}</i></div>{worker?.log && <details className="worker-details"><summary>Protokoll / Log</summary><pre className="worker-log">{worker.log}</pre></details>}
         </section>}
-      </section>
+      </section>}
     </div></div></section>
     {languagePromptOpen && <div className="walkthrough-backdrop language-backdrop"><section className="language-dialog" role="dialog" aria-modal="true" aria-labelledby="language-title"><div className="language-globe" aria-hidden="true">文</div><h2 id="language-title">Sprache wählen · Choose your language</h2><p>Elige tu idioma · Choisissez votre langue</p><div className="language-choices">{([['de', 'Deutsch'], ['en', 'English'], ['es', 'Español'], ['fr', 'Français']] as [Language, string][]).map(([code, label]) => <button type="button" key={code} onClick={() => chooseLanguage(code)}><strong>{label}</strong><span>{code.toUpperCase()} <b aria-hidden="true">→</b></span></button>)}</div><small>Videos and images always remain on this computer.</small></section></div>}
     {walkthroughOpen && !languagePromptOpen && <div className="walkthrough-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setWalkthroughOpen(false); }}><section className="walkthrough-dialog" role="dialog" aria-modal="true" aria-labelledby="walkthrough-title"><button type="button" className="walkthrough-close" aria-label={t.close} onClick={() => setWalkthroughOpen(false)}>×</button><div className="walkthrough-kicker">{t.step} {walkthroughStep + 1} / {t.walkthrough.length}</div><h2 id="walkthrough-title">{t.walkthroughTitle}</h2><div className="walkthrough-progress" aria-hidden="true">{t.walkthrough.map((_, index) => <span key={index} className={index <= walkthroughStep ? 'active' : ''} />)}</div><article><div className="walkthrough-number">{walkthroughStep + 1}</div><div><h3>{t.walkthrough[walkthroughStep][0]}</h3><p>{t.walkthrough[walkthroughStep][1]}</p></div></article><footer><button type="button" className="secondary-button" onClick={() => setWalkthroughStep((value) => Math.max(0, value - 1))} disabled={walkthroughStep === 0}>{t.back}</button><button type="button" className="primary-button walkthrough-next" onClick={() => { if (walkthroughStep < t.walkthrough.length - 1) setWalkthroughStep((value) => value + 1); else { window.localStorage.setItem('reco-walkthrough-complete-v2', 'yes'); setWalkthroughOpen(false); } }}><span>{walkthroughStep < t.walkthrough.length - 1 ? t.next : t.done}</span><b className="forward-arrow" aria-hidden="true">{walkthroughStep < t.walkthrough.length - 1 ? '→' : '✓'}</b></button></footer></section></div>}

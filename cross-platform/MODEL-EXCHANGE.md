@@ -1,6 +1,6 @@
 # Reco Model Exchange
 
-Reco Trainer 0.6 creates and imports `.recomodel` exchange packages. An imported package is validated, copied into the local model library, and activated only when its sport, RF-DETR size, classes, paths, and checksum are valid. The package contains only:
+Reco Trainer 0.7 creates and imports `.recomodel` exchange packages. An imported package is validated, copied into the local model library, and activated only when its sport, RF-DETR size, classes, paths, and checksum are valid. The package contains only:
 
 - one RF-DETR checkpoint;
 - `manifest.json` with an English package description, sport, classes, aggregate counts, validation results, hashes, framework version, and license notice.

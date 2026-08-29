@@ -1,53 +1,35 @@
-# Reco Trainer 0.6 Alpha — Help test private, local sports-model training
+# Reco Trainer 0.7: Private local training and automatic model comparison (work in progress)
 
-I am looking for testers for **Reco Trainer 0.6**, a work-in-progress tool for improving sports-camera detection models without uploading sensitive match footage to an unknown server.
+Reco Trainer is an experimental, privacy-first tool for improving sports-camera detection models without uploading sensitive match footage. Videos, extracted frames, corrected labels, training runs and benchmark reports stay on the user's own computer.
 
-**GitHub links:**
+Version 0.7 adds a local model test platform. You define the correct answers by reviewing and freezing the annotations in a known image set. Reco Trainer then runs every compatible downloaded `.recomodel` package against exactly the same images and creates an automatic ranking.
 
-- [Project repository and full installation guide](https://github.com/wendibus/reco-trainer)
-- [Download Reco Trainer 0.6 — Work in Progress Alpha](https://github.com/wendibus/reco-trainer/releases/tag/v0.6.0)
-- [Source code](https://github.com/wendibus/reco-trainer/tree/main)
+The ranking includes mAP@0.50, precision, recall, F1, mean IoU, false positives, false negatives and inference time per image. Its quality score uses 70% mAP@0.50 and 30% F1; latency is only a tie-breaker. Models run sequentially to prevent them from competing for the same GPU, Apple Neural Engine or memory.
 
-The idea is simple: videos stay on your own computer. Reco Trainer extracts frames locally, proposes labels, lets you correct mistakes, and fine-tunes an RF-DETR model from those corrections. If you decide to share the result, you export a `.recomodel` package containing model weights, checksums, and aggregate metadata. The exchange package does **not** contain videos, frames, local paths, or video file names.
+For an honest comparison, the benchmark directory should contain representative images that were not used to train any of the compared models.
 
-This is explicitly an **alpha / work in progress**, not a finished production tool. Please keep backups and review all labels and results. What I need now is practical feedback from different machines, sports, and recording conditions.
+This remains **work in progress / alpha software**. Please keep backups, verify labels manually and do not treat the highest-ranked model as production-ready without testing it on complete matches.
 
-The current version supports:
+## Supported systems and downloads
 
-- basketball;
-- football (soccer);
-- handball;
-- hockey;
-- rugby;
-- lacrosse;
-- American football.
+Download the files from the [Reco Trainer 0.7 release page](https://github.com/wendibus/reco-trainer/releases/tag/v0.7.0):
 
-The interface and six-step walkthrough are available in German, English, Spanish, and French. Label review includes zooming, panning, frame navigation, editing and deleting boxes, undo/redo, automatic suggestions, local RF-DETR Nano/Small training, validated model exchange, and Core ML export on Mac.
+- **macOS:** `Reco.Trainer.Mac.0.7.dmg` — open it, drag Reco Trainer to Applications and start it. The alpha is locally/ad-hoc signed and not Apple-notarized.
+- **Windows:** `Reco.Trainer.Windows.0.7.zip` — extract it and run `Start Reco Trainer Windows.bat`.
+- **Linux:** `Reco.Trainer.Linux.0.7.zip` — extract it, make `Start Reco Trainer Linux.sh` executable and run it.
+- **Docker:** `Reco.Trainer.Docker.0.7.zip` — extract it, set the local video-folder mount and run Docker Compose as described in `START-HERE.md`.
 
-## Downloads
+The source code, full installation instructions and privacy notes are in the [GitHub repository](https://github.com/wendibus/reco-trainer). Detailed changes and checksums are in the [0.7 release notes](https://github.com/wendibus/reco-trainer/blob/main/RELEASE-NOTES-0.7.md).
 
-Choose one file from the [Reco Trainer 0.6 GitHub release](https://github.com/wendibus/reco-trainer/releases/tag/v0.6.0):
+## Suggested test workflow
 
-- **Reco Trainer Mac 0.6.dmg** — native Apple-silicon application for local annotation, Apple-accelerated RF-DETR training, Core ML export, and `.recomodel` exchange. Requires macOS 14+, Node.js 22+, and Xcode Command Line Tools. The alpha is ad-hoc signed and not Apple-notarized, so the first launch may require Control-click → **Open**.
-- **Reco Trainer Windows 0.6.zip** — local Windows version with native folder selection and CPU training. Requires Node.js 22, Python 3.11/3.12, and FFmpeg. Extract it and run `Start Reco Trainer Windows.bat`.
-- **Reco Trainer Linux 0.6.zip** — local Linux version with CPU training. Requires Node.js 22, Python 3.11/3.12, FFmpeg, and Zenity or KDialog. Extract it, make `Start Reco Trainer Linux.sh` executable, and run it.
-- **Reco Trainer Docker 0.6.zip** — portable CPU-based container version for macOS, Windows, and Linux. Mount the sports-video folder through `RECO_VIDEO_FOLDER`, run `docker compose up --build`, and open `http://localhost:8765/`.
+1. Select the sport and a private local folder.
+2. Prepare frames and correct all target boxes.
+3. Remove incorrect automatic suggestions.
+4. Import the compatible models you want to compare.
+5. Open **Test models** and freeze the correct answers.
+6. Run the benchmark and inspect both the ranking and the FP/FN counts.
 
-The first ML setup downloads Python dependencies and pretrained model weights. Your sports footage is not uploaded. The worker has no media-upload endpoint and is bound locally; project files remain in `.reco-training/` inside the chosen video folder.
+The interface and walkthrough are available in German, English, Spanish and French. Supported sports currently include basketball, football (soccer), handball, hockey, rugby, lacrosse and American football.
 
-## What to test
-
-Please try the complete flow: installation, language selection, sport selection, local folder selection, frame extraction, automatic labeling, correcting and deleting false labels, zoom/navigation, training, export, and `.recomodel` import/export.
-
-For a useful bug report, include your operating system, hardware/chip, memory, sport, selected model size, exact reproduction steps, and the full error message. Please never post private footage, extracted frames, datasets, `.reco-training` folders, or logs containing personal paths. Synthetic or redacted examples are ideal.
-
-I would particularly value answers to these questions:
-
-- Was installation understandable without additional help?
-- Did folder selection and frame preparation work on your system?
-- Could you find, correct, and delete automatic labels easily?
-- Was the training progress understandable, and did training finish?
-- Did the exported/imported model package behave as expected?
-- Which parts of the walkthrough or wording were unclear?
-
-Thank you for helping test a privacy-first approach to collaborative sports-model improvement.
+Feedback is very welcome, especially for Windows/Linux installation, different Apple chips, large test sets, ranking reproducibility and cases where a numerically better model performs worse in a real match. Please include your operating system, hardware, sport, model size and the full error message—but **do not attach private footage, extracted frames or `.reco-training` folders**. Synthetic or redacted examples are preferable.
