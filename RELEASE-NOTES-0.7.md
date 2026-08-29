@@ -12,6 +12,7 @@ Reco Trainer 0.7 adds a fully local test platform for comparing downloaded detec
 - Use explicit negative images: a reviewed frame without a box means that no target object is present.
 - Prevent accidental evaluation against unreviewed automatic suggestions.
 - Use the benchmark workflow in German, English, Spanish and French.
+- Updated the local web/build toolchain; `npm audit` reports zero known vulnerabilities at release time.
 
 The benchmark runs models one after another. This makes comparisons more reproducible and avoids multiple models competing for the same GPU, Apple Neural Engine or system memory.
 
@@ -42,9 +43,9 @@ Do not use the benchmark images for training the compared models. A separate, pr
 
 ```text
 0dee008b71809c40436a9ddeb4d3304731746a6b90d45d3a5605da050aa2cf4f  Reco.Trainer.Mac.0.7.dmg
-81cd2f5a334ee6618fd9c8b32060284a40d55115e5e3ab30db4650d9f219eb85  Reco.Trainer.Windows.0.7.zip
-cb7ed94b181edb62656ac853424b1ad13458eb54350af3c4596e6a4bfb22d59e  Reco.Trainer.Linux.0.7.zip
-9b8aa1b67e1a2b6a3c35d4e2584c0817f116c506aadc53c482fd4e704a84e78a  Reco.Trainer.Docker.0.7.zip
+f9ec0aa76343f5b63c2bda7ae45071f1f2757f2f2b35cc2a0568bf0231fe7955  Reco.Trainer.Windows.0.7.zip
+024148c341e10ca74c5e1a3b33a5c2c594acd994c27f8c48ed13212a01cfe1b0  Reco.Trainer.Linux.0.7.zip
+6f0986c57c67e672058cf7d71059adf6fb0d0e66e237ec145a51522e5653ff7f  Reco.Trainer.Docker.0.7.zip
 ```
 
 Please test this alpha release with representative, privately held footage and report reproducible issues without attaching sensitive media.
