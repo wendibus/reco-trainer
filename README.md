@@ -30,7 +30,7 @@ Native Apple-silicon application for private, local sports-video annotation, RF-
 
 Requirements: macOS 14 or newer, Apple silicon, Node.js 22 or newer, and the Xcode Command Line Tools. FFmpeg is optional because the package can build and use its included AVFoundation frame extractor.
 
-1. Download `Reco Trainer Mac 0.6.dmg`.
+1. Download `Reco.Trainer.Mac.0.6.dmg`.
 2. Open the disk image and copy **Reco Trainer** to **Applications**.
 3. Start the application. Because this alpha is locally/ad-hoc signed and not Apple-notarized, macOS may require Control-clicking the app, choosing **Open**, and confirming once.
 4. Keep the local worker window open while using the application.
@@ -41,7 +41,7 @@ Local Windows package with native folder selection, frame review, CPU-based RF-D
 
 Requirements: Node.js 22, Python 3.11 or 3.12, and FFmpeg.
 
-1. Download and extract `Reco Trainer Windows 0.6.zip`.
+1. Download and extract `Reco.Trainer.Windows.0.6.zip`.
 2. Open the extracted `Reco Trainer Windows` folder.
 3. Run `Start Reco Trainer Windows.bat`.
 4. Leave the terminal windows open. The interface opens at `http://localhost:8765/`.
@@ -52,7 +52,7 @@ Local Linux package with native folder selection where supported, frame review, 
 
 Requirements: Node.js 22, Python 3.11 or 3.12, FFmpeg, and Zenity or KDialog for native folder selection.
 
-1. Download and extract `Reco Trainer Linux 0.6.zip`.
+1. Download and extract `Reco.Trainer.Linux.0.6.zip`.
 2. In a terminal, change to the extracted `Reco Trainer Linux` folder.
 3. Run `chmod +x "Start Reco Trainer Linux.sh"` once.
 4. Run `./Start\ Reco\ Trainer\ Linux.sh` and leave the terminal open.
@@ -64,7 +64,7 @@ Portable CPU-based container package for macOS, Windows, and Linux with an expli
 
 Requirements: Docker Desktop or Docker Engine with Docker Compose.
 
-1. Download and extract `Reco Trainer Docker 0.6.zip`.
+1. Download and extract `Reco.Trainer.Docker.0.6.zip`.
 2. Set `RECO_VIDEO_FOLDER` to the absolute path of the local sports-video folder.
 3. From the extracted `Reco Trainer Docker` folder, run `docker compose up --build`.
 4. Open `http://localhost:8765/`.

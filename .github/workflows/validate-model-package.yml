@@ -18,4 +18,4 @@ jobs:
           ASSET_URL: ${{ inputs.asset_url }}
         run: curl --fail --location --output candidate.recomodel "$ASSET_URL"
       - name: Validate privacy and checksums
-        run: python3 tools/validate_model_package.py candidate.recomodel
+        run: python3 cross-platform/tools/validate_model_package.py candidate.recomodel

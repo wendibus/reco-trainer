@@ -21,10 +21,10 @@
 ## SHA-256
 
 ```text
-fe81fcd5f2a76eeed10d9abeb4f8ffd17387c75dad537870db1bcdcc6f9b9311  Reco Trainer Mac 0.6.dmg
-61c808e67590f0a0f30eb697a07ca1d239fc79c36c95756a826671c5b64c5d7e  Reco Trainer Windows 0.6.zip
-ade97a43ad6aac1346fe384cabf7a37f1d24d14677280d6214c6316703007030  Reco Trainer Linux 0.6.zip
-b9cfcdd1ce4e38a94a556295ae90cf09b2d0909dd15a388954dcc5dfb71fb06a  Reco Trainer Docker 0.6.zip
+fe81fcd5f2a76eeed10d9abeb4f8ffd17387c75dad537870db1bcdcc6f9b9311  Reco.Trainer.Mac.0.6.dmg
+61c808e67590f0a0f30eb697a07ca1d239fc79c36c95756a826671c5b64c5d7e  Reco.Trainer.Windows.0.6.zip
+ade97a43ad6aac1346fe384cabf7a37f1d24d14677280d6214c6316703007030  Reco.Trainer.Linux.0.6.zip
+b9cfcdd1ce4e38a94a556295ae90cf09b2d0909dd15a388954dcc5dfb71fb06a  Reco.Trainer.Docker.0.6.zip
 ```
 
 The Mac build is locally/ad-hoc signed and not Apple-notarized. This is alpha software. Keep backups, review all automatic labels, and import `.recomodel` files only from trusted publishers.
