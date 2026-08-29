@@ -1,0 +1,21 @@
+name: Validate Reco model package
+
+on:
+  workflow_dispatch:
+    inputs:
+      asset_url:
+        description: Direct URL of a .recomodel release asset
+        required: true
+        type: string
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download package
+        env:
+          ASSET_URL: ${{ inputs.asset_url }}
+        run: curl --fail --location --output candidate.recomodel "$ASSET_URL"
+      - name: Validate privacy and checksums
+        run: python3 tools/validate_model_package.py candidate.recomodel

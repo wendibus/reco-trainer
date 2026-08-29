@@ -1,0 +1,17 @@
+.DS_Store
+node_modules/
+.next/
+dist/
+.build/
+__pycache__/
+*.pyc
+.reco-training/
+*.dmg
+*.zip
+*.recomodel
+*.mp4
+*.mov
+*.m4v
+*.avi
+*.mkv
+*.webm

@@ -1,0 +1,12 @@
+services:
+  reco-trainer:
+    build: .
+    ports:
+      - "127.0.0.1:8765:8765"
+      - "127.0.0.1:8766:8766"
+    volumes:
+      - "${RECO_VIDEO_FOLDER:?Set RECO_VIDEO_FOLDER to your local sports-video folder}:/videos"
+    environment:
+      RECO_BIND_HOST: 0.0.0.0
+      RECO_VIDEO_FOLDER: /videos
+    restart: unless-stopped

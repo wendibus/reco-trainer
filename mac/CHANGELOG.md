@@ -1,0 +1,70 @@
+# Änderungen
+
+## 0.6.0
+
+- Sprachauswahl beim ersten Start mit Deutsch, Englisch, Spanisch und Französisch.
+- Interaktiver Walkthrough in der gewählten Sprache mit deutlich sichtbarer Vorwärts- und Zurücknavigation.
+- Rugby, Lacrosse und American Football als spezialisierte Sportarten ergänzt; Hockey bleibt als Puck-Sportart erhalten.
+- Neue Austauschpakete enthalten eine einheitliche englische Modellbeschreibung.
+- Paketimport und Klassenprüfung unterstützen alle sieben Sportarten.
+
+## 0.5.0
+
+- Spanische und französische Oberfläche zusätzlich zu Deutsch und Englisch.
+- Datenschutzsichere `.recomodel`-Pakete können jetzt über einen nativen Dateidialog importiert werden.
+- Vor der Installation werden Prüfsumme, Paketstruktur, Sportart, Modellgröße und Klassen geprüft.
+- Importierte Modelle liegen in einer lokalen Modellbibliothek und werden für Vorbeschriftung oder weiteres Training aktiviert.
+- Der Austausch benötigt keine eingerichtete RF-DETR-Umgebung und überträgt keine Medien.
+
+## 0.4.0
+
+- Sichere lokale Projektsicherungen und Erhalt vorhandener Markierungen bei erneuter Frame-Extraktion.
+- Einstellbare Erkennungsschwelle für automatische Vorschläge.
+- Datenschutzsicheres `.recomodel`-Austauschpaket mit Gewichten, Prüfsummen und aggregierten Metadaten; keine Videos, Frames, Pfade oder Dateinamen.
+- Lokale Validierungsmetriken und Trainingshistorie werden im Projekt gespeichert.
+- DMG-Erzeugung, optionale Developer-ID-Signierung und vorbereiteter Apple-Notarisierungsablauf.
+- Austauschpakete sind für einen kontrollierten GitHub-Release-Prozess vorbereitet.
+
+## 0.3.1
+
+- Core-ML- und ONNX-Export mit älteren und neueren RF-DETR-Exportsignaturen kompatibel gemacht.
+- Nicht überall unterstützten Parameter `output_name` entfernt; RF-DETR vergibt den Artefaktnamen selbst.
+- Optionale Exportparameter werden nur noch übergeben, wenn sie ausdrücklich in der installierten API vorhanden sind.
+- Core-ML-Präzisionswert auf das offizielle `float16` korrigiert.
+- ML-Einrichtung setzt für den nativen Core-ML-Export mindestens RF-DETR 1.9.0 voraus.
+- Regressionstests für alte und neue Exportsignaturen ergänzt.
+
+## 0.3.0
+
+- Automatisches Apple-Silicon-Leistungsprofil anhand des gemeinsamen Speichers und der CPU-Kerne.
+- Größere, speicherabhängige MPS-Batches statt einer festen Batch-Größe von 1.
+- Parallele, dauerhafte Datenlader mit Prefetching, damit die Apple-GPU kontinuierlicher arbeitet.
+- Stabile effektive Batch-Größe durch automatisch angepasste Gradienten-Akkumulation.
+- Speicheroptimiertes Gradient Checkpointing nur noch, wenn Modellgröße und verfügbarer Speicher es erfordern.
+- Hardwareanzeige ergänzt um gemeinsamen Speicher und Zahl der Datenlader.
+- Vorbeschriftung nutzt auf leistungsfähigeren Macs ebenfalls größere Batches.
+- FP16-Core-ML-Export, sofern die installierte RF-DETR-Version ihn unterstützt.
+- Deutsche und englische Erläuterung, welche Aufgaben GPU und Neural Engine übernehmen.
+
+## 0.2.0
+
+- Pinch-Zoom von 1× bis 8× im Bildeditor.
+- Umschaltbarer Markieren-/Verschieben-Modus für vergrößerte Bilder.
+- Plus-, Minus- und Zurücksetzen-Bedienelemente für den Zoom.
+- Automatische Vorbeschriftung berücksichtigt nur noch die aktuell gewählte Klasse.
+- Bei Ball/Puck werden Personen vollständig ignoriert.
+- Vorhandene Boxen anderer Klassen bleiben beim automatischen Markieren erhalten.
+- Umschaltbare deutsche und englische Oberfläche einschließlich Worker-Rückmeldungen.
+- Sichtbare Warnung bei generischer Personenerkennung als „Player“.
+
+## 0.1.1
+
+- Markierungen bleiben jetzt ausschließlich in dem Frame, in dem sie angelegt wurden.
+- Der Editor synchronisiert sich beim Framewechsel und nach automatischer Vorbeschriftung neu.
+- Automatische Vorbeschriftung meldet die Zahl der erzeugten Boxen und geprüften Frames.
+- Die Erkennungsschwelle für kleine Sportbälle wurde von 0,35 auf 0,25 gesenkt.
+- Bereits manuell markierte Frames werden nicht überschrieben.
+
+## 0.1.0
+
+- Erster nativer macOS-MVP.
