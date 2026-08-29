@@ -2,6 +2,12 @@
 
 I am looking for testers for **Reco Trainer 0.6**, a work-in-progress tool for improving sports-camera detection models without uploading sensitive match footage to an unknown server.
 
+**GitHub links:**
+
+- [Project repository and full installation guide](https://github.com/wendibus/reco-trainer)
+- [Download Reco Trainer 0.6 — Work in Progress Alpha](https://github.com/wendibus/reco-trainer/releases/tag/v0.6.0)
+- [Source code](https://github.com/wendibus/reco-trainer/tree/main)
+
 The idea is simple: videos stay on your own computer. Reco Trainer extracts frames locally, proposes labels, lets you correct mistakes, and fine-tunes an RF-DETR model from those corrections. If you decide to share the result, you export a `.recomodel` package containing model weights, checksums, and aggregate metadata. The exchange package does **not** contain videos, frames, local paths, or video file names.
 
 This is explicitly an **alpha / work in progress**, not a finished production tool. Please keep backups and review all labels and results. What I need now is practical feedback from different machines, sports, and recording conditions.
@@ -20,7 +26,7 @@ The interface and six-step walkthrough are available in German, English, Spanish
 
 ## Downloads
 
-Choose one file from the GitHub release:
+Choose one file from the [Reco Trainer 0.6 GitHub release](https://github.com/wendibus/reco-trainer/releases/tag/v0.6.0):
 
 - **Reco Trainer Mac 0.6.dmg** — native Apple-silicon application for local annotation, Apple-accelerated RF-DETR training, Core ML export, and `.recomodel` exchange. Requires macOS 14+, Node.js 22+, and Xcode Command Line Tools. The alpha is ad-hoc signed and not Apple-notarized, so the first launch may require Control-click → **Open**.
 - **Reco Trainer Windows 0.6.zip** — local Windows version with native folder selection and CPU training. Requires Node.js 22, Python 3.11/3.12, and FFmpeg. Extract it and run `Start Reco Trainer Windows.bat`.
