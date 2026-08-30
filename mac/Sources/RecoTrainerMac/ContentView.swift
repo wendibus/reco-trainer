@@ -9,6 +9,7 @@ struct ContentView: View {
     @State private var showLanguagePicker = false
     @State private var walkthroughIndex = 0
     @State private var showBenchmark = false
+    @State private var confirmFrameRemoval = false
 
     var body: some View {
         NavigationSplitView {
@@ -24,6 +25,16 @@ struct ContentView: View {
             Button("OK") { app.errorMessage = nil }
         } message: {
             Text(app.errorMessage ?? "")
+        }
+        .confirmationDialog(
+            app.tr("Trainingsbild entfernen?", "Remove training image?", "¿Quitar imagen de entrenamiento?", "Retirer l’image d’entraînement ?"),
+            isPresented: $confirmFrameRemoval,
+            titleVisibility: .visible
+        ) {
+            Button(app.tr("Bild entfernen", "Remove image", "Quitar imagen", "Retirer l’image"), role: .destructive) { app.removeSelectedFrame() }
+            Button(app.tr("Abbrechen", "Cancel", "Cancelar", "Annuler"), role: .cancel) {}
+        } message: {
+            Text(app.tr("Nur der extrahierte Trainingsframe wird entfernt. Das Quellvideo bleibt unverändert.", "Only the extracted training frame is removed. The source video remains unchanged.", "Solo se quita el fotograma extraído. El vídeo original no se modifica.", "Seule l’image extraite est retirée. La vidéo source reste inchangée."))
         }
         .toolbar {
             ToolbarItem(placement: .principal) {
@@ -124,6 +135,13 @@ struct ContentView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .lineLimit(3)
+                Stepper(
+                    app.tr("\(app.framesPerVideo) Bilder je Video", "\(app.framesPerVideo) images per video", "\(app.framesPerVideo) imágenes por vídeo", "\(app.framesPerVideo) images par vidéo"),
+                    value: $app.framesPerVideo,
+                    in: 4...5000,
+                    step: 20
+                )
+                .font(.caption)
                 Button {
                     app.analyzeVideos()
                 } label: {
@@ -308,6 +326,10 @@ struct ContentView: View {
             if let frame = app.selectedFrame {
                 Text("\(frame.width) × \(frame.height) · \(frame.videoName)")
                     .foregroundStyle(.secondary)
+                Button(role: .destructive) { confirmFrameRemoval = true } label: {
+                    Label(app.tr("Bild aus Training entfernen", "Remove image from training", "Quitar imagen del entrenamiento", "Retirer l’image de l’entraînement"), systemImage: "trash")
+                }
+                .disabled(app.isWorking)
             }
         }
     }

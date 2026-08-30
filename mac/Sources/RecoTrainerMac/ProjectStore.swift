@@ -80,4 +80,26 @@ struct ProjectStore {
     func frameURL(for frame: FrameRecord) -> URL {
         rootURL.appending(path: frame.relativePath)
     }
+
+    func removeDerivedFrame(_ frame: FrameRecord) throws -> Bool {
+        let manager = FileManager.default
+        let target = frameURL(for: frame).standardizedFileURL
+        guard target.path.hasPrefix(framesURL.standardizedFileURL.path + "/") else {
+            throw ProjectStoreError.invalidProject
+        }
+        if manager.fileExists(atPath: target.path) { try manager.removeItem(at: target) }
+        for split in ["train", "valid", "test"] {
+            let copy = datasetURL.appending(path: split, directoryHint: .isDirectory).appending(path: target.lastPathComponent)
+            if manager.fileExists(atPath: copy.path) { try manager.removeItem(at: copy) }
+        }
+        var invalidated = false
+        for name in ["ground-truth.json", "latest.json"] {
+            let file = rootURL.appending(path: "benchmarks", directoryHint: .isDirectory).appending(path: name)
+            if manager.fileExists(atPath: file.path) {
+                try manager.removeItem(at: file)
+                invalidated = true
+            }
+        }
+        return invalidated
+    }
 }

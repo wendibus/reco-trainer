@@ -15,6 +15,7 @@ final class AppState: ObservableObject {
     @Published var modelSize: ModelSize = .nano
     @Published var epochs = 20
     @Published var confidenceThreshold = 0.35
+    @Published var framesPerVideo = 240
     @Published var progress = 0.0
     @Published var status = "Videoordner auswählen, um zu beginnen."
     @Published var log = ""
@@ -69,6 +70,7 @@ final class AppState: ObservableObject {
             sport = loaded.sport
             selectedCategory = loaded.sport.categories.first ?? "ball"
             selectedFrameID = loaded.frames.first?.id
+            framesPerVideo = loaded.framesPerVideo ?? 240
             let activeURL = store.rootURL.appending(path: "models/active.json")
             if let data = try? Data(contentsOf: activeURL),
                let active = try? JSONDecoder().decode(ActiveModelRecord.self, from: data) {
@@ -107,7 +109,7 @@ final class AppState: ObservableObject {
             do {
                 let extractor = FrameExtractor()
                 let videos = extractor.discoverVideos(in: folder)
-                let extractedFrames = try await extractor.extract(videos: videos, into: store) { value, videoName in
+                let extractedFrames = try await extractor.extract(videos: videos, into: store, framesPerVideo: framesPerVideo) { value, videoName in
                     await MainActor.run {
                         self.progress = value
                         self.status = self.tr(
@@ -135,6 +137,7 @@ final class AppState: ObservableObject {
                     sourceFolder: folder.path
                 )
                 document.frames = frames
+                document.framesPerVideo = framesPerVideo
                 document.lastTraining = project?.lastTraining
                 document.trainingHistory = project?.trainingHistory
                 try store.save(document)
@@ -164,6 +167,33 @@ final class AppState: ObservableObject {
         project = document
         do {
             try store.save(document)
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    func removeSelectedFrame() {
+        guard var document = project,
+              let frameID = selectedFrameID,
+              let index = document.frames.firstIndex(where: { $0.id == frameID }),
+              let store else { return }
+        let frame = document.frames[index]
+        do {
+            let benchmarkInvalidated = try store.removeDerivedFrame(frame)
+            document.frames.remove(at: index)
+            try store.save(document)
+            project = document
+            selectedFrameID = document.frames.isEmpty ? nil : document.frames[min(index, document.frames.count - 1)].id
+            if benchmarkInvalidated {
+                benchmarkGroundTruth = nil
+                benchmarkReport = nil
+            }
+            status = tr(
+                "Trainingsbild entfernt. Das Quellvideo bleibt unverändert.",
+                "Training image removed. The source video remains unchanged.",
+                "Imagen de entrenamiento eliminada. El vídeo original no se modifica.",
+                "Image d’entraînement retirée. La vidéo source reste inchangée."
+            )
         } catch {
             errorMessage = error.localizedDescription
         }

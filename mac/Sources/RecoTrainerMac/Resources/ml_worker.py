@@ -739,6 +739,11 @@ def build_dataset(project_root: Path, language: str = "de") -> Path:
     for split_name, split_frames_list in splits.items():
         split_dir = dataset_root / split_name
         split_dir.mkdir(parents=True, exist_ok=True)
+        # Rebuild each derived split cleanly so removed training images cannot
+        # remain as stale hard links or copies.
+        for stale in split_dir.iterdir():
+            if stale.is_file():
+                stale.unlink()
         images = []
         annotations = []
         annotation_number = 1

@@ -17,6 +17,7 @@ type BenchmarkMetrics = { qualityScore: number; mAP50: number; precision: number
 type BenchmarkReport = { createdAt?: string; runID?: string; datasetID?: string; matchesGroundTruth?: boolean; frameCount: number; annotationCount: number; modelCount: number; successfulModelCount: number; threshold: number; device: string; rankingMethod: string; results: Array<{ rank?: number | null; packageID: string; modelSize?: string; status: string; metrics?: BenchmarkMetrics; meanLatencyMs?: number; error?: string }> };
 type WorkerStatus = {
   connected: boolean; selectedFolder: string | null; folderName: string | null; sport?: Sport | null; operation: string; progress: number;
+  framesPerVideo?: number;
   message: string; busy: boolean; error: string | null; frames: LocalFrame[]; log: string;
   stats?: { frameCount: number; annotatedFrames: number; annotationCount: number; automaticCount: number; classes: string[] };
   hardware?: { machine: string; cpuCores: number; memoryGB: number | null; accelerator: string };
@@ -34,6 +35,12 @@ type Gesture =
 const DEFAULT_API = 'http://127.0.0.1:8766';
 const cloneAnnotations = (items: LocalAnnotation[]) => items.map((item) => ({ ...item }));
 const clamp = (value: number, minimum: number, maximum: number) => Math.min(maximum, Math.max(minimum, value));
+const frameCopy = {
+  de: { count: 'Bilder je Video', countHint: 'Jedes Video liefert bis zu dieser Anzahl', remove: 'Bild aus Training entfernen', confirm: 'Dieses extrahierte Bild aus dem Training entfernen? Das Quellvideo bleibt unverändert.' },
+  en: { count: 'Images per video', countHint: 'Each video contributes up to this many images', remove: 'Remove image from training', confirm: 'Remove this extracted image from training? The source video remains unchanged.' },
+  es: { count: 'Imágenes por vídeo', countHint: 'Cada vídeo aporta como máximo esta cantidad', remove: 'Quitar imagen del entrenamiento', confirm: '¿Quitar esta imagen extraída del entrenamiento? El vídeo original no se modifica.' },
+  fr: { count: 'Images par vidéo', countHint: 'Chaque vidéo fournit au maximum ce nombre d’images', remove: 'Retirer l’image de l’entraînement', confirm: 'Retirer cette image extraite de l’entraînement ? La vidéo source reste inchangée.' },
+};
 
 const copy = {
   de: {
@@ -95,6 +102,7 @@ export default function Home() {
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [threshold, setThreshold] = useState(.35);
+  const [framesPerVideo, setFramesPerVideo] = useState(240);
   const [modelSize, setModelSize] = useState<ModelSize>('nano');
   const [workspaceView, setWorkspaceView] = useState<'training' | 'benchmark'>('training');
   const [walkthroughOpen, setWalkthroughOpen] = useState(false);
@@ -113,6 +121,7 @@ export default function Home() {
   const pinch = useRef<{ distance: number; centerX: number; centerY: number; zoom: number; panX: number; panY: number } | null>(null);
 
   const t = copy[language];
+  const ft = frameCopy[language];
   const frames = worker?.frames ?? [];
   const framesReady = frames.length > 0;
   const selectedFrameIndex = Math.max(0, frames.findIndex((frame) => frame.id === selectedFrameID));
@@ -208,9 +217,19 @@ export default function Home() {
     try {
       const result = await post('/api/select-folder');
       if (result.status?.sport) { setSport(result.status.sport as Sport); setCategory(result.status.sport === 'hockey' ? 'puck' : 'ball'); }
+      if (result.status?.framesPerVideo) setFramesPerVideo(result.status.framesPerVideo as number);
     } catch (error) { setWorker((current) => current ? { ...current, error: String(error) } : current); }
   }
-  async function preparePreview() { if (!folderName || isWorking) return; try { await post('/api/prepare', { sport }); } catch (error) { setWorker((current) => current ? { ...current, error: String(error) } : current); } }
+  async function preparePreview() { if (!folderName || isWorking) return; try { await post('/api/prepare', { sport, framesPerVideo }); } catch (error) { setWorker((current) => current ? { ...current, error: String(error) } : current); } }
+  async function removeFrame() {
+    if (!selectedFrame || isWorking || !window.confirm(ft.confirm)) return;
+    const next = frames[selectedFrameIndex + 1] ?? frames[selectedFrameIndex - 1];
+    try {
+      await post('/api/remove-frame', { frameId: selectedFrame.id });
+      setSelectedFrameID(next?.id ?? null);
+      setSelectedAnnotationID(null); setHistory([]); setFuture([]);
+    } catch (error) { setWorker((current) => current ? { ...current, error: String(error) } : current); }
+  }
   async function runML(path: string) { try { await post(path, { model: modelSize, epochs: 20, language, category, threshold }); } catch (error) { setWorker((current) => current ? { ...current, error: String(error) } : current); } }
 
   function framePoint(clientX: number, clientY: number) {
@@ -309,7 +328,7 @@ export default function Home() {
     <section className="preview-stage" aria-label={`${platform} Vorschau`}><div className={`app-window platform-${platform}`}><div className="app-body">
       <aside className="app-sidebar">
         <section className="side-section"><label>1 · {t.sport}</label><select aria-label={t.sport} value={sport} onChange={(event) => { const next = event.target.value as Sport; setSport(next); setCategory(next === 'hockey' ? 'puck' : 'ball'); }}><option value="basketball">Basketball</option><option value="football">{t.football}</option><option value="handball">Handball</option><option value="hockey">Hockey</option><option value="rugby">Rugby</option><option value="lacrosse">Lacrosse</option><option value="american_football">{t.americanFootball}</option></select>{platform !== 'mac' && <small className="preview-only">{t.previewOnly}</small>}</section>
-        <section className="side-section"><label>2 · {t.videos}</label><button type="button" className="secondary-button folder-button" onClick={chooseFolder} disabled={!workerOnline || isWorking}>▣&nbsp; {t.choose}</button><span className={folderName ? 'fake-path selected' : 'fake-path'}>{worker?.selectedFolder || t.noFolder}</span><button type="button" className="primary-button" onClick={preparePreview} disabled={!folderName || isWorking}>{isWorking && ['scanning', 'extracting'].includes(worker?.operation ?? '') ? t.analyzing : framesReady ? t.refresh : t.analyze}</button>{folderName && <small className="folder-safety">{t.folderReady}</small>}{!workerOnline && <small className="worker-offline">{t.offline}</small>}</section>
+        <section className="side-section"><label>2 · {t.videos}</label><button type="button" className="secondary-button folder-button" onClick={chooseFolder} disabled={!workerOnline || isWorking}>▣&nbsp; {t.choose}</button><span className={folderName ? 'fake-path selected' : 'fake-path'}>{worker?.selectedFolder || t.noFolder}</span><label className="frame-count-label" htmlFor="frames-per-video">{ft.count}</label><input id="frames-per-video" className="frame-count-input" type="number" min="4" max="5000" step="10" value={framesPerVideo} disabled={isWorking} onChange={(event) => setFramesPerVideo(clamp(Number(event.target.value) || 4, 4, 5000))} /><small className="frame-count-hint">{ft.countHint}</small><button type="button" className="primary-button" onClick={preparePreview} disabled={!folderName || isWorking}>{isWorking && ['scanning', 'extracting'].includes(worker?.operation ?? '') ? t.analyzing : framesReady ? t.refresh : t.analyze}</button>{folderName && <small className="folder-safety">{t.folderReady}</small>}{!workerOnline && <small className="worker-offline">{t.offline}</small>}</section>
         <section className="side-section frames-section"><label>3 · {t.images}</label><div className="frame-list">{framesReady ? frames.map((frame) => <button type="button" className={selectedFrame?.id === frame.id ? 'frame active' : 'frame'} key={frame.id} onClick={() => chooseFrame(frame.id)}><img className="frame-thumb" src={`${api}/api/frame?id=${encodeURIComponent(frame.id)}`} alt="" loading="lazy" decoding="async" /><span>{frame.videoName}<small>{String(Math.floor(frame.timestamp / 60)).padStart(2, '0')}:{String(Math.floor(frame.timestamp % 60)).padStart(2, '0')} · {frame.annotations.length}</small></span></button>) : <p className="empty-frames">{worker?.message || t.emptyFrames}</p>}</div></section>
         <div className="privacy-lock"><span>●</span> {t.privacy}</div>
       </aside>
@@ -320,7 +339,7 @@ export default function Home() {
             {shown.map((box) => <g key={box.id} className={`annotation-box ${box.source === 'auto' ? 'automatic' : ''} ${selectedAnnotationID === box.id ? 'selected' : ''}`} onPointerDown={(event) => startBox(event, box)}><rect x={box.x} y={box.y} width={box.width} height={box.height} /><text x={box.x} y={Math.max(14, box.y - 5)}>{categoryName(box.category)}{box.confidence != null ? ` ${Math.round(box.confidence * 100)}%` : ''}</text>{selectedAnnotationID === box.id && (['nw', 'ne', 'sw', 'se'] as Handle[]).map((handle) => { const size = 12 / zoom; const cx = handle.includes('w') ? box.x : box.x + box.width; const cy = handle.includes('n') ? box.y : box.y + box.height; return <rect key={handle} className={`resize-handle handle-${handle}`} x={cx - size / 2} y={cy - size / 2} width={size} height={size} onPointerDown={(event) => startResize(event, box, handle)} />; })}</g>)}
             {gesture?.type === 'draw' && <rect className="draft-box" x={gesture.x} y={gesture.y} width={gesture.width} height={gesture.height} />}
           </svg></div></div> : <div className="empty-video-viewport"><strong>{sportName}</strong></div>}
-          {framesReady && <div className="editor-controls"><button type="button" onClick={() => frames[selectedFrameIndex - 1] && chooseFrame(frames[selectedFrameIndex - 1].id)} disabled={!frames[selectedFrameIndex - 1]}>←</button><strong>{selectedFrameIndex + 1} / {frames.length}</strong><button type="button" onClick={() => frames[selectedFrameIndex + 1] && chooseFrame(frames[selectedFrameIndex + 1].id)} disabled={!frames[selectedFrameIndex + 1]}>→</button><span className="instruction">{t.drag}</span><div className="zoom-controls"><button type="button" onClick={() => setZoom((value) => clamp(value - .25, 1, 5))}>−</button><strong>{zoom.toFixed(2)}×</strong><button type="button" onClick={() => setZoom((value) => clamp(value + .25, 1, 5))}>+</button><button type="button" className="reset" onClick={() => { setZoom(1); setPan({ x: 0, y: 0 }); }}>{t.reset}</button></div></div>}
+          {framesReady && <div className="editor-controls"><button type="button" onClick={() => frames[selectedFrameIndex - 1] && chooseFrame(frames[selectedFrameIndex - 1].id)} disabled={!frames[selectedFrameIndex - 1]}>←</button><strong>{selectedFrameIndex + 1} / {frames.length}</strong><button type="button" onClick={() => frames[selectedFrameIndex + 1] && chooseFrame(frames[selectedFrameIndex + 1].id)} disabled={!frames[selectedFrameIndex + 1]}>→</button><span className="instruction">{t.drag}</span><button type="button" className="remove-frame" onClick={() => void removeFrame()} disabled={isWorking}>⌫ {ft.remove}</button><div className="zoom-controls"><button type="button" onClick={() => setZoom((value) => clamp(value - .25, 1, 5))}>−</button><strong>{zoom.toFixed(2)}×</strong><button type="button" onClick={() => setZoom((value) => clamp(value + .25, 1, 5))}>+</button><button type="button" className="reset" onClick={() => { setZoom(1); setPan({ x: 0, y: 0 }); }}>{t.reset}</button></div></div>}
         </div>
         {framesReady && <section className="training-card">
           <div className="training-topline"><div><strong>4 · {t.improve}</strong><select className="model-select" aria-label="Modellgröße" value={modelSize} onChange={(event) => setModelSize(event.target.value as ModelSize)}><option value="nano">RF-DETR Nano</option><option value="small">RF-DETR Small</option></select></div><span className="hardware-pill">◆ {hardwareText}</span></div>

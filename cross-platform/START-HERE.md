@@ -1,4 +1,4 @@
-# Reco Trainer Local 0.7
+# Reco Trainer Local 0.8
 
 Diese Version ist keine reine Vorschau mehr. Der Browser dient als Oberfläche; ein ausschließlich an `127.0.0.1` gebundener lokaler Worker verarbeitet die ausgewählten Videos auf demselben Mac.
 
@@ -48,13 +48,13 @@ Der Ablauf für Modellpakete und GitHub Releases steht in `MODEL-EXCHANGE.md`.
 
 ---
 
-# Reco Trainer Local 0.7
+# Reco Trainer Local 0.8
 
 This is no longer a UI-only preview. The browser provides the interface while a loopback-only worker processes selected videos on the same Mac.
 
 Double-click `Start Reco Trainer.command`, select a sport and folder, and choose “Prepare videos locally”. Real JPEG frames are written to `.reco-training/frames/` inside the selected folder. “Set up ML” installs an isolated RF-DETR environment; auto-labeling, local training, and Core ML export then use the same local worker as the native Mac prototype.
 
-Version 0.7 asks for German, English, Spanish, or French on first launch and then opens a seven-step walkthrough in the selected language with clearly visible back and forward navigation. Rugby, lacrosse, and American football join basketball, football, handball, and hockey with sport-specific class schemas. Newly created `.recomodel` packages include a canonical English description while videos, frames, paths, and file names remain excluded. Imported models are accepted only when their checksum, package structure, sport, RF-DETR size, and classes match the local project.
+Version 0.8 asks for German, English, Spanish, or French on first launch and then opens a seven-step walkthrough in the selected language with clearly visible back and forward navigation. Frame extraction is configurable per video, so additional videos contribute additional training images. Unsuitable extracted images can be removed from training without changing the source video. Rugby, lacrosse, and American football join basketball, football, handball, and hockey with sport-specific class schemas. Newly created `.recomodel` packages include a canonical English description while videos, frames, paths, and file names remain excluded. Imported models are accepted only when their checksum, package structure, sport, RF-DETR size, and classes match the local project.
 
 “Test models” opens the local benchmark platform. Review every annotation first, freeze the correct answers as ground truth, and then run every compatible imported model against the same images. Reco Trainer ranks detection quality using 70% mAP@0.50 and 30% F1, with mean inference latency used only as a tie-breaker. False positives, missed objects, per-class results, and local prediction JSON are retained below `.reco-training/benchmarks/`; no image data is uploaded.
 

@@ -35,7 +35,7 @@ struct FrameExtractor {
     func extract(
         videos: [VideoSource],
         into store: ProjectStore,
-        maxFrames: Int = 240,
+        framesPerVideo: Int = 240,
         progress: @escaping @Sendable (Double, String) async -> Void
     ) async throws -> [FrameRecord] {
         guard !videos.isEmpty else { throw FrameExtractorError.noVideos }
@@ -56,8 +56,7 @@ struct FrameExtractor {
         var completedDuration = 0.0
 
         for (video, duration) in durations {
-            let share = duration / totalDuration
-            let targetCount = max(4, Int((Double(maxFrames) * share).rounded()))
+            let targetCount = min(5_000, max(4, framesPerVideo))
             let spacing = max(0.5, duration / Double(targetCount))
             let times = stride(from: 0.25, to: max(duration - 0.1, 0.3), by: spacing).map { $0 }
 
@@ -89,7 +88,7 @@ struct FrameExtractor {
             }
             completedDuration += duration
         }
-        return Array(result.prefix(maxFrames))
+        return result
     }
 
     private func stableID(for value: String) -> String {

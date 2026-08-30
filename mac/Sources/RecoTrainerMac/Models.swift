@@ -76,6 +76,7 @@ struct ProjectDocument: Codable, Equatable {
     var sourceFolder: String
     var createdAt = Date()
     var updatedAt = Date()
+    var framesPerVideo: Int? = 240
     var frames: [FrameRecord] = []
     var lastTraining: TrainingResult?
     var trainingHistory: [TrainingResult]?

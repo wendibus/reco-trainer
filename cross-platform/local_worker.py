@@ -34,6 +34,9 @@ configured_origin = os.environ.get("RECO_ALLOWED_ORIGIN")
 if configured_origin and re.fullmatch(r"http://(?:localhost|127\.0\.0\.1):\d{2,5}", configured_origin):
     ALLOWED_ORIGINS.add(configured_origin)
 VIDEO_EXTENSIONS = {".mp4", ".mov", ".m4v"}
+DEFAULT_FRAMES_PER_VIDEO = 240
+MIN_FRAMES_PER_VIDEO = 4
+MAX_FRAMES_PER_VIDEO = 5000
 SPORT_CATEGORIES = {
     "football": ["ball", "player", "goalkeeper", "referee", "goal"],
     "basketball": ["ball", "player", "referee", "hoop"],
@@ -132,6 +135,7 @@ class LocalState:
                 "busy": self.busy,
                 "error": self.error,
                 "sport": (self.project or {}).get("sport"),
+                "framesPerVideo": (self.project or {}).get("framesPerVideo", DEFAULT_FRAMES_PER_VIDEO),
                 "stats": {
                     "frameCount": len(frames),
                     "annotatedFrames": sum(bool(frame.get("annotations")) for frame in frames),
@@ -424,7 +428,15 @@ def native_frame_extractor(root: Path) -> Path:
     return binary
 
 
-def extract_project(sport: str, max_frames: int = 240) -> None:
+def frames_per_video(value: object) -> int:
+    try:
+        count = int(value)
+    except (TypeError, ValueError):
+        count = DEFAULT_FRAMES_PER_VIDEO
+    return min(MAX_FRAMES_PER_VIDEO, max(MIN_FRAMES_PER_VIDEO, count))
+
+
+def extract_project(sport: str, requested_frames_per_video: int = DEFAULT_FRAMES_PER_VIDEO) -> None:
     try:
         folder = STATE.selected_folder
         root = STATE.project_root
@@ -432,6 +444,7 @@ def extract_project(sport: str, max_frames: int = 240) -> None:
             raise RuntimeError("Zuerst einen Videoordner auswählen.")
         if sport not in SPORT_CATEGORIES:
             raise RuntimeError("Unbekannte Sportart.")
+        count_per_video = frames_per_video(requested_frames_per_video)
         existing_project = load_project(root)
         existing_annotations = {
             str(frame.get("id")): [
@@ -455,8 +468,7 @@ def extract_project(sport: str, max_frames: int = 240) -> None:
         completed = 0.0
         try:
             for video, duration, width, height in infos:
-                share = duration / total_duration
-                target = max(4, round(max_frames * share))
+                target = count_per_video
                 rate = max(target / duration, 1 / max(duration, 1.0))
                 video_id = hashlib.sha256(str(video).encode("utf-8")).hexdigest()[:12]
                 pattern = temporary_frames / f"{video_id}-%06d.jpg"
@@ -507,7 +519,8 @@ def extract_project(sport: str, max_frames: int = 240) -> None:
                 "sourceFolder": str(folder),
                 "createdAt": (existing_project or {}).get("createdAt", now),
                 "updatedAt": now,
-                "frames": frames[:max_frames],
+                "framesPerVideo": count_per_video,
+                "frames": frames,
             }
             if existing_project and existing_project.get("lastTraining"):
                 project["lastTraining"] = existing_project["lastTraining"]
@@ -647,6 +660,44 @@ def save_annotations(payload: dict) -> None:
     STATE.update(project=project, message=f"{len(clean)} Markierungen lokal gespeichert.")
 
 
+def remove_training_frame(payload: dict) -> None:
+    """Remove one derived training image without ever touching a source video."""
+    root = STATE.project_root
+    project = STATE.project
+    if root is None or project is None:
+        raise RuntimeError("Kein lokales Projekt geöffnet.")
+    frame_id = str(payload.get("frameId", ""))
+    frames = project.get("frames", [])
+    index = next((number for number, item in enumerate(frames) if str(item.get("id")) == frame_id), None)
+    if index is None:
+        raise RuntimeError("Frame wurde nicht gefunden.")
+    frame = frames[index]
+    target = (root / str(frame.get("relativePath", ""))).resolve()
+    frames_root = (root / "frames").resolve()
+    if frames_root not in target.parents:
+        raise RuntimeError("Ungültiger Frame-Pfad.")
+
+    backup_project(root, "bild-entfernt")
+    target.unlink(missing_ok=True)
+    for split in ("train", "valid", "test"):
+        (root / "dataset" / split / target.name).unlink(missing_ok=True)
+    frames.pop(index)
+    project["updatedAt"] = utc_now()
+    atomic_json(root / "project.json", project)
+
+    # A frozen benchmark no longer represents the current image set.
+    benchmark_invalidated = False
+    for name in ("ground-truth.json", "latest.json"):
+        benchmark_file = root / "benchmarks" / name
+        if benchmark_file.is_file():
+            benchmark_file.unlink()
+            benchmark_invalidated = True
+    message = "Trainingsbild lokal entfernt. Das Quellvideo bleibt unverändert."
+    if benchmark_invalidated:
+        message += " Die Benchmark-Referenz muss neu festgelegt werden."
+    STATE.update(project=project, message=message)
+
+
 class Handler(BaseHTTPRequestHandler):
     server_version = "RecoLocalWorker/0.1"
 
@@ -729,10 +780,16 @@ class Handler(BaseHTTPRequestHandler):
             elif self.path == "/api/prepare":
                 if STATE.busy:
                     raise RuntimeError("Ein lokaler Vorgang läuft bereits.")
-                threading.Thread(target=extract_project, args=(payload.get("sport", "basketball"),), daemon=True).start()
+                count = frames_per_video(payload.get("framesPerVideo"))
+                threading.Thread(target=extract_project, args=(payload.get("sport", "basketball"), count), daemon=True).start()
                 self.json_response({"ok": True})
             elif self.path == "/api/annotations":
                 save_annotations(payload)
+                self.json_response({"ok": True, "status": STATE.snapshot()})
+            elif self.path == "/api/remove-frame":
+                if STATE.busy:
+                    raise RuntimeError("Ein lokaler Vorgang läuft bereits.")
+                remove_training_frame(payload)
                 self.json_response({"ok": True, "status": STATE.snapshot()})
             elif self.path == "/api/benchmark-ground-truth":
                 if STATE.busy:

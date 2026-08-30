@@ -43,6 +43,9 @@ body { background:#fff; color:var(--ink); font-family:Inter,ui-sans-serif,-apple
 .side-section { display:flex; flex-direction:column; align-items:stretch; gap:8px; margin-bottom:18px; }
 .side-section > label:not(.folder-button) { color:#38465b; font-size:11px; font-weight:750; text-transform:uppercase; letter-spacing:.045em; }
 select { height:34px; padding:0 9px; border:1px solid #cbd3df; border-radius:7px; background:#fff; color:#25334a; font-size:11px; }
+.frame-count-label { margin-top:2px; }
+.frame-count-input { height:34px; padding:0 9px; border:1px solid #cbd3df; border-radius:7px; background:#fff; color:#25334a; font-size:11px; }
+.frame-count-hint { margin-top:-5px; color:#758093; font-size:8px; }
 .secondary-button,.primary-button,.tool-button { min-height:34px; padding:7px 11px; border-radius:7px; border:1px solid #c8d1dd; background:#fff; color:#29384f; font-size:11px; font-weight:650; }
 .primary-button { border-color:var(--accent); background:var(--accent); color:#fff; box-shadow:0 4px 10px color-mix(in srgb,var(--accent) 25%,transparent); }
 .primary-button:hover { filter:brightness(.94); }
@@ -98,6 +101,7 @@ select { height:34px; padding:0 9px; border:1px solid #cbd3df; border-radius:7px
 .draft-box { fill:rgba(255,255,255,.08); stroke:#fff; stroke-width:2; stroke-dasharray:7 5; vector-effect:non-scaling-stroke; }
 .editor-controls { display:flex; align-items:center; gap:12px; padding:6px 9px; border-top:1px solid #cfd7e2; background:#f6f8fb; }
 .editor-controls > button { min-width:29px; height:29px; border:1px solid #cad3df; border-radius:6px; background:#fff; color:#334158; }
+.editor-controls > button.remove-frame { width:auto; padding:0 9px; border-color:#e1aaa4; color:#9b342a; font-size:9px; }
 .editor-controls > strong { min-width:54px; color:#5d697a; text-align:center; font-size:9px; }
 .tool-button { min-height:29px; padding-block:4px; }
 .instruction { color:#737f90; font-size:9px; }

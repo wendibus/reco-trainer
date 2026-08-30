@@ -47,3 +47,25 @@ import Testing
     let backups = try FileManager.default.contentsOfDirectory(at: store.backupsURL, includingPropertiesForKeys: nil)
     #expect(backups.count == 1)
 }
+
+@Test func removingTrainingFrameKeepsSourceVideoAndInvalidatesBenchmark() throws {
+    let folder = FileManager.default.temporaryDirectory
+        .appending(path: "reco-trainer-remove-test-\(UUID().uuidString)", directoryHint: .isDirectory)
+    let store = ProjectStore.forSourceFolder(folder)
+    try store.prepare()
+    let frame = FrameRecord(relativePath: "frames/synthetic.jpg", videoID: "video", videoName: "source.mov", timestamp: 1, width: 10, height: 10)
+    let sourceVideo = folder.appending(path: "source.mov")
+    try Data("synthetic source".utf8).write(to: sourceVideo)
+    try Data("synthetic frame".utf8).write(to: store.frameURL(for: frame))
+    let benchmark = store.rootURL.appending(path: "benchmarks", directoryHint: .isDirectory)
+    try FileManager.default.createDirectory(at: benchmark, withIntermediateDirectories: true)
+    try Data("{}".utf8).write(to: benchmark.appending(path: "ground-truth.json"))
+    try Data("{}".utf8).write(to: benchmark.appending(path: "latest.json"))
+
+    let invalidated = try store.removeDerivedFrame(frame)
+
+    #expect(invalidated)
+    #expect(FileManager.default.fileExists(atPath: sourceVideo.path))
+    #expect(!FileManager.default.fileExists(atPath: store.frameURL(for: frame).path))
+    #expect(!FileManager.default.fileExists(atPath: benchmark.appending(path: "ground-truth.json").path))
+}

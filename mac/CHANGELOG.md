@@ -1,5 +1,11 @@
 # Änderungen
 
+## 0.8.0
+
+- Die Frame-Anzahl wird jetzt je Video gewählt; zusätzliche Videos liefern zusätzliche Trainingsbilder.
+- Ungeeignete extrahierte Bilder lassen sich entfernen, ohne das Quellvideo zu verändern.
+- Beim Entfernen werden abgeleitete Datensatzkopien bereinigt und veraltete Benchmark-Referenzen verworfen.
+
 ## 0.7.0
 
 - Vollständig lokaler Modell-Benchmark für alle kompatiblen importierten `.recomodel`-Pakete.
