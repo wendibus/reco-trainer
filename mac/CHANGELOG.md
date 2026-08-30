@@ -1,5 +1,13 @@
 # Änderungen
 
+## 0.9.0
+
+- Neuer Active-Learning-Workflow „Neue Videos prüfen“ mit getrenntem Videoordner.
+- Lokale Kandidatenerkennung mit niedriger Schwelle und nach Unsicherheit sortierter Prüfwarteschlange.
+- Ein-Klick-Entscheidungen für Ball, kein Ball und Überspringen; Boxen bleiben korrigierbar.
+- Ungeprüfte Kandidaten sind technisch vom Training, Export und Benchmark ausgeschlossen.
+- Bereits verwendete Videos werden nicht erneut importiert.
+
 ## 0.8.0
 
 - Die Frame-Anzahl wird jetzt je Video gewählt; zusätzliche Videos liefern zusätzliche Trainingsbilder.

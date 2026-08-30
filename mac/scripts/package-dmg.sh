@@ -5,7 +5,7 @@ ROOT_DIR="${0:A:h}/.."
 DIST_DIR="${RECO_DIST_DIR:-$ROOT_DIR/dist}"
 APP_DIR="$DIST_DIR/Reco Trainer.app"
 STAGING_DIR="$DIST_DIR/dmg-stage"
-DMG_PATH="$DIST_DIR/Reco-Trainer-Mac-0.8.0.dmg"
+DMG_PATH="$DIST_DIR/Reco-Trainer-Mac-0.9.0.dmg"
 
 "$ROOT_DIR/scripts/package-app.sh"
 rm -rf "$STAGING_DIR"

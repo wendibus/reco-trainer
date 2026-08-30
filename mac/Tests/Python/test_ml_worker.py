@@ -85,6 +85,26 @@ class DatasetTests(unittest.TestCase):
                         seen_videos[video] = split
             self.assertEqual(set(seen_videos.values()), {"train", "valid", "test"})
 
+    def test_unreviewed_candidates_are_excluded_from_training_dataset(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            reviewed = self.make_frame("reviewed", 1, root)
+            candidate = self.make_frame("candidate", 1, root)
+            candidate["reviewStatus"] = "candidate"
+            ml_worker.atomic_json(root / "project.json", {
+                "schemaVersion": 2, "name": "Active learning", "sport": "basketball",
+                "sourceFolder": str(root), "frames": [reviewed, candidate],
+            })
+
+            dataset = ml_worker.build_dataset(root)
+            names = []
+            for split in ("train", "valid", "test"):
+                coco = json.loads((dataset / split / "_annotations.coco.json").read_text())
+                names.extend(image["file_name"] for image in coco["images"])
+
+            self.assertIn(Path(reviewed["relativePath"]).name, names)
+            self.assertNotIn(Path(candidate["relativePath"]).name, names)
+
     def test_single_video_temporal_split(self):
         frames = [
             {

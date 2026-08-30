@@ -85,6 +85,38 @@ class GroundTruthTests(unittest.TestCase):
             self.assertFalse((benchmark / "latest.json").exists())
             self.assertTrue(any((root / "backups").glob("project-*.json")))
 
+    def test_candidate_requires_human_decision_before_training(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / ".reco-training"
+            candidate = {
+                "id": "candidate", "relativePath": "frames/candidate.jpg", "reviewStatus": "candidate",
+                "annotations": [{"id": "auto", "category": "ball", "x": 1, "y": 2, "width": 3, "height": 4, "source": "auto"}],
+            }
+            project = {"sport": "basketball", "frames": [candidate]}
+            local_worker.atomic_json(root / "project.json", project)
+            local_worker.STATE.update(project_root=root, project=project)
+
+            local_worker.review_candidate({"frameId": "candidate", "decision": "ball", "category": "ball"})
+
+            self.assertEqual(candidate["reviewStatus"], "reviewed")
+            self.assertEqual(candidate["annotations"][0]["source"], "manual")
+
+    def test_no_ball_candidate_becomes_reviewed_negative(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / ".reco-training"
+            candidate = {
+                "id": "candidate", "relativePath": "frames/candidate.jpg", "reviewStatus": "candidate",
+                "annotations": [{"id": "auto", "category": "ball", "x": 1, "y": 2, "width": 3, "height": 4, "source": "auto"}],
+            }
+            project = {"sport": "basketball", "frames": [candidate]}
+            local_worker.atomic_json(root / "project.json", project)
+            local_worker.STATE.update(project_root=root, project=project)
+
+            local_worker.review_candidate({"frameId": "candidate", "decision": "no-ball", "category": "ball"})
+
+            self.assertEqual(candidate["reviewStatus"], "reviewed")
+            self.assertEqual(candidate["annotations"], [])
+
 
 if __name__ == "__main__":
     unittest.main()

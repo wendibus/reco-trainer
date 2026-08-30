@@ -149,6 +149,16 @@ struct ContentView: View {
                 }
                 .buttonStyle(.borderedProminent)
                 .disabled(app.selectedFolder == nil || app.isWorking)
+                Button {
+                    app.startActiveLearning()
+                } label: {
+                    Label(app.tr("Neue Videos prüfen", "Review new videos", "Revisar vídeos nuevos", "Vérifier de nouvelles vidéos"), systemImage: "sparkles.rectangle.stack")
+                }
+                .disabled((app.project?.frames.isEmpty ?? true) || app.isWorking)
+                if !app.reviewCandidates.isEmpty {
+                    Text("\(app.reviewCandidates.count) \(app.tr("Prüfkandidaten", "review candidates", "candidatos", "candidats"))")
+                        .font(.caption.bold()).foregroundStyle(.orange)
+                }
             }
 
             if let project = app.project {
@@ -175,6 +185,7 @@ struct ContentView: View {
                                 .font(.caption2)
                                 .foregroundStyle(.secondary)
                         }
+                        if frame.reviewStatus == "candidate" { Image(systemName: "questionmark.diamond.fill").foregroundStyle(.orange) }
                     }
                     .tag(frame.id)
                 }
@@ -206,6 +217,7 @@ struct ContentView: View {
                     app.updateAnnotations(for: frame.id, annotations)
                 }
                 .frame(minHeight: 420)
+                if frame.reviewStatus == "candidate" { candidateReviewBar }
                 trainingPanel
             }
             .padding(18)
@@ -332,6 +344,21 @@ struct ContentView: View {
                 .disabled(app.isWorking)
             }
         }
+    }
+
+    private var candidateReviewBar: some View {
+        HStack(spacing: 10) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(app.tr("Ball oder kein Ball?", "Ball or no ball?", "¿Balón o no?", "Ballon ou non ?")).font(.headline)
+                Text(app.tr("Box prüfen oder korrigieren. Nur bestätigte Bilder gelangen ins Training.", "Review or correct the box. Only confirmed images enter training.", "Revisa o corrige el cuadro. Solo se entrenan imágenes confirmadas.", "Vérifiez ou corrigez la boîte. Seules les images confirmées sont entraînées.")).font(.caption).foregroundStyle(.secondary)
+            }
+            Spacer()
+            Button(app.tr("Ball", "Ball", "Balón", "Ballon")) { app.reviewSelectedCandidate(asBall: true) }.buttonStyle(.borderedProminent).tint(.green)
+            Button(app.tr("Kein Ball", "No ball", "No es balón", "Pas de ballon")) { app.reviewSelectedCandidate(asBall: false) }.buttonStyle(.bordered)
+            Button(app.tr("Überspringen", "Skip", "Omitir", "Ignorer"), role: .destructive) { app.removeSelectedFrame() }
+        }
+        .padding(10)
+        .background(.orange.opacity(0.10), in: RoundedRectangle(cornerRadius: 10))
     }
 
     private var trainingPanel: some View {

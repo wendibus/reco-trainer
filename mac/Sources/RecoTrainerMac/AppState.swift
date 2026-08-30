@@ -37,6 +37,10 @@ final class AppState: ObservableObject {
         return project?.frames.first(where: { $0.id == id })
     }
 
+    var reviewCandidates: [FrameRecord] {
+        project?.frames.filter { $0.reviewStatus == "candidate" } ?? []
+    }
+
     var installedModelCount: Int {
         guard let root = store?.rootURL.appending(path: "models/library", directoryHint: .isDirectory),
               let directories = try? FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: [.isDirectoryKey]) else { return 0 }
@@ -231,6 +235,88 @@ final class AppState: ObservableObject {
         )
     }}
 
+    func startActiveLearning() {
+        guard let selectedFolder, let store else { return }
+        let panel = NSOpenPanel()
+        panel.title = tr("Ordner mit neuen, noch nicht verwendeten Videos auswählen", "Select folder with new, unused videos", "Selecciona una carpeta con vídeos nuevos", "Sélectionnez un dossier de nouvelles vidéos")
+        panel.prompt = tr("Videos prüfen", "Review videos", "Revisar vídeos", "Vérifier les vidéos")
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.allowsMultipleSelection = false
+        guard panel.runModal() == .OK, let folder = panel.url else { return }
+        guard folder.standardizedFileURL != selectedFolder.standardizedFileURL else {
+            errorMessage = tr("Bitte einen anderen Ordner als den bisherigen Trainingsordner wählen.", "Choose a folder different from the existing training folder.", "Elige una carpeta distinta de la carpeta de entrenamiento.", "Choisissez un dossier différent du dossier d’entraînement.")
+            return
+        }
+        isWorking = true
+        progress = 0
+        errorMessage = nil
+        status = tr("Neue Videos werden lokal vorbereitet …", "Preparing new videos locally …", "Preparando vídeos nuevos localmente …", "Préparation locale des nouvelles vidéos …")
+        Task {
+            do {
+                let extractor = FrameExtractor()
+                let videos = extractor.discoverVideos(in: folder)
+                var fresh = try await extractor.extract(videos: videos, into: store, framesPerVideo: min(framesPerVideo, 500)) { value, name in
+                    await MainActor.run {
+                        self.progress = value * 0.45
+                        self.status = self.tr("Extrahiere Prüfkandidaten: \(name)", "Extracting review candidates: \(name)", "Extrayendo candidatos: \(name)", "Extraction des candidats : \(name)")
+                    }
+                }
+                var document = project ?? ProjectDocument(name: selectedFolder.lastPathComponent, sport: sport, sourceFolder: selectedFolder.path)
+                let existingPaths = Set(document.frames.map(\.relativePath))
+                fresh.removeAll { existingPaths.contains($0.relativePath) }
+                guard !fresh.isEmpty else {
+                    throw NSError(domain: "RecoActiveLearning", code: 1, userInfo: [NSLocalizedDescriptionKey: tr("Alle gewählten Videos wurden bereits verwendet. Bitte neue Videos auswählen.", "All selected videos were already used. Choose new videos.", "Todos los vídeos seleccionados ya se utilizaron. Elige vídeos nuevos.", "Toutes les vidéos sélectionnées ont déjà été utilisées. Choisissez de nouvelles vidéos.")])
+                }
+                for index in fresh.indices { fresh[index].reviewStatus = "candidate" }
+                document.frames.append(contentsOf: fresh)
+                try store.save(document)
+                project = document
+                status = tr("Lokale Ballerkennung läuft …", "Running local ball detection …", "Ejecutando detección local …", "Détection locale du ballon …")
+                let worker = MLWorker(projectRoot: store.rootURL)
+                try await worker.autoLabel(modelSize: modelSize, category: selectedCategory, threshold: 0.12, candidateOnly: true, language: language) { chunk in
+                    await MainActor.run { self.log += chunk }
+                }
+                let loaded = try store.load()
+                project = loaded
+                selectedFrameID = loaded.frames.first(where: { $0.reviewStatus == "candidate" })?.id
+                progress = 1
+                status = tr("Prüfwarteschlange bereit. Nur bestätigte Bilder gelangen ins Training.", "Review queue ready. Only confirmed images enter training.", "Cola lista. Solo las imágenes confirmadas pasan al entrenamiento.", "File prête. Seules les images confirmées entrent dans l’entraînement.")
+            } catch {
+                errorMessage = error.localizedDescription
+                status = tr("Datensatzerweiterung fehlgeschlagen.", "Dataset expansion failed.", "Error al ampliar el conjunto.", "Échec de l’extension du jeu.")
+            }
+            isWorking = false
+        }
+    }
+
+    func reviewSelectedCandidate(asBall: Bool) {
+        guard var document = project,
+              let frameID = selectedFrameID,
+              let index = document.frames.firstIndex(where: { $0.id == frameID && $0.reviewStatus == "candidate" }),
+              let store else { return }
+        if asBall {
+            guard document.frames[index].annotations.contains(where: { $0.category == selectedCategory }) else {
+                errorMessage = tr("Zuerst eine passende Ball-Box einzeichnen oder korrigieren.", "Draw or correct a matching ball box first.", "Primero dibuja o corrige un cuadro del balón.", "Dessinez ou corrigez d’abord une boîte du ballon.")
+                return
+            }
+            document.frames[index].annotations = document.frames[index].annotations.map { annotation in
+                var accepted = annotation
+                if accepted.category == selectedCategory { accepted.source = "manual" }
+                return accepted
+            }
+        } else {
+            document.frames[index].annotations.removeAll { $0.category == selectedCategory }
+        }
+        document.frames[index].reviewStatus = "reviewed"
+        do {
+            try store.save(document)
+            project = document
+            selectedFrameID = document.frames.first(where: { $0.reviewStatus == "candidate" })?.id ?? frameID
+            status = tr("Geprüftes Bild wurde übernommen.", "Reviewed image added to training.", "Imagen revisada añadida al entrenamiento.", "Image vérifiée ajoutée à l’entraînement.")
+        } catch { errorMessage = error.localizedDescription }
+    }
+
     func train() { runWorkerAction(tr("Trainiere lokal …", "Training locally …")) { worker, output in
         try await worker.train(modelSize: self.modelSize, epochs: self.epochs, language: self.language, onOutput: output)
     }}
@@ -250,13 +336,14 @@ final class AppState: ObservableObject {
     func freezeBenchmarkGroundTruth() {
         guard let project, let store else { return }
         do {
-            guard !project.frames.isEmpty else {
+            let reviewedProjectFrames = project.frames.filter { $0.reviewStatus != "candidate" }
+            guard !reviewedProjectFrames.isEmpty else {
                 throw NSError(domain: "RecoBenchmark", code: 1, userInfo: [NSLocalizedDescriptionKey: tr("Das Projekt enthält keine Testbilder.", "The project contains no test images.", "El proyecto no contiene imágenes de prueba.", "Le projet ne contient aucune image de test.")])
             }
-            guard !project.frames.flatMap(\.annotations).contains(where: { $0.source == "auto" }) else {
+            guard !reviewedProjectFrames.flatMap(\.annotations).contains(where: { $0.source == "auto" }) else {
                 throw NSError(domain: "RecoBenchmark", code: 2, userInfo: [NSLocalizedDescriptionKey: tr("Vor dem Modelltest alle automatischen Vorschläge übernehmen, korrigieren oder verwerfen.", "Accept, correct, or reject every automatic suggestion before benchmarking.", "Acepta, corrige o rechaza todas las sugerencias automáticas antes de comparar.", "Acceptez, corrigez ou refusez toutes les suggestions automatiques avant la comparaison.")])
             }
-            let frames = project.frames.map { frame in
+            let frames = reviewedProjectFrames.map { frame in
                 BenchmarkFrameRecord(
                     id: frame.id.uuidString,
                     relativePath: frame.relativePath,

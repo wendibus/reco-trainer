@@ -1,8 +1,10 @@
-# Reco Trainer 0.8: Configurable local training images and safer dataset cleanup (work in progress)
+# Reco Trainer 0.9: Reviewed active learning from new local videos (work in progress)
 
 Reco Trainer is an experimental, privacy-first tool for improving sports-camera detection models without uploading sensitive match footage. Videos, extracted frames, corrected labels, training runs and benchmark reports stay on the user's own computer.
 
-Version 0.8 removes the old fixed 240-frame project limit. You now choose the number of images per video, so every additional recording can add training examples. You can also remove an unsuitable extracted image directly from training without changing the original video. Derived dataset copies are cleaned automatically, and an outdated frozen benchmark reference is invalidated.
+Version 0.9 adds **Review new videos**. Select a separate folder of previously unused recordings and the current model creates a completely local review queue. Every candidate requires a human decision: Ball, No ball, correct the box, or Skip. Pending candidates are technically excluded from training, export, and benchmarking.
+
+The workflow uses a recall-oriented confidence threshold and presents uncertain detections first. It keeps the complete frame visible so that ball-like lamps, heads, and logos can be judged in context. Previously used videos are skipped and source recordings are never modified.
 
 Reco Trainer also includes a local model test platform. You define the correct answers by reviewing and freezing the annotations in a known image set. Reco Trainer then runs every compatible downloaded `.recomodel` package against exactly the same images and creates an automatic ranking.
 
@@ -14,14 +16,14 @@ This remains **work in progress / alpha software**. Please keep backups, verify 
 
 ## Supported systems and downloads
 
-Download the files from the [Reco Trainer 0.8 release page](https://github.com/wendibus/reco-trainer/releases/tag/v0.8.0):
+Download the files from the [Reco Trainer 0.9 release page](https://github.com/wendibus/reco-trainer/releases/tag/v0.9.0):
 
-- **macOS:** `Reco.Trainer.Mac.0.8.dmg` — open it, drag Reco Trainer to Applications and start it. The alpha is locally/ad-hoc signed and not Apple-notarized.
-- **Windows:** `Reco.Trainer.Windows.0.8.zip` — extract it and run `Start Reco Trainer Windows.bat`.
-- **Linux:** `Reco.Trainer.Linux.0.8.zip` — extract it, make `Start Reco Trainer Linux.sh` executable and run it.
-- **Docker:** `Reco.Trainer.Docker.0.8.zip` — extract it, set the local video-folder mount and run Docker Compose as described in `START-HERE.md`.
+- **macOS:** `Reco.Trainer.Mac.0.9.dmg` — open it, drag Reco Trainer to Applications and start it. The alpha is locally/ad-hoc signed and not Apple-notarized.
+- **Windows:** `Reco.Trainer.Windows.0.9.zip` — extract it and run `Start Reco Trainer Windows.bat`.
+- **Linux:** `Reco.Trainer.Linux.0.9.zip` — extract it, make `Start Reco Trainer Linux.sh` executable and run it.
+- **Docker:** `Reco.Trainer.Docker.0.9.zip` — extract it, set the local video-folder mount and run Docker Compose as described in `START-HERE.md`.
 
-The source code, full installation instructions and privacy notes are in the [GitHub repository](https://github.com/wendibus/reco-trainer). Detailed changes and checksums are in the [0.8 release notes](https://github.com/wendibus/reco-trainer/blob/main/RELEASE-NOTES-0.8.md).
+The source code, full installation instructions and privacy notes are in the [GitHub repository](https://github.com/wendibus/reco-trainer). Detailed changes and checksums are in the [0.9 release notes](https://github.com/wendibus/reco-trainer/blob/main/RELEASE-NOTES-0.9.md).
 
 ## Suggested test workflow
 

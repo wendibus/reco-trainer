@@ -538,6 +538,8 @@ def auto_label(args: argparse.Namespace) -> None:
     project_root = Path(args.project).resolve()
     document = require_project(project_root, args.language)
     frames = document.get("frames", [])
+    if getattr(args, "candidate_only", False):
+        frames = [frame for frame in frames if frame.get("reviewStatus") == "candidate"]
     if not frames:
         raise SystemExit(localized(
             args.language,
@@ -712,7 +714,10 @@ def link_or_copy(source: Path, destination: Path) -> None:
 
 def build_dataset(project_root: Path, language: str = "de") -> Path:
     document = require_project(project_root, language)
-    frames = document.get("frames", [])
+    frames = [
+        frame for frame in document.get("frames", [])
+        if frame.get("reviewStatus") != "candidate"
+    ]
     if not frames:
         raise SystemExit(localized(language, "Keine Trainingsframes vorhanden.", "No training frames are available."))
     category_names = {
@@ -910,7 +915,10 @@ def train(args: argparse.Namespace) -> None:
             ))
 
     refreshed = require_project(project_root, args.language)
-    refreshed_frames = refreshed.get("frames", [])
+    refreshed_frames = [
+        frame for frame in refreshed.get("frames", [])
+        if frame.get("reviewStatus") != "candidate"
+    ]
     refreshed_splits, _ = split_frames(refreshed_frames, args.language)
     all_annotations = [
         annotation
@@ -962,7 +970,8 @@ def package_model(args: argparse.Namespace) -> None:
             "Kein trainiertes Modell gefunden. Zuerst lokal trainieren.",
             "No trained model was found. Train locally first.",
         ))
-    annotations = [annotation for frame in document.get("frames", []) for annotation in frame.get("annotations", [])]
+    reviewed_frames = [frame for frame in document.get("frames", []) if frame.get("reviewStatus") != "candidate"]
+    annotations = [annotation for frame in reviewed_frames for annotation in frame.get("annotations", [])]
     created = datetime.now(timezone.utc)
     package_id = f"reco-{document['sport']}-{args.model}-{created.strftime('%Y%m%d-%H%M%S')}"
     output_dir = project_root / "exports" / "share"
@@ -983,8 +992,8 @@ def package_model(args: argparse.Namespace) -> None:
         "description": package_description(document["sport"], args.model, package_classes),
         "trainingSummary": document.get("lastTraining"),
         "statistics": {
-            "frameCount": len(document.get("frames", [])),
-            "annotatedFrameCount": sum(bool(frame.get("annotations")) for frame in document.get("frames", [])),
+            "frameCount": len(reviewed_frames),
+            "annotatedFrameCount": sum(bool(frame.get("annotations")) for frame in reviewed_frames),
             "annotationCount": len(annotations),
         },
         "framework": {"name": "RF-DETR", "version": rfdetr_version},
@@ -1197,6 +1206,7 @@ def build_parser() -> argparse.ArgumentParser:
     label_parser.add_argument("--category", required=True)
     label_parser.add_argument("--threshold", type=float, default=0.25)
     label_parser.add_argument("--language", choices=["de", "en", "es", "fr"], default="de")
+    label_parser.add_argument("--candidate-only", action="store_true")
     label_parser.set_defaults(func=auto_label)
 
     train_parser = commands.add_parser("train")

@@ -1,4 +1,4 @@
-# Reco Trainer 0.8
+# Reco Trainer 0.9
 
 > **Work in progress / alpha software.** Reco Trainer is ready for practical testing, but it is not a finished production release. Keep backups and validate every label, benchmark result and exported model before using it in a real workflow.
 
@@ -6,7 +6,13 @@ Reco Trainer is a privacy-first tool for improving and comparing sports-camera d
 
 The alpha supports basketball, football (soccer), handball, hockey, rugby, lacrosse and American football. The interface and walkthrough are available in German, English, Spanish and French.
 
-## New in 0.8: more useful frame preparation
+## New in 0.9: reviewed active learning
+
+Choose **Review new videos** and select a separate folder that was not used for the original training set. Reco Trainer extracts candidates locally, runs the current model at a recall-oriented threshold, and opens a review queue ordered toward uncertain detections.
+
+Each candidate needs one deliberate decision: **Ball**, **No ball**, correct the box, or **Skip**. Only reviewed candidates enter training. Pending candidates are technically excluded from dataset generation, model packages, and benchmarks. Source videos stay unchanged, and videos already used by the project are skipped.
+
+## Frame preparation introduced in 0.8
 
 The frame count is now selected **per video** instead of being shared across the whole project. With the default of 240 images per video, ten videos can contribute up to 2,400 images. The value is configurable before preparation.
 
@@ -26,7 +32,7 @@ Download the package for your system from [GitHub Releases](https://github.com/w
 
 ### macOS
 
-1. Download `Reco.Trainer.Mac.0.8.dmg`.
+1. Download `Reco.Trainer.Mac.0.9.dmg`.
 2. Open it and copy **Reco Trainer** to **Applications**.
 3. Start the app. This alpha is locally/ad-hoc signed and not Apple-notarized, so macOS may require Control-clicking the app, selecting **Open**, and confirming once.
 
@@ -34,7 +40,7 @@ Requirements: macOS 14 or newer and Apple silicon. Node.js 22 or newer and the X
 
 ### Windows
 
-1. Download and extract `Reco.Trainer.Windows.0.8.zip`.
+1. Download and extract `Reco.Trainer.Windows.0.9.zip`.
 2. Open the extracted folder.
 3. Run `Start Reco Trainer Windows.bat`.
 4. Keep the terminal windows open; the interface runs at `http://localhost:8765/`.
@@ -43,7 +49,7 @@ Requirements: Node.js 22, Python 3.11 or 3.12, and FFmpeg.
 
 ### Linux
 
-1. Download and extract `Reco.Trainer.Linux.0.8.zip`.
+1. Download and extract `Reco.Trainer.Linux.0.9.zip`.
 2. Run `chmod +x "Start Reco Trainer Linux.sh"` once.
 3. Run `./Start\ Reco\ Trainer\ Linux.sh`.
 4. If necessary, open `http://localhost:8765/` manually.
@@ -52,7 +58,7 @@ Requirements: Node.js 22, Python 3.11 or 3.12, FFmpeg, and Zenity or KDialog for
 
 ### Docker
 
-1. Download and extract `Reco.Trainer.Docker.0.8.zip`.
+1. Download and extract `Reco.Trainer.Docker.0.9.zip`.
 2. Set `RECO_VIDEO_FOLDER` to the absolute path of the local sports-video folder.
 3. Run `docker compose up --build` from the extracted folder.
 4. Open `http://localhost:8765/`.
@@ -64,9 +70,11 @@ Requirements: Node.js 22, Python 3.11 or 3.12, FFmpeg, and Zenity or KDialog for
 3. Choose the number of images per video and prepare frames locally below `.reco-training/`.
 4. Remove unsuitable images, then generate automatic suggestions, correct them and remove false labels.
 5. Train a local model or import compatible `.recomodel` packages.
-6. Open **Test models**, freeze the reviewed answers and run the benchmark.
-7. Review the ranking and detailed error counts.
-8. Export a `.recomodel` package only when you deliberately want to exchange a model.
+6. Choose **Review new videos**, select a separate folder, and review the local candidate queue.
+7. Retrain after a meaningful batch of confirmed images.
+8. Open **Test models**, freeze the reviewed answers and run the benchmark.
+9. Review the ranking and detailed error counts.
+10. Export a `.recomodel` package only when you deliberately want to exchange a model.
 
 ## Privacy and security
 
@@ -88,7 +96,7 @@ Please **do not** attach private match footage, extracted frames, datasets, `.re
 - `cross-platform/` — browser interface, local worker, Windows/Linux launchers and Docker configuration.
 - `mac/` — native Swift macOS application and its local Python ML worker.
 - `FORUM-ANNOUNCEMENT.md` — copy-ready English forum announcement.
-- `RELEASE-NOTES-0.8.md` — changes, installation details and SHA-256 checksums.
+- `RELEASE-NOTES-0.9.md` — changes, installation details and SHA-256 checksums.
 
 ## Current limitations
 

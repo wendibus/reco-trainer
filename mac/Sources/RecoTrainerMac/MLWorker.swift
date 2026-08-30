@@ -80,15 +80,18 @@ struct MLWorker: Sendable {
         modelSize: ModelSize,
         category: String,
         threshold: Double,
+        candidateOnly: Bool = false,
         language: AppLanguage,
         onOutput: @escaping @Sendable (String) async -> Void
     ) async throws {
-        _ = try await runPython(
-            arguments: [
+        var arguments = [
                 try workerURL.path, "autolabel", "--project", projectRoot.path,
                 "--model", modelSize.rawValue, "--category", category,
                 "--threshold", String(threshold), "--language", language.rawValue
-            ],
+            ]
+        if candidateOnly { arguments.append("--candidate-only") }
+        _ = try await runPython(
+            arguments: arguments,
             preferVenv: true,
             onOutput: onOutput
         )

@@ -121,7 +121,9 @@ class LocalState:
     def snapshot(self) -> dict:
         with self.lock:
             frames = (self.project or {}).get("frames", [])
-            annotations = [annotation for frame in frames for annotation in frame.get("annotations", [])]
+            training_frames = [frame for frame in frames if frame.get("reviewStatus") != "candidate"]
+            candidates = [frame for frame in frames if frame.get("reviewStatus") == "candidate"]
+            annotations = [annotation for frame in training_frames for annotation in frame.get("annotations", [])]
             classes = sorted({str(annotation.get("category")) for annotation in annotations})
             return {
                 "connected": True,
@@ -137,8 +139,9 @@ class LocalState:
                 "sport": (self.project or {}).get("sport"),
                 "framesPerVideo": (self.project or {}).get("framesPerVideo", DEFAULT_FRAMES_PER_VIDEO),
                 "stats": {
-                    "frameCount": len(frames),
-                    "annotatedFrames": sum(bool(frame.get("annotations")) for frame in frames),
+                    "frameCount": len(training_frames),
+                    "candidateCount": len(candidates),
+                    "annotatedFrames": sum(bool(frame.get("annotations")) for frame in training_frames),
                     "annotationCount": len(annotations),
                     "automaticCount": sum(annotation.get("source") == "auto" for annotation in annotations),
                     "classes": classes,
@@ -230,7 +233,7 @@ def freeze_ground_truth() -> dict:
     project = STATE.project
     if root is None or project is None:
         raise RuntimeError("Kein lokales Projekt geöffnet.")
-    frames = project.get("frames", [])
+    frames = [frame for frame in project.get("frames", []) if frame.get("reviewStatus") != "candidate"]
     if not frames:
         raise RuntimeError("Das Projekt enthält keine Testbilder.")
     pending = sum(annotation.get("source") == "auto" for frame in frames for annotation in frame.get("annotations", []))
@@ -275,12 +278,17 @@ def freeze_ground_truth() -> dict:
     return benchmark_snapshot(root)
 
 
-def select_folder() -> Path:
-    configured_folder = os.environ.get("RECO_VIDEO_FOLDER") or os.environ.get("RECO_TEST_FOLDER")
+def choose_video_folder(*, expansion: bool = False) -> Path:
+    configured_folder = (
+        os.environ.get("RECO_EXPANSION_FOLDER") or os.environ.get("RECO_TEST_EXPANSION_FOLDER")
+        if expansion else
+        os.environ.get("RECO_VIDEO_FOLDER") or os.environ.get("RECO_TEST_FOLDER")
+    )
+    prompt = "Ordner mit neuen, noch nicht verwendeten Sportvideos auswählen" if expansion else "Ordner mit Sportvideos auswählen"
     if configured_folder:
         selected = Path(configured_folder).expanduser().resolve()
     elif sys.platform == "darwin":
-        script = 'POSIX path of (choose folder with prompt "Ordner mit Sportvideos auswählen")'
+        script = f'POSIX path of (choose folder with prompt "{prompt}")'
         result = subprocess.run(["/usr/bin/osascript", "-e", script], capture_output=True, text=True, check=False)
         if result.returncode != 0:
             raise RuntimeError("Ordnerauswahl wurde abgebrochen.")
@@ -312,6 +320,11 @@ def select_folder() -> Path:
         selected = Path(result.stdout.strip()).resolve()
     if not selected.is_dir():
         raise RuntimeError("Der ausgewählte Ordner ist nicht verfügbar.")
+    return selected
+
+
+def select_folder() -> Path:
+    selected = choose_video_folder()
     root = project_root_for(selected)
     project = load_project(root)
     STATE.update(
@@ -536,6 +549,77 @@ def extract_project(sport: str, requested_frames_per_video: int = DEFAULT_FRAMES
         STATE.append_log(str(error))
 
 
+def expand_dataset(folder: Path, payload: dict) -> None:
+    """Extract a review inbox from separate videos, then pre-label only that inbox."""
+    try:
+        root = STATE.project_root
+        project = STATE.project
+        if root is None or project is None:
+            raise RuntimeError("Zuerst ein bestehendes Trainingsprojekt öffnen.")
+        if STATE.selected_folder and folder.resolve() == STATE.selected_folder.resolve():
+            raise RuntimeError("Für die Erweiterung bitte einen anderen Videoordner wählen.")
+        count_per_video = min(500, frames_per_video(payload.get("framesPerVideo", 100)))
+        backup_project(root, "active-learning")
+        ffmpeg = shutil.which("ffmpeg")
+        apple_extractor = native_frame_extractor(root) if not ffmpeg or not shutil.which("ffprobe") else None
+        videos = discover_videos(folder)
+        if not videos:
+            raise RuntimeError("Im gewählten Erweiterungsordner wurden keine Videos gefunden.")
+        infos = [(video, *media_info(video, apple_extractor)) for video in videos]
+        total_duration = max(sum(item[1] for item in infos), 1.0)
+        frames_dir = root / "frames"
+        frames_dir.mkdir(parents=True, exist_ok=True)
+        new_frames: list[dict] = []
+        known_video_ids = {str(frame.get("videoID")) for frame in project.get("frames", [])}
+        completed = 0.0
+        STATE.update(operation="active-learning-extract", busy=True, progress=0.01, error=None, log=[], message="Extrahiere lokale Prüfkandidaten …")
+        for video, duration, width, height in infos:
+            target = count_per_video
+            rate = max(target / duration, 1 / max(duration, 1.0))
+            video_id = hashlib.sha256(str(video).encode("utf-8")).hexdigest()[:12]
+            if video_id in known_video_ids:
+                completed += duration
+                STATE.update(progress=min(completed / total_duration * 0.45, 0.45), message=f"Bereits verwendetes Video übersprungen: {video.name}")
+                continue
+            prefix = f"al-{video_id}"
+            pattern = frames_dir / f"{prefix}-%06d.jpg"
+            command = (
+                [ffmpeg, "-hide_banner", "-loglevel", "error", "-y", "-i", str(video),
+                 "-vf", f"fps={rate:.8f},scale='min(iw,1280)':-2", "-frames:v", str(target), "-q:v", "2", str(pattern)]
+                if ffmpeg else
+                [str(apple_extractor), str(video), str(frames_dir), prefix, str(target)]
+            )
+            result = subprocess.run(command, capture_output=True, text=True, check=False)
+            if result.returncode != 0:
+                raise RuntimeError(f"Kandidaten-Extraktion fehlgeschlagen: {video.name}\n{result.stderr.strip()}")
+            generated = sorted(frames_dir.glob(f"{prefix}-*.jpg"))
+            scale = min(1.0, 1280 / max(width, 1))
+            output_width = max(1, round(width * scale))
+            output_height = max(1, round(height * scale))
+            if output_height % 2: output_height += 1
+            for index, image_path in enumerate(generated, start=1):
+                new_frames.append({
+                    "id": str(uuid.uuid5(uuid.NAMESPACE_URL, f"active-learning:{video_id}:{index}")),
+                    "relativePath": f"frames/{image_path.name}", "videoID": video_id,
+                    "videoName": video.name, "timestamp": min((index - 1) / rate, duration),
+                    "width": output_width, "height": output_height, "annotations": [],
+                    "reviewStatus": "candidate",
+                })
+            completed += duration
+            STATE.update(progress=min(completed / total_duration * 0.45, 0.45), message=f"Neue Videos werden geprüft: {video.name}")
+
+        if not new_frames:
+            raise RuntimeError("Alle gewählten Videos wurden bereits verwendet. Bitte neue Videos auswählen.")
+        project["frames"] = [*project.get("frames", []), *new_frames]
+        project["updatedAt"] = utc_now()
+        atomic_json(root / "project.json", project)
+        STATE.update(project=project, busy=False, progress=0.5, message=f"{len(new_frames)} Kandidaten extrahiert. Lokale Ballerkennung startet …")
+        ml_action("autolabel", {**payload, "candidateOnly": True, "threshold": payload.get("threshold", 0.12)})
+    except Exception as error:
+        STATE.append_log(str(error))
+        STATE.update(operation="error", busy=False, error=str(error), message="Datensatzerweiterung fehlgeschlagen.")
+
+
 def find_ml_worker() -> Path:
     candidates = [
         BASE_DIR / "ml_worker.py",
@@ -609,6 +693,8 @@ def ml_action(action: str, payload: dict) -> None:
                 backup_project(root, "automatisch")
                 threshold = min(0.95, max(0.05, float(payload.get("threshold", 0.25))))
                 args = ["autolabel", "--project", str(root), "--model", model, "--category", payload.get("category", "ball"), "--threshold", str(threshold), "--language", language]
+                if payload.get("candidateOnly"):
+                    args.append("--candidate-only")
             elif action == "benchmark":
                 threshold = min(0.95, max(0.01, float(payload.get("threshold", 0.05))))
                 args = ["benchmark", "--project", str(root), "--threshold", str(threshold), "--language", language]
@@ -672,6 +758,7 @@ def remove_training_frame(payload: dict) -> None:
     if index is None:
         raise RuntimeError("Frame wurde nicht gefunden.")
     frame = frames[index]
+    is_candidate = frame.get("reviewStatus") == "candidate"
     target = (root / str(frame.get("relativePath", ""))).resolve()
     frames_root = (root / "frames").resolve()
     if frames_root not in target.parents:
@@ -687,15 +774,44 @@ def remove_training_frame(payload: dict) -> None:
 
     # A frozen benchmark no longer represents the current image set.
     benchmark_invalidated = False
-    for name in ("ground-truth.json", "latest.json"):
-        benchmark_file = root / "benchmarks" / name
-        if benchmark_file.is_file():
-            benchmark_file.unlink()
-            benchmark_invalidated = True
+    if not is_candidate:
+        for name in ("ground-truth.json", "latest.json"):
+            benchmark_file = root / "benchmarks" / name
+            if benchmark_file.is_file():
+                benchmark_file.unlink()
+                benchmark_invalidated = True
     message = "Trainingsbild lokal entfernt. Das Quellvideo bleibt unverändert."
     if benchmark_invalidated:
         message += " Die Benchmark-Referenz muss neu festgelegt werden."
     STATE.update(project=project, message=message)
+
+
+def review_candidate(payload: dict) -> None:
+    root = STATE.project_root
+    project = STATE.project
+    if root is None or project is None:
+        raise RuntimeError("Kein lokales Projekt geöffnet.")
+    frame_id = str(payload.get("frameId", ""))
+    decision = str(payload.get("decision", ""))
+    frame = next((item for item in project.get("frames", []) if str(item.get("id")) == frame_id), None)
+    if frame is None or frame.get("reviewStatus") != "candidate":
+        raise RuntimeError("Prüfkandidat wurde nicht gefunden.")
+    target = str(payload.get("category") or "ball")
+    if decision == "ball":
+        matching = [item for item in frame.get("annotations", []) if item.get("category") == target]
+        if not matching:
+            raise RuntimeError("Zuerst eine passende Ball-Box einzeichnen oder korrigieren.")
+        for annotation in matching:
+            annotation["source"] = "manual"
+    elif decision == "no-ball":
+        frame["annotations"] = [item for item in frame.get("annotations", []) if item.get("category") != target]
+    else:
+        raise RuntimeError("Unbekannte Prüfentscheidung.")
+    backup_project(root, "kandidat-geprueft")
+    frame["reviewStatus"] = "reviewed"
+    project["updatedAt"] = utc_now()
+    atomic_json(root / "project.json", project)
+    STATE.update(project=project, message="Geprüftes Bild wurde in den Trainingssatz übernommen.")
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -783,6 +899,12 @@ class Handler(BaseHTTPRequestHandler):
                 count = frames_per_video(payload.get("framesPerVideo"))
                 threading.Thread(target=extract_project, args=(payload.get("sport", "basketball"), count), daemon=True).start()
                 self.json_response({"ok": True})
+            elif self.path == "/api/active-learning":
+                if STATE.busy:
+                    raise RuntimeError("Ein lokaler Vorgang läuft bereits.")
+                folder = choose_video_folder(expansion=True)
+                threading.Thread(target=expand_dataset, args=(folder, payload), daemon=True).start()
+                self.json_response({"ok": True, "folder": str(folder)})
             elif self.path == "/api/annotations":
                 save_annotations(payload)
                 self.json_response({"ok": True, "status": STATE.snapshot()})
@@ -790,6 +912,11 @@ class Handler(BaseHTTPRequestHandler):
                 if STATE.busy:
                     raise RuntimeError("Ein lokaler Vorgang läuft bereits.")
                 remove_training_frame(payload)
+                self.json_response({"ok": True, "status": STATE.snapshot()})
+            elif self.path == "/api/review-candidate":
+                if STATE.busy:
+                    raise RuntimeError("Ein lokaler Vorgang läuft bereits.")
+                review_candidate(payload)
                 self.json_response({"ok": True, "status": STATE.snapshot()})
             elif self.path == "/api/benchmark-ground-truth":
                 if STATE.busy:

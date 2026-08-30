@@ -65,6 +65,7 @@ struct FrameRecord: Codable, Identifiable, Equatable {
     var width: Int
     var height: Int
     var annotations: [BoxAnnotation] = []
+    var reviewStatus: String?
 }
 
 struct ProjectDocument: Codable, Equatable {

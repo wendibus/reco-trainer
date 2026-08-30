@@ -93,11 +93,13 @@ struct ProjectStore {
             if manager.fileExists(atPath: copy.path) { try manager.removeItem(at: copy) }
         }
         var invalidated = false
-        for name in ["ground-truth.json", "latest.json"] {
-            let file = rootURL.appending(path: "benchmarks", directoryHint: .isDirectory).appending(path: name)
-            if manager.fileExists(atPath: file.path) {
-                try manager.removeItem(at: file)
-                invalidated = true
+        if frame.reviewStatus != "candidate" {
+            for name in ["ground-truth.json", "latest.json"] {
+                let file = rootURL.appending(path: "benchmarks", directoryHint: .isDirectory).appending(path: name)
+                if manager.fileExists(atPath: file.path) {
+                    try manager.removeItem(at: file)
+                    invalidated = true
+                }
             }
         }
         return invalidated

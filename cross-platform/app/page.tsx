@@ -11,7 +11,7 @@ type Handle = 'nw' | 'ne' | 'sw' | 'se';
 type ModelSize = 'nano' | 'small';
 
 type LocalAnnotation = { id: string; category: string; x: number; y: number; width: number; height: number; source: string; confidence?: number | null };
-type LocalFrame = { id: string; relativePath: string; videoName: string; timestamp: number; width: number; height: number; annotations: LocalAnnotation[] };
+type LocalFrame = { id: string; relativePath: string; videoName: string; timestamp: number; width: number; height: number; annotations: LocalAnnotation[]; reviewStatus?: 'candidate' | 'reviewed' };
 type TrainingResult = { completedAt: string; model: string; device: string; epochsRequested: number; frameCount: number; annotatedFrames: number; annotationCount: number; classes: string[]; splits: Record<string, number>; independentTest: boolean; checkpoint?: string | null; validationMetrics?: Record<string, number> };
 type BenchmarkMetrics = { qualityScore: number; mAP50: number; precision: number; recall: number; f1: number; meanIoU: number; truePositives: number; falsePositives: number; falseNegatives: number };
 type BenchmarkReport = { createdAt?: string; runID?: string; datasetID?: string; matchesGroundTruth?: boolean; frameCount: number; annotationCount: number; modelCount: number; successfulModelCount: number; threshold: number; device: string; rankingMethod: string; results: Array<{ rank?: number | null; packageID: string; modelSize?: string; status: string; metrics?: BenchmarkMetrics; meanLatencyMs?: number; error?: string }> };
@@ -19,7 +19,7 @@ type WorkerStatus = {
   connected: boolean; selectedFolder: string | null; folderName: string | null; sport?: Sport | null; operation: string; progress: number;
   framesPerVideo?: number;
   message: string; busy: boolean; error: string | null; frames: LocalFrame[]; log: string;
-  stats?: { frameCount: number; annotatedFrames: number; annotationCount: number; automaticCount: number; classes: string[] };
+  stats?: { frameCount: number; candidateCount?: number; annotatedFrames: number; annotationCount: number; automaticCount: number; classes: string[] };
   hardware?: { machine: string; cpuCores: number; memoryGB: number | null; accelerator: string };
   lastTraining?: TrainingResult | null;
   trainingHistory?: TrainingResult[];
@@ -41,6 +41,12 @@ const frameCopy = {
   es: { count: 'Imágenes por vídeo', countHint: 'Cada vídeo aporta como máximo esta cantidad', remove: 'Quitar imagen del entrenamiento', confirm: '¿Quitar esta imagen extraída del entrenamiento? El vídeo original no se modifica.' },
   fr: { count: 'Images par vidéo', countHint: 'Chaque vidéo fournit au maximum ce nombre d’images', remove: 'Retirer l’image de l’entraînement', confirm: 'Retirer cette image extraite de l’entraînement ? La vidéo source reste inchangée.' },
 };
+const activeCopy = {
+  de: { title: 'Datensatz erweitern', start: 'Neue Videos prüfen', detail: 'Getrennter Ordner · nutzt „Bilder je Video“ (max. 500) · alles bleibt lokal.', queue: 'Prüfkandidaten', ball: 'Ball', noBall: 'Kein Ball', correct: 'Box korrigieren', skip: 'Überspringen', hint: 'Nur bestätigte Bilder gelangen ins Training. Das Quellvideo bleibt unverändert.', needsBox: 'Falls der Ball stimmt, Box prüfen oder korrigieren.' },
+  en: { title: 'Expand dataset', start: 'Review new videos', detail: 'Separate folder · uses “Images per video” (max. 500) · entirely local.', queue: 'Review candidates', ball: 'Ball', noBall: 'No ball', correct: 'Correct box', skip: 'Skip', hint: 'Only confirmed images enter training. Source videos remain unchanged.', needsBox: 'If this is a ball, review or correct its box.' },
+  es: { title: 'Ampliar conjunto', start: 'Revisar vídeos nuevos', detail: 'Carpeta separada · usa «Imágenes por vídeo» (máx. 500) · todo local.', queue: 'Candidatos', ball: 'Balón', noBall: 'No es balón', correct: 'Corregir cuadro', skip: 'Omitir', hint: 'Solo las imágenes confirmadas pasan al entrenamiento. Los vídeos originales no cambian.', needsBox: 'Si es un balón, revisa o corrige el cuadro.' },
+  fr: { title: 'Étendre le jeu', start: 'Vérifier de nouvelles vidéos', detail: 'Dossier séparé · utilise « Images par vidéo » (max. 500) · tout reste local.', queue: 'Candidats', ball: 'Ballon', noBall: 'Pas de ballon', correct: 'Corriger la boîte', skip: 'Ignorer', hint: 'Seules les images confirmées entrent dans l’entraînement. Les vidéos sources restent inchangées.', needsBox: 'Si c’est un ballon, vérifiez ou corrigez sa boîte.' },
+};
 
 const copy = {
   de: {
@@ -51,6 +57,7 @@ const copy = {
       ['Trainingsbilder vorbereiten', 'Reco Trainer extrahiert lokal einzelne Frames und legt das Trainingsprojekt im gewählten Ordner an.'],
       ['Automatisch markieren und prüfen', 'Wähle eine Klasse und starte die automatische Markierung. Korrigiere Boxen, lösche falsche Treffer und bestätige nur geprüfte Markierungen.'],
       ['Lokal trainieren', 'Richte ML einmalig ein und trainiere anschließend das sportartspezifische Modell auf deiner lokalen Hardware.'],
+      ['Mit neuen Videos erweitern', 'Wähle „Neue Videos prüfen“ und einen getrennten Ordner. Bestätige Ball oder Kein Ball, korrigiere Boxen oder überspringe. Nur geprüfte Bilder werden trainiert.'],
       ['Exportieren oder austauschen', 'Exportiere ein Gerätemodell oder erstelle ein .recomodel-Paket. Das Paket enthält nur Gewichte und zusammengefasste Metadaten – keine Videos oder Frames.'],
       ['Modelle objektiv vergleichen', 'Lege geprüfte Markierungen als richtige Antworten fest und teste alle kompatiblen lokalen Modelle auf denselben Bildern. Das Ranking kombiniert mAP@0.50 und F1.'],
     ],
@@ -63,6 +70,7 @@ const copy = {
       ['Prepare training images', 'Reco Trainer extracts individual frames locally and creates the training project inside the selected folder.'],
       ['Auto-label and review', 'Choose a class and run auto-labeling. Correct boxes, delete false detections, and accept only reviewed annotations.'],
       ['Train locally', 'Set up ML once, then train the sport-specific model on your local hardware.'],
+      ['Expand with new videos', 'Choose “Review new videos” and a separate folder. Confirm Ball or No ball, correct boxes, or skip. Only reviewed images are trained.'],
       ['Export or exchange', 'Export a device model or create a .recomodel package. The package contains only weights and aggregate metadata—no videos or frames.'],
       ['Compare models objectively', 'Freeze reviewed annotations as the correct answers and test every compatible local model on the same images. The ranking combines mAP@0.50 and F1.'],
     ],
@@ -75,6 +83,7 @@ const copy = {
       ['Prepara las imágenes', 'Reco Trainer extrae fotogramas localmente y crea el proyecto de entrenamiento dentro de la carpeta seleccionada.'],
       ['Marca automáticamente y revisa', 'Elige una clase y ejecuta el marcado automático. Corrige cuadros, elimina detecciones falsas y acepta solo las marcas revisadas.'],
       ['Entrena localmente', 'Configura ML una vez y entrena el modelo específico del deporte con tu hardware local.'],
+      ['Amplía con vídeos nuevos', 'Elige «Revisar vídeos nuevos» y una carpeta separada. Confirma Balón o No es balón, corrige cuadros u omite. Solo se entrenan imágenes revisadas.'],
       ['Exporta o intercambia', 'Exporta un modelo para el dispositivo o crea un paquete .recomodel. Solo contiene pesos y metadatos agregados; nunca vídeos ni fotogramas.'],
       ['Compara modelos objetivamente', 'Fija las anotaciones revisadas como respuestas correctas y prueba todos los modelos locales compatibles con las mismas imágenes. La clasificación combina mAP@0.50 y F1.'],
     ],
@@ -87,6 +96,7 @@ const copy = {
       ['Préparez les images', 'Reco Trainer extrait localement des images et crée le projet d’entraînement dans le dossier sélectionné.'],
       ['Marquez automatiquement et vérifiez', 'Choisissez une classe et lancez le marquage automatique. Corrigez les boîtes, supprimez les détections erronées et n’acceptez que les annotations vérifiées.'],
       ['Entraînez localement', 'Configurez le ML une fois, puis entraînez le modèle propre au sport sur votre matériel local.'],
+      ['Étendez avec de nouvelles vidéos', 'Choisissez « Vérifier de nouvelles vidéos » et un dossier séparé. Confirmez Ballon ou Pas de ballon, corrigez ou ignorez. Seules les images vérifiées sont entraînées.'],
       ['Exportez ou échangez', 'Exportez un modèle pour l’appareil ou créez un paquet .recomodel. Il contient uniquement les poids et des métadonnées agrégées, sans vidéos ni images.'],
       ['Comparez objectivement les modèles', 'Figez les annotations vérifiées comme bonnes réponses et testez tous les modèles locaux compatibles sur les mêmes images. Le classement combine mAP@0.50 et F1.'],
     ],
@@ -122,7 +132,15 @@ export default function Home() {
 
   const t = copy[language];
   const ft = frameCopy[language];
+  const at = activeCopy[language];
   const frames = worker?.frames ?? [];
+  const candidates = frames.filter((frame) => frame.reviewStatus === 'candidate').sort((left, right) => {
+    const confidence = (frame: LocalFrame) => frame.annotations.find((item) => item.category === category)?.confidence;
+    const a = confidence(left), b = confidence(right);
+    if (a == null && b != null) return 1;
+    if (a != null && b == null) return -1;
+    return Math.abs((a ?? 1) - .35) - Math.abs((b ?? 1) - .35);
+  });
   const framesReady = frames.length > 0;
   const selectedFrameIndex = Math.max(0, frames.findIndex((frame) => frame.id === selectedFrameID));
   const selectedFrame = frames.find((frame) => frame.id === selectedFrameID) ?? frames[0];
@@ -133,6 +151,12 @@ export default function Home() {
   const sportName = sport === 'basketball' ? 'Basketball' : sport === 'football' ? t.football : sport === 'handball' ? 'Handball' : sport === 'hockey' ? 'Hockey' : sport === 'rugby' ? 'Rugby' : sport === 'lacrosse' ? 'Lacrosse' : t.americanFootball;
   const categoryName = (value: string) => ({ ball: t.ball, puck: t.puck, player: t.player, goalkeeper: t.goalkeeper, referee: t.referee, goal: t.goal, goalpost: t.goalpost, hoop: t.hoop }[value] ?? value);
   const activeModel = worker?.modelLibrary?.packages.find((item) => item.packageID === worker.modelLibrary?.activePackageID);
+
+  useEffect(() => {
+    if (candidates.length && selectedFrame?.reviewStatus !== 'candidate' && worker?.operation === 'ready') {
+      setSelectedFrameID(candidates[0].id);
+    }
+  }, [candidates.length, worker?.operation]);
 
   useEffect(() => {
     const candidate = new URLSearchParams(window.location.search).get('worker');
@@ -231,6 +255,25 @@ export default function Home() {
     } catch (error) { setWorker((current) => current ? { ...current, error: String(error) } : current); }
   }
   async function runML(path: string) { try { await post(path, { model: modelSize, epochs: 20, language, category, threshold }); } catch (error) { setWorker((current) => current ? { ...current, error: String(error) } : current); } }
+  async function startActiveLearning() {
+    try { await post('/api/active-learning', { model: modelSize, language, category, threshold: .12, framesPerVideo }); }
+    catch (error) { setWorker((current) => current ? { ...current, error: String(error) } : current); }
+  }
+  async function reviewCandidate(decision: 'ball' | 'no-ball') {
+    if (!selectedFrame || selectedFrame.reviewStatus !== 'candidate') return;
+    const next = candidates.find((frame) => frame.id !== selectedFrame.id);
+    try {
+      await post('/api/review-candidate', { frameId: selectedFrame.id, decision, category });
+      setSelectedFrameID(next?.id ?? selectedFrame.id);
+      setSelectedAnnotationID(null); setHistory([]); setFuture([]);
+    } catch (error) { setWorker((current) => current ? { ...current, error: String(error) } : current); }
+  }
+  async function skipCandidate() {
+    if (!selectedFrame || selectedFrame.reviewStatus !== 'candidate') return;
+    const next = candidates.find((frame) => frame.id !== selectedFrame.id);
+    try { await post('/api/remove-frame', { frameId: selectedFrame.id }); setSelectedFrameID(next?.id ?? null); }
+    catch (error) { setWorker((current) => current ? { ...current, error: String(error) } : current); }
+  }
 
   function framePoint(clientX: number, clientY: number) {
     if (!selectedFrame || !svgRef.current) return { x: 0, y: 0 };
@@ -329,7 +372,8 @@ export default function Home() {
       <aside className="app-sidebar">
         <section className="side-section"><label>1 · {t.sport}</label><select aria-label={t.sport} value={sport} onChange={(event) => { const next = event.target.value as Sport; setSport(next); setCategory(next === 'hockey' ? 'puck' : 'ball'); }}><option value="basketball">Basketball</option><option value="football">{t.football}</option><option value="handball">Handball</option><option value="hockey">Hockey</option><option value="rugby">Rugby</option><option value="lacrosse">Lacrosse</option><option value="american_football">{t.americanFootball}</option></select>{platform !== 'mac' && <small className="preview-only">{t.previewOnly}</small>}</section>
         <section className="side-section"><label>2 · {t.videos}</label><button type="button" className="secondary-button folder-button" onClick={chooseFolder} disabled={!workerOnline || isWorking}>▣&nbsp; {t.choose}</button><span className={folderName ? 'fake-path selected' : 'fake-path'}>{worker?.selectedFolder || t.noFolder}</span><label className="frame-count-label" htmlFor="frames-per-video">{ft.count}</label><input id="frames-per-video" className="frame-count-input" type="number" min="4" max="5000" step="10" value={framesPerVideo} disabled={isWorking} onChange={(event) => setFramesPerVideo(clamp(Number(event.target.value) || 4, 4, 5000))} /><small className="frame-count-hint">{ft.countHint}</small><button type="button" className="primary-button" onClick={preparePreview} disabled={!folderName || isWorking}>{isWorking && ['scanning', 'extracting'].includes(worker?.operation ?? '') ? t.analyzing : framesReady ? t.refresh : t.analyze}</button>{folderName && <small className="folder-safety">{t.folderReady}</small>}{!workerOnline && <small className="worker-offline">{t.offline}</small>}</section>
-        <section className="side-section frames-section"><label>3 · {t.images}</label><div className="frame-list">{framesReady ? frames.map((frame) => <button type="button" className={selectedFrame?.id === frame.id ? 'frame active' : 'frame'} key={frame.id} onClick={() => chooseFrame(frame.id)}><img className="frame-thumb" src={`${api}/api/frame?id=${encodeURIComponent(frame.id)}`} alt="" loading="lazy" decoding="async" /><span>{frame.videoName}<small>{String(Math.floor(frame.timestamp / 60)).padStart(2, '0')}:{String(Math.floor(frame.timestamp % 60)).padStart(2, '0')} · {frame.annotations.length}</small></span></button>) : <p className="empty-frames">{worker?.message || t.emptyFrames}</p>}</div></section>
+        <section className="side-section active-learning-section"><label>{at.title}</label><button type="button" className="secondary-button" onClick={() => void startActiveLearning()} disabled={!framesReady || isWorking}>＋ {at.start}</button><small>{at.detail}</small>{candidates.length > 0 && <strong>{candidates.length} {at.queue}</strong>}</section>
+        <section className="side-section frames-section"><label>3 · {t.images}</label><div className="frame-list">{framesReady ? frames.map((frame) => <button type="button" className={`${selectedFrame?.id === frame.id ? 'frame active' : 'frame'} ${frame.reviewStatus === 'candidate' ? 'candidate' : ''}`} key={frame.id} onClick={() => chooseFrame(frame.id)}><img className="frame-thumb" src={`${api}/api/frame?id=${encodeURIComponent(frame.id)}`} alt="" loading="lazy" decoding="async" /><span>{frame.videoName}<small>{String(Math.floor(frame.timestamp / 60)).padStart(2, '0')}:{String(Math.floor(frame.timestamp % 60)).padStart(2, '0')} · {frame.annotations.length}{frame.reviewStatus === 'candidate' ? ` · ${at.queue}` : ''}</small></span></button>) : <p className="empty-frames">{worker?.message || t.emptyFrames}</p>}</div></section>
         <div className="privacy-lock"><span>●</span> {t.privacy}</div>
       </aside>
       {workspaceView === 'benchmark' ? <BenchmarkPanel language={language} busy={isWorking} operation={worker?.operation} progress={worker?.progress ?? 0} message={worker?.message} error={worker?.error} log={worker?.log} frameCount={stats.frameCount} automaticCount={stats.automaticCount} sport={worker?.sport ?? sport} models={worker?.modelLibrary?.packages ?? []} benchmark={worker?.benchmark} post={post} /> : <section className={`workspace ${framesReady ? '' : 'empty-workspace'}`}>
@@ -341,6 +385,7 @@ export default function Home() {
           </svg></div></div> : <div className="empty-video-viewport"><strong>{sportName}</strong></div>}
           {framesReady && <div className="editor-controls"><button type="button" onClick={() => frames[selectedFrameIndex - 1] && chooseFrame(frames[selectedFrameIndex - 1].id)} disabled={!frames[selectedFrameIndex - 1]}>←</button><strong>{selectedFrameIndex + 1} / {frames.length}</strong><button type="button" onClick={() => frames[selectedFrameIndex + 1] && chooseFrame(frames[selectedFrameIndex + 1].id)} disabled={!frames[selectedFrameIndex + 1]}>→</button><span className="instruction">{t.drag}</span><button type="button" className="remove-frame" onClick={() => void removeFrame()} disabled={isWorking}>⌫ {ft.remove}</button><div className="zoom-controls"><button type="button" onClick={() => setZoom((value) => clamp(value - .25, 1, 5))}>−</button><strong>{zoom.toFixed(2)}×</strong><button type="button" onClick={() => setZoom((value) => clamp(value + .25, 1, 5))}>+</button><button type="button" className="reset" onClick={() => { setZoom(1); setPan({ x: 0, y: 0 }); }}>{t.reset}</button></div></div>}
         </div>
+        {selectedFrame?.reviewStatus === 'candidate' && <section className="candidate-review"><div><strong>{at.queue}: {candidates.indexOf(selectedFrame) + 1} / {candidates.length}</strong><small>{at.needsBox} {at.hint}</small></div><button type="button" className="candidate-yes" onClick={() => void reviewCandidate('ball')}>✓ {at.ball}</button><button type="button" className="candidate-no" onClick={() => void reviewCandidate('no-ball')}>× {at.noBall}</button><button type="button" onClick={() => setMode('draw')}>⌖ {at.correct}</button><button type="button" onClick={() => void skipCandidate()}>{at.skip}</button></section>}
         {framesReady && <section className="training-card">
           <div className="training-topline"><div><strong>4 · {t.improve}</strong><select className="model-select" aria-label="Modellgröße" value={modelSize} onChange={(event) => setModelSize(event.target.value as ModelSize)}><option value="nano">RF-DETR Nano</option><option value="small">RF-DETR Small</option></select></div><span className="hardware-pill">◆ {hardwareText}</span></div>
           <div className="dataset-summary"><span><strong>{stats.annotatedFrames}/{stats.frameCount}</strong>{t.marked}</span><span><strong>{stats.annotationCount}</strong>{t.boxes}</span><span className={stats.automaticCount ? 'attention' : ''}><strong>{stats.automaticCount}</strong>{t.pending}</span><span><strong>{worker?.lastTraining ? `${worker.lastTraining.model} · ${worker.lastTraining.device.toUpperCase()}${validationScore != null ? ` · ${Math.round(validationScore * 1000) / 10}% mAP` : ''}` : '–'}</strong>{worker?.lastTraining ? `${t.validation} · ${worker.lastTraining.independentTest ? t.testGood : t.testWeak}` : t.noTraining}</span></div>

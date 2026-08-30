@@ -55,6 +55,9 @@ select { height:34px; padding:0 9px; border:1px solid #cbd3df; border-radius:7px
 .fake-path { overflow:hidden; color:#7a8493; font:9px ui-monospace,SFMono-Regular,Menlo,monospace; text-overflow:ellipsis; white-space:nowrap; }
 .fake-path.selected { color:#2e6f58; font-weight:700; }
 .folder-safety { color:#4d7d6d; font-size:8px; line-height:1.35; }
+.active-learning-section { padding:9px; border:1px solid #c9d8ee; border-radius:9px; background:#eef5ff; }
+.active-learning-section small { color:#64738a; font-size:8px; line-height:1.35; }
+.active-learning-section strong { color:var(--accent); font-size:9px; }
 .preview-only { color:#98602d; font-size:8px; }
 .worker-offline { padding:8px; border:1px solid #f1b7b1; border-radius:7px; background:#fff3f1; color:#9b342a; font-size:8px; line-height:1.4; }
 .frames-section { min-height:0; flex:1; margin-bottom:6px; }
@@ -62,13 +65,14 @@ select { height:34px; padding:0 9px; border:1px solid #cbd3df; border-radius:7px
 .empty-frames { margin:4px 2px; padding:12px 9px; border:1px dashed #cbd4df; border-radius:8px; color:#7b8798; font-size:9px; line-height:1.4; }
 .frame { display:grid; grid-template-columns:54px 1fr; align-items:center; gap:9px; width:100%; padding:6px; border:1px solid transparent; border-radius:8px; background:transparent; color:#38465b; text-align:left; font-size:9px; }
 .frame.active { border-color:color-mix(in srgb,var(--accent) 30%,#d9e0ea); background:color-mix(in srgb,var(--accent) 9%,#fff); }
+.frame.candidate { border-color:#d9b66d; background:#fff9eb; }
 .frame small { display:block; margin-top:3px; color:#818b9a; }
 .frame-thumb { position:relative; width:54px; height:34px; overflow:hidden; border-radius:5px; background:linear-gradient(145deg,#394352,#222832); object-fit:cover; }
 .frame-thumb::after { position:absolute; content:'VIDEO'; inset:0; display:grid; place-items:center; color:#aeb8c7; font-size:7px; font-weight:800; letter-spacing:.12em; }
 .frame-thumb i { display:none; }
 .privacy-lock { display:flex; gap:7px; align-items:center; padding-top:11px; border-top:1px solid #dce2e9; color:#397a63; font-size:10px; font-weight:650; }
 
-.workspace { min-width:0; min-height:0; display:grid; grid-template-rows:42px minmax(0,1fr) auto; gap:12px; padding:14px 18px 16px; overflow:hidden; background:#fbfcfd; }
+.workspace { min-width:0; min-height:0; display:grid; grid-template-rows:42px minmax(0,1fr) auto auto; gap:12px; padding:14px 18px 16px; overflow:hidden; background:#fbfcfd; }
 .workspace.empty-workspace { grid-template-rows:minmax(0,1fr); padding:18px; }
 .annotation-toolbar { display:flex; align-items:center; gap:9px; min-width:0; overflow-x:auto; }
 .annotation-toolbar label { font-size:12px; font-weight:700; }
@@ -110,6 +114,13 @@ select { height:34px; padding:0 9px; border:1px solid #cbd3df; border-radius:7px
 .zoom-controls strong { min-width:48px; text-align:center; font-size:10px; }
 .zoom-controls .reset { width:auto; padding-inline:8px; font-size:9px; }
 .training-card { padding:12px 14px; border:1px solid #d8dfe9; border-radius:10px; background:#fff; box-shadow:0 4px 12px rgba(24,38,61,.05); }
+.candidate-review { display:flex; align-items:center; gap:7px; padding:10px 12px; border:1px solid #dfbe76; border-radius:10px; background:#fff8e8; }
+.candidate-review > div { min-width:190px; margin-right:auto; }
+.candidate-review strong,.candidate-review small { display:block; }
+.candidate-review small { margin-top:3px; color:#756748; font-size:8px; }
+.candidate-review button { min-height:31px; padding:5px 9px; border:1px solid #cbd4df; border-radius:6px; background:#fff; color:#40506a; font-size:9px; font-weight:700; }
+.candidate-review .candidate-yes { border-color:#83caae; color:#177d58; }
+.candidate-review .candidate-no { border-color:#e1aaa4; color:#9b342a; }
 .training-topline,.training-actions { display:flex; align-items:center; gap:8px; }
 .training-topline { justify-content:space-between; font-size:11px; }
 .model-pill { margin-left:9px; padding:4px 7px; border-radius:6px; background:#edf1f6; color:#57657a; font-size:9px; }

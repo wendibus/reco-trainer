@@ -109,6 +109,7 @@ extension AppLanguage {
                 .init(title: "Trainingsbilder vorbereiten", detail: "Reco Trainer extrahiert lokal einzelne Frames und legt das Trainingsprojekt im gewählten Ordner an."),
                 .init(title: "Automatisch markieren und prüfen", detail: "Wähle eine Klasse, starte die automatische Markierung, korrigiere Boxen und lösche falsche Treffer."),
                 .init(title: "Lokal trainieren", detail: "Richte ML einmalig ein und trainiere anschließend das sportartspezifische Modell auf deiner lokalen Hardware."),
+                .init(title: "Mit neuen Videos erweitern", detail: "Wähle „Neue Videos prüfen“ und einen getrennten Ordner. Bestätige Ball oder Kein Ball, korrigiere Boxen oder überspringe. Nur geprüfte Bilder werden trainiert."),
                 .init(title: "Exportieren oder austauschen", detail: "Exportiere ein Gerätemodell oder erstelle ein .recomodel-Paket. Es enthält keine Videos oder Frames."),
                 .init(title: "Modelle objektiv vergleichen", detail: "Lege geprüfte Boxen als richtige Antworten fest und teste alle kompatiblen lokalen Modelle auf denselben Bildern."),
             ]
@@ -119,6 +120,7 @@ extension AppLanguage {
                 .init(title: "Prepare training images", detail: "Reco Trainer extracts individual frames locally and creates the training project inside the selected folder."),
                 .init(title: "Auto-label and review", detail: "Choose a class, run auto-labeling, correct boxes, and delete false detections."),
                 .init(title: "Train locally", detail: "Set up ML once, then train the sport-specific model on your local hardware."),
+                .init(title: "Expand with new videos", detail: "Choose “Review new videos” and a separate folder. Confirm Ball or No ball, correct boxes, or skip. Only reviewed images are trained."),
                 .init(title: "Export or exchange", detail: "Export a device model or create a .recomodel package. It contains no videos or frames."),
                 .init(title: "Compare models objectively", detail: "Freeze reviewed boxes as the correct answers and test every compatible local model on the same images."),
             ]
@@ -129,6 +131,7 @@ extension AppLanguage {
                 .init(title: "Prepara las imágenes", detail: "Reco Trainer extrae fotogramas localmente y crea el proyecto dentro de la carpeta seleccionada."),
                 .init(title: "Marca automáticamente y revisa", detail: "Elige una clase, ejecuta el marcado automático, corrige cuadros y elimina detecciones falsas."),
                 .init(title: "Entrena localmente", detail: "Configura ML una vez y entrena el modelo específico del deporte con tu hardware local."),
+                .init(title: "Amplía con vídeos nuevos", detail: "Elige «Revisar vídeos nuevos» y una carpeta separada. Confirma Balón o No es balón, corrige cuadros u omite. Solo se entrenan imágenes revisadas."),
                 .init(title: "Exporta o intercambia", detail: "Exporta un modelo o crea un paquete .recomodel. No contiene vídeos ni fotogramas."),
                 .init(title: "Compara modelos objetivamente", detail: "Fija los cuadros revisados como respuestas correctas y prueba todos los modelos locales compatibles con las mismas imágenes."),
             ]
@@ -139,6 +142,7 @@ extension AppLanguage {
                 .init(title: "Préparez les images", detail: "Reco Trainer extrait localement des images et crée le projet dans le dossier sélectionné."),
                 .init(title: "Marquez automatiquement et vérifiez", detail: "Choisissez une classe, lancez le marquage automatique, corrigez les boîtes et supprimez les détections erronées."),
                 .init(title: "Entraînez localement", detail: "Configurez le ML une fois, puis entraînez le modèle propre au sport sur votre matériel local."),
+                .init(title: "Étendez avec de nouvelles vidéos", detail: "Choisissez « Vérifier de nouvelles vidéos » et un dossier séparé. Confirmez Ballon ou Pas de ballon, corrigez ou ignorez. Seules les images vérifiées sont entraînées."),
                 .init(title: "Exportez ou échangez", detail: "Exportez un modèle ou créez un paquet .recomodel. Il ne contient ni vidéos ni images."),
                 .init(title: "Comparez objectivement les modèles", detail: "Figez les boîtes vérifiées comme bonnes réponses et testez tous les modèles locaux compatibles sur les mêmes images."),
             ]
