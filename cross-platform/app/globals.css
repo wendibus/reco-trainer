@@ -184,6 +184,11 @@ select { height:34px; padding:0 9px; border:1px solid #cbd3df; border-radius:7px
 .ranking-title h3 { margin:0 0 4px; font-size:13px; }
 .ranking-title p { margin:0; color:#748094; font-size:8px; }
 .ranking-title > span { color:#7b8798; font-size:8px; }
+.benchmark-explanation { border:1px solid #dce3ea; border-radius:9px; padding:7px 9px; margin-bottom:10px; background:#f9fbfd; }
+.benchmark-explanation summary { cursor:pointer; font-weight:750; font-size:9px; }
+.benchmark-explanation > div { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:5px 14px; padding-top:8px; }
+.benchmark-explanation p { display:grid; grid-template-columns:65px 1fr; gap:7px; margin:0; font-size:8px; line-height:1.35; }
+.benchmark-explanation span { color:#6f7b8d; }
 .ranking-scroll { overflow:auto; }
 .ranking-card table { width:100%; border-collapse:collapse; font-size:8px; }
 .ranking-card th { padding:7px 8px; border-bottom:1px solid #dbe2eb; color:#788497; font-weight:750; text-align:left; white-space:nowrap; }

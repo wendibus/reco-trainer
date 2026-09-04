@@ -5,6 +5,7 @@ import io
 import json
 import tempfile
 import unittest
+import zipfile
 from pathlib import Path
 
 ROOT = Path(__file__).parents[1]
@@ -85,6 +86,22 @@ class ModelLibraryTests(unittest.TestCase):
         metrics = ml_worker.latest_test_metrics(self.checkpoint.parent)
         self.assertAlmostEqual(metrics["test/mAP_50_95"], 0.435)
         self.assertAlmostEqual(metrics["test/F1"], 0.875)
+
+    def test_package_name_becomes_portable_file_component(self):
+        self.assertEqual(ml_worker.package_file_slug("My Basketball Model #1"), "My-Basketball-Model-1")
+        self.assertEqual(ml_worker.package_file_slug("  ...  "), "reco-model")
+        self.assertLessEqual(len(ml_worker.package_file_slug("x" * 100)), 60)
+
+    def test_exchange_package_uses_requested_name(self):
+        args = argparse.Namespace(project=str(self.root), model="small", name="Hall Model #4", language="en")
+        with contextlib.redirect_stdout(io.StringIO()):
+            ml_worker.package_model(args)
+        packages = list((self.root / "exports" / "share").glob("*.recomodel"))
+        self.assertEqual(len(packages), 1)
+        self.assertTrue(packages[0].name.startswith("Hall-Model-4-"))
+        with zipfile.ZipFile(packages[0]) as archive:
+            manifest = json.loads(archive.read("manifest.json"))
+        self.assertEqual(manifest["displayName"], "Hall Model #4")
 
 
 if __name__ == "__main__":

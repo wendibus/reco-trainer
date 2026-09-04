@@ -724,7 +724,7 @@ def ml_action(action: str, payload: dict) -> None:
                 args = ["install-package", "--project", str(root), "--file", str(package_file), "--language", language]
             elif action == "package-model":
                 executable = system_python()
-                args = ["package", "--project", str(root), "--model", model, "--language", language]
+                args = ["package", "--project", str(root), "--model", model, "--name", str(payload.get("name", "")), "--language", language]
             elif action in {"activate-model", "rename-model", "delete-model"}:
                 executable = system_python()
                 package_id = str(payload.get("packageID", ""))

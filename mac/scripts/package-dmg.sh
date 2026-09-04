@@ -2,28 +2,30 @@
 set -euo pipefail
 
 ROOT_DIR="${0:A:h}/.."
-DIST_DIR="${RECO_DIST_DIR:-$ROOT_DIR/dist}"
-APP_DIR="$DIST_DIR/Reco Trainer.app"
-STAGING_DIR="$DIST_DIR/dmg-stage"
-DMG_PATH="$DIST_DIR/Reco-Trainer-Mac-0.11.0.dmg"
-RW_DMG_PATH="$DIST_DIR/Reco-Trainer-Mac-0.11.0-rw.dmg"
-MOUNT_DIR="$DIST_DIR/dmg-mount"
+FINAL_DIST_DIR="${RECO_DIST_DIR:-$ROOT_DIR/dist}"
+WORK_DIR="$(mktemp -d /tmp/reco-trainer-dmg.XXXXXX)"
+APP_DIR="$WORK_DIR/Reco Trainer.app"
+STAGING_DIR="$WORK_DIR/dmg-stage"
+DMG_PATH="$FINAL_DIST_DIR/Reco-Trainer-Mac-0.12.0.dmg"
+WORK_DMG_PATH="$WORK_DIR/Reco-Trainer-Mac-0.12.0.dmg"
+RW_DMG_PATH="$WORK_DIR/Reco-Trainer-Mac-0.12.0-rw.dmg"
+MOUNT_DIR="$WORK_DIR/dmg-mount"
 
 cleanup() {
   hdiutil detach "$MOUNT_DIR" -force >/dev/null 2>&1 || true
-  rm -f "$RW_DMG_PATH"
-  rm -rf "$MOUNT_DIR"
+  rm -rf "$WORK_DIR"
 }
 trap cleanup EXIT
 
-"$ROOT_DIR/scripts/package-app.sh"
+RECO_DIST_DIR="$WORK_DIR" "$ROOT_DIR/scripts/package-app.sh"
 rm -rf "$STAGING_DIR"
 mkdir -p "$STAGING_DIR"
 ditto --noextattr --noqtn "$APP_DIR" "$STAGING_DIR/Reco Trainer.app"
 xattr -cr "$STAGING_DIR/Reco Trainer.app"
 codesign --verify --deep --strict --verbose=2 "$STAGING_DIR/Reco Trainer.app"
 ln -s /Applications "$STAGING_DIR/Applications"
-rm -f "$DMG_PATH" "$RW_DMG_PATH"
+mkdir -p "$FINAL_DIST_DIR"
+rm -f "$DMG_PATH" "$RW_DMG_PATH" "$WORK_DMG_PATH"
 rm -rf "$MOUNT_DIR"
 mkdir -p "$MOUNT_DIR"
 hdiutil create -volname "Reco Trainer" -srcfolder "$STAGING_DIR" -ov -format UDRW "$RW_DMG_PATH"
@@ -36,6 +38,7 @@ else
 fi
 codesign --verify --deep --strict --verbose=2 "$MOUNT_DIR/Reco Trainer.app"
 hdiutil detach "$MOUNT_DIR" >/dev/null
-hdiutil convert "$RW_DMG_PATH" -format UDZO -o "$DMG_PATH"
-codesign --force --sign "${RECO_SIGN_IDENTITY:--}" "$DMG_PATH"
+hdiutil convert "$RW_DMG_PATH" -format UDZO -o "$WORK_DMG_PATH"
+codesign --force --sign "${RECO_SIGN_IDENTITY:--}" "$WORK_DMG_PATH"
+ditto --noextattr --noqtn "$WORK_DMG_PATH" "$DMG_PATH"
 echo "$DMG_PATH"

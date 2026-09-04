@@ -159,13 +159,14 @@ struct MLWorker: Sendable {
 
     func packageModel(
         modelSize: ModelSize,
+        name: String,
         language: AppLanguage,
         onOutput: @escaping @Sendable (String) async -> Void
     ) async throws {
         _ = try await runPython(
             arguments: [
                 try workerURL.path, "package", "--project", projectRoot.path,
-                "--model", modelSize.rawValue, "--language", language.rawValue
+                "--model", modelSize.rawValue, "--name", name, "--language", language.rawValue
             ],
             preferVenv: true,
             onOutput: onOutput

@@ -15,6 +15,8 @@ struct AnnotationEditor: View {
     @State private var offset: CGSize = .zero
     @State private var panStartOffset: CGSize?
     @State private var isPanning = false
+    @State private var undoStack: [[BoxAnnotation]] = []
+    @State private var redoStack: [[BoxAnnotation]] = []
 
     init(
         imageURL: URL,
@@ -114,7 +116,7 @@ struct AnnotationEditor: View {
                                 ))
                                 dragStart = nil
                                 dragCurrent = nil
-                                onChange(updated)
+                                commit(updated)
                             }
                     )
                     .simultaneousGesture(
@@ -181,17 +183,53 @@ struct AnnotationEditor: View {
                 }
                 .disabled(zoom == 1 && offset == .zero)
                 Divider().frame(height: 22)
+                Button {
+                    undo()
+                } label: {
+                    Label(language.text("Rückgängig", "Undo", "Deshacer", "Annuler"), systemImage: "arrow.uturn.backward")
+                }
+                .keyboardShortcut("z", modifiers: .command)
+                .disabled(undoStack.isEmpty)
+                Button {
+                    redo()
+                } label: {
+                    Label(language.text("Wiederholen", "Redo", "Rehacer", "Rétablir"), systemImage: "arrow.uturn.forward")
+                }
+                .keyboardShortcut("z", modifiers: [.command, .shift])
+                .disabled(redoStack.isEmpty)
                 Button(language.text("Letzte entfernen", "Remove last")) {
                     guard !frame.annotations.isEmpty else { return }
-                    onChange(Array(frame.annotations.dropLast()))
+                    commit(Array(frame.annotations.dropLast()))
                 }
                 .disabled(frame.annotations.isEmpty)
                 Button(language.text("Frame leeren", "Clear frame"), role: .destructive) {
-                    onChange([])
+                    commit([])
                 }
                 .disabled(frame.annotations.isEmpty)
             }
         }
+    }
+
+    private func commit(_ annotations: [BoxAnnotation]) {
+        guard annotations != frame.annotations else { return }
+        undoStack.append(frame.annotations)
+        if undoStack.count > 10 { undoStack.removeFirst(undoStack.count - 10) }
+        redoStack.removeAll()
+        onChange(annotations)
+    }
+
+    private func undo() {
+        guard let previous = undoStack.popLast() else { return }
+        redoStack.append(frame.annotations)
+        if redoStack.count > 10 { redoStack.removeFirst(redoStack.count - 10) }
+        onChange(previous)
+    }
+
+    private func redo() {
+        guard let next = redoStack.popLast() else { return }
+        undoStack.append(frame.annotations)
+        if undoStack.count > 10 { undoStack.removeFirst(undoStack.count - 10) }
+        onChange(next)
     }
 
     private func zoomedRect(baseRect: CGRect, container: CGRect, scale: Double, offset: CGSize) -> CGRect {

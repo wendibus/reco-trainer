@@ -2,7 +2,7 @@ import AppKit
 import SwiftUI
 
 struct ContentView: View {
-    private static let currentRelease = "0.11.0"
+    private static let currentRelease = "0.12.0"
 
     @EnvironmentObject private var app: AppState
     @AppStorage("recoWalkthroughCompleteV1") private var walkthroughComplete = false
@@ -17,6 +17,8 @@ struct ContentView: View {
     @State private var modelNameDrafts: [String: String] = [:]
     @State private var modelPendingDeletion: ManagedModelRecord?
     @State private var showModelLibrary = false
+    @State private var showPackageNamePrompt = false
+    @State private var packageNameDraft = ""
 
     var body: some View {
         NavigationSplitView {
@@ -32,6 +34,24 @@ struct ContentView: View {
             Button("OK") { app.errorMessage = nil }
         } message: {
             Text(app.errorMessage ?? "")
+        }
+        .alert(
+            app.tr("Modellpaket benennen", "Name model package", "Nombrar el paquete del modelo", "Nommer le paquet du modèle"),
+            isPresented: $showPackageNamePrompt
+        ) {
+            TextField(app.tr("Paketname", "Package name", "Nombre del paquete", "Nom du paquet"), text: $packageNameDraft)
+            Button(app.tr("Paket erstellen", "Create package", "Crear paquete", "Créer le paquet")) {
+                let name = packageNameDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !name.isEmpty { app.packageModel(name: name) }
+            }
+            Button(app.tr("Abbrechen", "Cancel", "Cancelar", "Annuler"), role: .cancel) {}
+        } message: {
+            Text(app.tr(
+                "Dieser Name erscheint in der Modellbibliothek und im Dateinamen. Videos oder Bilder werden nicht in das Paket übernommen.",
+                "This name appears in the model library and file name. Videos and images are not included in the package.",
+                "Este nombre aparece en la biblioteca y en el archivo. El paquete no contiene vídeos ni imágenes.",
+                "Ce nom apparaît dans la bibliothèque et le fichier. Le paquet ne contient ni vidéos ni images."
+            ))
         }
         .confirmationDialog(
             app.tr("Trainingsbild entfernen?", "Remove training image?", "¿Quitar imagen de entrenamiento?", "Retirer l’image d’entraînement ?"),
@@ -256,6 +276,7 @@ struct ContentView: View {
                 ) { annotations in
                     app.updateAnnotations(for: frame.id, annotations)
                 }
+                .id(frame.id)
                 .frame(minHeight: 420)
                 if frame.reviewStatus == "candidate" { candidateReviewBar }
                 trainingPanel
@@ -327,6 +348,20 @@ struct ContentView: View {
                             "Calidad = 70 % mAP@0.50 + 30 % F1. La velocidad solo desempata.",
                             "Qualité = 70 % mAP@0.50 + 30 % F1. La vitesse départage seulement les égalités."
                         )).font(.caption).foregroundStyle(.secondary)
+                        DisclosureGroup(app.tr(
+                            "Was bedeuten die Werte?", "What do the metrics mean?", "¿Qué significan los valores?", "Que signifient les valeurs ?"
+                        )) {
+                            VStack(alignment: .leading, spacing: 8) {
+                                ForEach(Array(benchmarkMetricExplanations.enumerated()), id: \.offset) { _, item in
+                                    HStack(alignment: .top, spacing: 8) {
+                                        Text(item.0).bold().frame(width: 92, alignment: .leading)
+                                        Text(item.1).foregroundStyle(.secondary)
+                                    }
+                                }
+                            }
+                            .font(.caption)
+                            .padding(.top, 6)
+                        }
                         if let report = app.benchmarkReport, app.benchmarkReportIsCurrent {
                             Grid(alignment: .leading, horizontalSpacing: 18, verticalSpacing: 8) {
                                 GridRow {
@@ -365,6 +400,19 @@ struct ContentView: View {
 
     private func percent(_ value: Double?) -> String {
         value.map { String(format: "%.1f%%", $0 * 100) } ?? "–"
+    }
+
+    private var benchmarkMetricExplanations: [(String, String)] {
+        [
+            (app.tr("Qualität", "Quality", "Calidad", "Qualité"), app.tr("Gesamtrang: 70 % mAP@0.50 und 30 % F1. Höher ist besser.", "Overall ranking: 70% mAP@0.50 and 30% F1. Higher is better.", "Clasificación total: 70 % mAP@0.50 y 30 % F1. Un valor mayor es mejor.", "Classement global : 70 % mAP@0.50 et 30 % F1. Plus élevé est meilleur.")),
+            ("mAP@.50", app.tr("Misst die Erkennung über viele Sicherheitsschwellen. Eine Box zählt ab 50 % Überlappung als richtig.", "Measures detection across many confidence levels. A box counts as correct from 50% overlap.", "Mide la detección con muchos niveles de confianza. Un cuadro cuenta como correcto desde un 50 % de solapamiento.", "Mesure la détection à plusieurs niveaux de confiance. Une boîte est correcte dès 50 % de chevauchement.")),
+            (app.tr("Präzision", "Precision", "Precisión", "Précision"), app.tr("Anteil der gemeldeten Treffer, die wirklich richtig sind. Hoch bedeutet wenige Fehlalarme.", "Share of reported detections that are correct. High means fewer false alarms.", "Proporción de detecciones notificadas que son correctas. Un valor alto significa menos falsas alarmas.", "Part des détections signalées qui sont correctes. Une valeur élevée signifie moins de fausses alertes.")),
+            ("Recall", app.tr("Anteil der vorhandenen Objekte, die gefunden wurden. Hoch bedeutet weniger übersehene Bälle.", "Share of real objects that were found. High means fewer missed balls.", "Proporción de objetos reales encontrados. Un valor alto significa menos balones omitidos.", "Part des objets réels trouvés. Une valeur élevée signifie moins de ballons manqués.")),
+            ("F1", app.tr("Gemeinsamer Ausgleich von Präzision und Recall.", "Balance of precision and recall.", "Equilibrio entre precisión y cobertura.", "Équilibre précision et rappel.")),
+            ("FP / FN", app.tr("Falsche Treffer / übersehene echte Objekte. Bei beiden ist weniger besser.", "False detections / missed real objects. Lower is better for both.", "Detecciones falsas / objetos reales omitidos. Menos es mejor.", "Fausses détections / objets réels manqués. Moins est meilleur.")),
+            (app.tr("Zeit/Bild", "Time/image", "Tiempo/imagen", "Temps/image"), app.tr("Mittlere Rechenzeit pro Bild. Niedriger ist schneller.", "Average processing time per image. Lower is faster.", "Tiempo medio por imagen. Un valor menor es más rápido.", "Temps moyen par image. Plus bas est plus rapide.")),
+            (app.tr("Schwelle", "Threshold", "Umbral", "Seuil"), app.tr("Minimale Sicherheit. Niedriger findet mehr, erzeugt aber meist mehr Fehlalarme.", "Minimum confidence. Lower finds more but usually creates more false alarms.", "Confianza mínima. Un valor menor encuentra más, pero suele producir más falsas alarmas.", "Confiance minimale. Plus bas trouve davantage, mais produit souvent plus de fausses alertes.")),
+        ]
     }
 
     private var annotationToolbar: some View {
@@ -453,7 +501,10 @@ struct ContentView: View {
                 Divider().frame(height: 22)
                 Button(app.tr("CPU-Modell (ONNX)", "CPU model (ONNX)"), action: app.exportCPU)
                 Button(app.tr("Apple-Modell (Core ML)", "Apple model (Core ML)"), action: app.exportCoreML)
-                Button(app.tr("Paket erstellen", "Exchange package"), action: app.packageModel)
+                Button(app.tr("Paket erstellen", "Exchange package")) {
+                    packageNameDraft = "\(app.sport.title(language: app.language)) · \(app.modelSize.title(language: app.language))"
+                    showPackageNamePrompt = true
+                }
                 Button(app.tr("Modell importieren", "Import model"), action: app.importModelPackage)
             }
             .disabled(app.isWorking)
@@ -876,24 +927,16 @@ private struct WhatsNewSheet: View {
     private var changes: [(String, String)] {
         [
             (
-                language.text("Versionierte Modellverwaltung", "Versioned model library", "Biblioteca de modelos versionada", "Bibliothèque de modèles versionnée"),
-                language.text("Jeder Trainingslauf wird unveränderlich archiviert. Modelle lassen sich benennen, aktivieren und löschen; der beste Testwert wird bevorzugt und ein schlechterer Lauf ersetzt ihn nicht automatisch.", "Every training run is archived immutably. Models can be named, activated, and deleted; the best independent test result is preferred and is not automatically replaced by a worse run.", "Cada entrenamiento se archiva de forma inmutable. Los modelos pueden nombrarse, activarse y eliminarse; se prefiere el mejor resultado de prueba y no se sustituye por uno peor.", "Chaque entraînement est archivé de façon immuable. Les modèles peuvent être nommés, activés et supprimés ; le meilleur résultat de test est privilégié et n’est pas remplacé par un moins bon.")
+                language.text("10-faches Undo und Redo", "10-step undo and redo", "Deshacer y rehacer 10 pasos", "Annulation et rétablissement sur 10 étapes"),
+                language.text("Die letzten zehn Änderungen an den Boxen lassen sich pro Bild zurücknehmen und wiederholen – auch per Tastenkürzel.", "The last ten box edits can be undone and redone per image, including with keyboard shortcuts.", "Las últimas diez ediciones de cuadros pueden deshacerse y rehacerse por imagen, también con atajos de teclado.", "Les dix dernières modifications de boîtes peuvent être annulées et rétablies par image, y compris avec des raccourcis clavier.")
             ),
             (
-                language.text("Videoordner öffnen ohne Blockade", "Open video folders without blocking", "Abrir carpetas de vídeo sin bloqueos", "Ouverture des dossiers vidéo sans blocage"),
-                language.text("Projekt, Modelle und Checkpoints werden im Hintergrund geladen; interne Trainingsordner werden bei der Videosuche übersprungen.", "Projects, models, and checkpoints now load in the background, while internal training folders are skipped during video discovery.", "Los proyectos, modelos y puntos de control se cargan en segundo plano y las carpetas internas se omiten al buscar vídeos.", "Les projets, modèles et points de contrôle sont chargés en arrière-plan, et les dossiers internes sont ignorés lors de la recherche de vidéos.")
+                language.text("Eigene Paketnamen", "Custom package names", "Nombres de paquete personalizados", "Noms de paquet personnalisés"),
+                language.text("Vor dem Erstellen eines Austauschpakets fragt Reco Trainer nach einem verständlichen Namen für Modellbibliothek und Datei.", "Before creating an exchange package, Reco Trainer asks for a readable name for the model library and file.", "Antes de crear un paquete, Reco Trainer solicita un nombre legible para la biblioteca y el archivo.", "Avant de créer un paquet, Reco Trainer demande un nom lisible pour la bibliothèque et le fichier.")
             ),
             (
-                language.text("Trainingsordner immer sichtbar", "Training folders always visible", "Carpetas de entrenamiento siempre visibles", "Dossiers d’entraînement toujours visibles"),
-                language.text("Der sichtbare Ordner „Reco Training“ führt direkt zu Frames, Datensatz, Modellen, Exporten und Sicherungen.", "The visible “Reco Training” folder provides direct access to frames, datasets, models, exports, and backups.", "La carpeta visible «Reco Training» da acceso directo a fotogramas, datos, modelos, exportaciones y copias.", "Le dossier visible « Reco Training » donne accès aux images, données, modèles, exports et sauvegardes.")
-            ),
-            (
-                language.text("Automatisch weitertrainieren", "Automatic continued training", "Continuación automática", "Reprise automatique"),
-                language.text("Ein neuer Lauf setzt beim besten kompatiblen Checkpoint des zuletzt trainierten Modells fort.", "A new run continues from the best compatible checkpoint of the latest trained model.", "Cada nueva ejecución continúa desde el mejor punto de control compatible del último modelo.", "Chaque nouvel entraînement reprend depuis le meilleur point de contrôle compatible du dernier modèle.")
-            ),
-            (
-                "Futsal + OpenCV",
-                language.text("Futsal ist verfügbar; automatische Ball- und Puck-Boxen erhalten zusätzlich eine rein lokale OpenCV-Prüfung.", "Futsal is available, and automatic ball and puck boxes receive an additional fully local OpenCV review.", "Futsal está disponible y los cuadros automáticos reciben una revisión OpenCV totalmente local.", "Le futsal est disponible et les boîtes automatiques bénéficient d’une vérification OpenCV entièrement locale.")
+                language.text("Metriken verständlich erklärt", "Metrics explained clearly", "Métricas explicadas claramente", "Indicateurs expliqués clairement"),
+                language.text("Ein aufklappbares Lexikon erläutert Qualität, mAP, Präzision, Recall, F1, FP/FN, Geschwindigkeit und Schwelle direkt beim Modellvergleich.", "An expandable glossary explains quality, mAP, precision, recall, F1, FP/FN, speed, and threshold directly in the benchmark.", "Un glosario desplegable explica calidad, mAP, precisión, cobertura, F1, FP/FN, velocidad y umbral dentro de la comparación.", "Un glossaire dépliant explique qualité, mAP, précision, rappel, F1, FP/FN, vitesse et seuil dans la comparaison.")
             )
         ]
     }

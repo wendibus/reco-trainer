@@ -534,8 +534,8 @@ final class AppState: ObservableObject {
         try await worker.exportCoreML(modelSize: self.modelSize, language: self.language, onOutput: output)
     }}
 
-    func packageModel() { runWorkerAction(tr("Erstelle datenschutzsicheres Austauschpaket …", "Creating privacy-safe exchange package …")) { worker, output in
-        try await worker.packageModel(modelSize: self.modelSize, language: self.language, onOutput: output)
+    func packageModel(name: String) { runWorkerAction(tr("Erstelle datenschutzsicheres Austauschpaket …", "Creating privacy-safe exchange package …")) { worker, output in
+        try await worker.packageModel(modelSize: self.modelSize, name: name, language: self.language, onOutput: output)
     }}
 
     func freezeBenchmarkGroundTruth() {

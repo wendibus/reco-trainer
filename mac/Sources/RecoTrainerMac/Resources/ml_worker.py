@@ -17,6 +17,7 @@ import json
 import math
 import os
 import platform
+import re
 import shutil
 import sys
 import time
@@ -1406,6 +1407,12 @@ def sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
+def package_file_slug(name: str) -> str:
+    """Create a portable file-name component without exposing local paths."""
+    slug = re.sub(r"[^A-Za-z0-9._-]+", "-", name.strip()).strip("-._")
+    return slug[:60] or "reco-model"
+
+
 def package_model(args: argparse.Namespace) -> None:
     """Create a shareable weights package that contains no media or file names."""
     project_root = Path(args.project).resolve()
@@ -1420,10 +1427,21 @@ def package_model(args: argparse.Namespace) -> None:
     reviewed_frames = [frame for frame in document.get("frames", []) if frame.get("reviewStatus") != "candidate"]
     annotations = [annotation for frame in reviewed_frames for annotation in frame.get("annotations", [])]
     created = datetime.now(timezone.utc)
+    package_name = str(getattr(args, "name", "") or "").strip()
+    if len(package_name) > 80:
+        raise SystemExit(localized(
+            args.language,
+            "Der Paketname darf höchstens 80 Zeichen lang sein.",
+            "The package name must not exceed 80 characters.",
+            "El nombre del paquete no puede superar los 80 caracteres.",
+            "Le nom du paquet ne doit pas dépasser 80 caractères.",
+        ))
+    if not package_name:
+        package_name = f"{str(document['sport']).replace('_', ' ').title()} · {args.model.capitalize()}"
     package_id = f"reco-{document['sport']}-{args.model}-{created.strftime('%Y%m%d-%H%M%S')}"
     output_dir = project_root / "exports" / "share"
     output_dir.mkdir(parents=True, exist_ok=True)
-    output = output_dir / f"{package_id}.recomodel"
+    output = output_dir / f"{package_file_slug(package_name)}-{created.strftime('%Y%m%d-%H%M%S')}.recomodel"
     try:
         rfdetr_version = importlib.metadata.version("rfdetr")
     except importlib.metadata.PackageNotFoundError:
@@ -1432,7 +1450,7 @@ def package_model(args: argparse.Namespace) -> None:
     manifest = {
         "schemaVersion": 1,
         "packageID": package_id,
-        "displayName": f"{str(document['sport']).replace('_', ' ').title()} · {args.model.capitalize()} · {created.strftime('%Y-%m-%d %H:%M UTC')}",
+        "displayName": package_name,
         "createdAt": created.isoformat(),
         "sport": document["sport"],
         "modelSize": args.model,
@@ -1764,6 +1782,7 @@ def build_parser() -> argparse.ArgumentParser:
     package_parser = commands.add_parser("package")
     package_parser.add_argument("--project", required=True)
     package_parser.add_argument("--model", choices=MODEL_CLASSES, default="nano")
+    package_parser.add_argument("--name", default="")
     package_parser.add_argument("--language", choices=["de", "en", "es", "fr"], default="de")
     package_parser.set_defaults(func=package_model)
 

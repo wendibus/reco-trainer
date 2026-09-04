@@ -1,5 +1,12 @@
 # Änderungen
 
+## 0.12.0
+
+- Zehnstufiges Rückgängig/Wiederholen für Boxänderungen, inklusive Tastenkürzeln.
+- Namensabfrage vor der Paketerstellung; der Name wird in Manifest und Dateiname übernommen.
+- Aufklappbare Erklärungen zu Qualität, mAP, Präzision, Recall, F1, FP/FN, Geschwindigkeit und Schwelle im Modellvergleich.
+- Alle neuen Texte stehen auf Deutsch, Englisch, Spanisch und Französisch bereit.
+
 ## 0.11.0
 
 - Jeder lokale Trainingslauf wird als unveränderlicher Modellstand in der Modellbibliothek archiviert.
