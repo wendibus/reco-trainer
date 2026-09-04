@@ -3,12 +3,13 @@ set -euo pipefail
 
 ROOT_DIR="${0:A:h}/.."
 FINAL_DIST_DIR="${RECO_DIST_DIR:-$ROOT_DIR/dist}"
+VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$ROOT_DIR/Packaging/Info.plist")"
 WORK_DIR="$(mktemp -d /tmp/reco-trainer-dmg.XXXXXX)"
 APP_DIR="$WORK_DIR/Reco Trainer.app"
 STAGING_DIR="$WORK_DIR/dmg-stage"
-DMG_PATH="$FINAL_DIST_DIR/Reco-Trainer-Mac-0.12.0.dmg"
-WORK_DMG_PATH="$WORK_DIR/Reco-Trainer-Mac-0.12.0.dmg"
-RW_DMG_PATH="$WORK_DIR/Reco-Trainer-Mac-0.12.0-rw.dmg"
+DMG_PATH="$FINAL_DIST_DIR/Reco-Trainer-Mac-$VERSION.dmg"
+WORK_DMG_PATH="$WORK_DIR/Reco-Trainer-Mac-$VERSION.dmg"
+RW_DMG_PATH="$WORK_DIR/Reco-Trainer-Mac-$VERSION-rw.dmg"
 MOUNT_DIR="$WORK_DIR/dmg-mount"
 
 cleanup() {

@@ -2,7 +2,7 @@ import AppKit
 import SwiftUI
 
 struct ContentView: View {
-    private static let currentRelease = "0.12.0"
+    private static let currentRelease = "0.12.1"
 
     @EnvironmentObject private var app: AppState
     @AppStorage("recoWalkthroughCompleteV1") private var walkthroughComplete = false
@@ -927,16 +927,16 @@ private struct WhatsNewSheet: View {
     private var changes: [(String, String)] {
         [
             (
-                language.text("10-faches Undo und Redo", "10-step undo and redo", "Deshacer y rehacer 10 pasos", "Annulation et rétablissement sur 10 étapes"),
-                language.text("Die letzten zehn Änderungen an den Boxen lassen sich pro Bild zurücknehmen und wiederholen – auch per Tastenkürzel.", "The last ten box edits can be undone and redone per image, including with keyboard shortcuts.", "Las últimas diez ediciones de cuadros pueden deshacerse y rehacerse por imagen, también con atajos de teclado.", "Les dix dernières modifications de boîtes peuvent être annulées et rétablies par image, y compris avec des raccourcis clavier.")
+                language.text("Training sicher fortsetzen", "Safely resume training", "Reanudar el entrenamiento de forma segura", "Reprendre l’entraînement en toute sécurité"),
+                language.text("Ein abgebrochener Lauf wird vollständig mit Optimizer, Lernratenplan, EMA und Early Stopping fortgesetzt.", "An interrupted run now resumes with its optimizer, learning-rate schedule, EMA, and early-stopping state intact.", "Una ejecución interrumpida continúa con su optimizador, plan de aprendizaje, EMA y parada temprana intactos.", "Un entraînement interrompu reprend avec son optimiseur, son programme de taux, son EMA et son arrêt anticipé.")
             ),
             (
-                language.text("Eigene Paketnamen", "Custom package names", "Nombres de paquete personalizados", "Noms de paquet personnalisés"),
-                language.text("Vor dem Erstellen eines Austauschpakets fragt Reco Trainer nach einem verständlichen Namen für Modellbibliothek und Datei.", "Before creating an exchange package, Reco Trainer asks for a readable name for the model library and file.", "Antes de crear un paquete, Reco Trainer solicita un nombre legible para la biblioteca y el archivo.", "Avant de créer un paquet, Reco Trainer demande un nom lisible pour la bibliothèque et le fichier.")
+                language.text("Schonendere Feinabstimmung", "Gentler fine-tuning", "Ajuste fino más cuidadoso", "Ajustement plus progressif"),
+                language.text("Weitere Trainingszyklen starten vom besten Modell mit reduzierter Lernrate, Cosine-Verlauf und geduldigerem Early Stopping.", "Further training cycles start from the best model with a reduced learning rate, cosine decay, and more patient early stopping.", "Los nuevos ciclos parten del mejor modelo con una tasa reducida, descenso coseno y una parada temprana más paciente.", "Les nouveaux cycles repartent du meilleur modèle avec un taux réduit, une décroissance cosinus et un arrêt anticipé plus patient.")
             ),
             (
-                language.text("Metriken verständlich erklärt", "Metrics explained clearly", "Métricas explicadas claramente", "Indicateurs expliqués clairement"),
-                language.text("Ein aufklappbares Lexikon erläutert Qualität, mAP, Präzision, Recall, F1, FP/FN, Geschwindigkeit und Schwelle direkt beim Modellvergleich.", "An expandable glossary explains quality, mAP, precision, recall, F1, FP/FN, speed, and threshold directly in the benchmark.", "Un glosario desplegable explica calidad, mAP, precisión, cobertura, F1, FP/FN, velocidad y umbral dentro de la comparación.", "Un glossaire dépliant explique qualité, mAP, précision, rappel, F1, FP/FN, vitesse et seuil dans la comparaison.")
+                language.text("Messwerte bleiben erhalten", "Metrics are preserved", "Las métricas se conservan", "Les mesures sont conservées"),
+                language.text("Frühere Protokolle werden archiviert. Kleine Validierungs- oder Testsätze werden deutlich als vorläufig gekennzeichnet.", "Previous logs are archived, and small validation or test splits are clearly marked as preliminary.", "Los registros anteriores se archivan y los conjuntos pequeños de validación o prueba se marcan como preliminares.", "Les journaux précédents sont archivés et les petits jeux de validation ou de test sont signalés comme provisoires.")
             )
         ]
     }

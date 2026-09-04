@@ -1206,6 +1206,65 @@ def preferred_run_checkpoint(run_dir: Path) -> Path | None:
     return max(candidates, key=lambda item: item.stat().st_mtime) if candidates else None
 
 
+def interrupted_run_checkpoint(
+    project_root: Path, size: str, document: dict[str, Any]
+) -> Path | None:
+    """Return a full Lightning checkpoint only when the previous run did not finish.
+
+    A completed Reco Trainer run writes ``lastTraining.completedAt`` after RF-DETR
+    has produced its checkpoints and completed evaluation. A newer ``last.ckpt``
+    therefore belongs to an interrupted run and can safely restore optimizer,
+    scheduler, EMA, and callback state.
+    """
+    checkpoint = project_root / "runs" / size / "last.ckpt"
+    if not checkpoint.is_file():
+        return None
+    completed_at = (document.get("lastTraining") or {}).get("completedAt")
+    if not completed_at:
+        return checkpoint
+    try:
+        completed = datetime.fromisoformat(str(completed_at).replace("Z", "+00:00"))
+        if completed.tzinfo is None:
+            completed = completed.replace(tzinfo=timezone.utc)
+        return checkpoint if checkpoint.stat().st_mtime > completed.timestamp() + 1.0 else None
+    except (OSError, TypeError, ValueError):
+        return None
+
+
+def checkpoint_completed_epochs(checkpoint: Path) -> int | None:
+    """Read the zero-based Lightning epoch without allowing arbitrary pickle code."""
+    try:
+        import torch
+
+        payload = torch.load(checkpoint, map_location="cpu", weights_only=True)
+        epoch = int(payload.get("epoch", -1))
+        return epoch + 1 if epoch >= 0 else None
+    except (ImportError, OSError, RuntimeError, TypeError, ValueError, AttributeError):
+        return None
+
+
+def archive_run_logs(run_dir: Path) -> Path | None:
+    """Preserve small text logs before RF-DETR refreshes its mutable run folder."""
+    names = ("metrics.csv", "training_config.json")
+    existing = [run_dir / name for name in names if (run_dir / name).is_file()]
+    if not existing:
+        return None
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+    destination = run_dir / "history" / f"{stamp}-{uuid.uuid4().hex[:6]}"
+    destination.mkdir(parents=True, exist_ok=False)
+    for source in existing:
+        shutil.copy2(source, destination / source.name)
+    return destination
+
+
+def dataset_annotation_count(dataset_root: Path, split: str) -> int:
+    try:
+        document = load_json(dataset_root / split / "_annotations.coco.json")
+        return len(document.get("annotations", []))
+    except (OSError, TypeError, ValueError, json.JSONDecodeError):
+        return 0
+
+
 def train(args: argparse.Namespace) -> None:
     project_root = Path(args.project).resolve()
     document = require_project(project_root, args.language)
@@ -1216,6 +1275,37 @@ def train(args: argparse.Namespace) -> None:
     output_dir = project_root / "runs" / args.model
     output_dir.mkdir(parents=True, exist_ok=True)
     continuation_checkpoint = newest_checkpoint(project_root, args.model)
+    resume_checkpoint = interrupted_run_checkpoint(project_root, args.model, document)
+    resume_completed_epochs = checkpoint_completed_epochs(resume_checkpoint) if resume_checkpoint else None
+    archived_logs = archive_run_logs(output_dir)
+
+    if archived_logs is not None:
+        emit(localized(
+            args.language,
+            f"Vorherige Messprotokolle gesichert: {archived_logs}",
+            f"Previous metric logs preserved: {archived_logs}",
+            f"Registros de métricas anteriores conservados: {archived_logs}",
+            f"Journaux de mesures précédents conservés : {archived_logs}",
+        ))
+
+    validation_annotations = dataset_annotation_count(dataset_root, "valid")
+    test_annotations = dataset_annotation_count(dataset_root, "test")
+    if validation_annotations < 100 or (test_annotations and test_annotations < 100):
+        emit(localized(
+            args.language,
+            f"Hinweis: Die Qualitätswerte sind noch vorläufig (Validierung: "
+            f"{validation_annotations}, Test: {test_annotations} Markierungen). "
+            "Für belastbare Modellvergleiche werden je Split mindestens 100, besser 300 Markierungen empfohlen.",
+            f"Note: quality metrics are still preliminary (validation: "
+            f"{validation_annotations}, test: {test_annotations} annotations). "
+            "At least 100, preferably 300 annotations per split are recommended for reliable model comparisons.",
+            f"Nota: las métricas de calidad aún son preliminares (validación: "
+            f"{validation_annotations}, prueba: {test_annotations} anotaciones). "
+            "Para comparar modelos de forma fiable se recomiendan al menos 100, preferiblemente 300 anotaciones por conjunto.",
+            f"Remarque : les mesures de qualité sont encore provisoires (validation : "
+            f"{validation_annotations}, test : {test_annotations} annotations). "
+            "Pour comparer les modèles de manière fiable, au moins 100, idéalement 300 annotations par jeu sont recommandées.",
+        ))
 
     # Older Reco Trainer versions kept only one mutable run checkpoint. Preserve
     # it before RF-DETR writes the next run into the same directory.
@@ -1266,12 +1356,26 @@ def train(args: argparse.Namespace) -> None:
         "device": device,
         "gradient_checkpointing": profile["gradient_checkpointing"],
     }
-    if continuation_checkpoint is not None:
+    if resume_checkpoint is not None:
+        emit(localized(
+            args.language,
+            f"Abgebrochenen Trainingslauf vollständig fortsetzen: {resume_checkpoint.name}"
+            + (f" (nach {resume_completed_epochs} Epochen)" if resume_completed_epochs is not None else ""),
+            f"Fully resuming interrupted training run: {resume_checkpoint.name}"
+            + (f" (after {resume_completed_epochs} epochs)" if resume_completed_epochs is not None else ""),
+            f"Reanudando por completo el entrenamiento interrumpido: {resume_checkpoint.name}"
+            + (f" (después de {resume_completed_epochs} épocas)" if resume_completed_epochs is not None else ""),
+            f"Reprise complète de l’entraînement interrompu : {resume_checkpoint.name}"
+            + (f" (après {resume_completed_epochs} époques)" if resume_completed_epochs is not None else ""),
+        ))
+    elif continuation_checkpoint is not None:
         model_kwargs["pretrain_weights"] = str(continuation_checkpoint)
         emit(localized(
             args.language,
-            f"Setze das zuletzt trainierte Modell fort: {continuation_checkpoint.name}",
-            f"Continuing from the latest trained model: {continuation_checkpoint.name}",
+            f"Neuer Feinabstimmungslauf mit dem besten Modell: {continuation_checkpoint.name}",
+            f"Starting a new fine-tuning cycle from the best model: {continuation_checkpoint.name}",
+            f"Iniciando un nuevo ajuste fino desde el mejor modelo: {continuation_checkpoint.name}",
+            f"Nouveau cycle d’ajustement à partir du meilleur modèle : {continuation_checkpoint.name}",
         ))
     else:
         emit(localized(
@@ -1280,10 +1384,12 @@ def train(args: argparse.Namespace) -> None:
             "No compatible checkpoint exists yet; training starts from the base model.",
         ))
     model = model_class(**model_kwargs)
+    target_epochs = max(args.epochs, (resume_completed_epochs or 0) + 1) if resume_checkpoint else args.epochs
+    patience = max(8, min(20, math.ceil(args.epochs * 0.5)))
     train_kwargs = {
         "dataset_dir": str(dataset_root),
         "output_dir": str(output_dir),
-        "epochs": args.epochs,
+        "epochs": target_epochs,
         "batch_size": profile["batch_size"],
         "grad_accum_steps": profile["grad_accum_steps"],
         "device": device,
@@ -1292,8 +1398,11 @@ def train(args: argparse.Namespace) -> None:
         "prefetch_factor": profile["prefetch_factor"],
         "pin_memory": profile["pin_memory"],
         "early_stopping": True,
-        "early_stopping_patience": max(5, min(12, args.epochs // 3)),
+        "early_stopping_patience": patience,
+        "early_stopping_min_delta": 0.001,
         "eval_ema_only": True,
+        "tensorboard": False,
+        "seed": 42,
         "run_test": bool(list((dataset_root / "test").glob("*.jpg"))),
         "notes": {
             "sport": document["sport"],
@@ -1302,6 +1411,18 @@ def train(args: argparse.Namespace) -> None:
             "performance_profile": profile,
         },
     }
+    if resume_checkpoint is not None:
+        train_kwargs["resume"] = str(resume_checkpoint)
+    else:
+        # Short local cycles benefit from cosine decay. For repeated fine-tuning,
+        # use half the base learning rate to retain previously learned examples.
+        train_kwargs.update({
+            "lr_scheduler": "cosine",
+            "lr_scheduler_kwargs": {"min_factor": 0.1},
+            "warmup_epochs": 0.5,
+        })
+        if continuation_checkpoint is not None:
+            train_kwargs.update({"lr": 0.00005, "lr_encoder": 0.000075})
     _, ignored = call_with_supported_kwargs(model.train, train_kwargs)
     if ignored:
         emit(localized(
@@ -1349,7 +1470,11 @@ def train(args: argparse.Namespace) -> None:
         "splits": {name: len(items) for name, items in refreshed_splits.items()},
         "independentTest": len({frame.get("videoID") for frame in refreshed_frames}) >= 3,
         "checkpoint": trained_checkpoint.name if trained_checkpoint else None,
-        "continuedFrom": continuation_checkpoint.name if continuation_checkpoint else None,
+        "continuedFrom": (
+            resume_checkpoint.name if resume_checkpoint else
+            continuation_checkpoint.name if continuation_checkpoint else None
+        ),
+        "resumeMode": "full" if resume_checkpoint else "weights" if continuation_checkpoint else "base",
         "performanceProfile": profile,
         "validationMetrics": validation_metrics,
         "testMetrics": test_metrics,

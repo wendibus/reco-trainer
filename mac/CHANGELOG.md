@@ -1,5 +1,15 @@
 # Änderungen
 
+## 0.12.1
+
+- Abgebrochene Trainingsläufe werden vollständig mit Optimizer, Lernratenplan, EMA und Callback-Zuständen fortgesetzt.
+- Abgeschlossene Modelle starten neue Feinabstimmungszyklen vom besten Checkpoint mit reduzierter Lernrate und Cosine-Scheduler.
+- Geduldigeres Early Stopping reduziert verfrühte Abbrüche bei schwankenden Validierungswerten.
+- Vorherige Messprotokolle werden vor einem neuen Lauf automatisch in einem eindeutigen Verlaufsordner archiviert.
+- Kleine Validierungs- und Testsätze werden transparent als vorläufig gekennzeichnet.
+- Unnötige TensorBoard-Warnungen sind im lokalen Standardprofil deaktiviert.
+- Alle neuen Meldungen stehen auf Deutsch, Englisch, Spanisch und Französisch bereit.
+
 ## 0.12.0
 
 - Zehnstufiges Rückgängig/Wiederholen für Boxänderungen, inklusive Tastenkürzeln.

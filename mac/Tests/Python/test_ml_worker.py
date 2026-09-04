@@ -229,6 +229,37 @@ class DatasetTests(unittest.TestCase):
         self.assertEqual(profile["num_workers"], 8)
         self.assertFalse(profile["gradient_checkpointing"])
 
+    def test_only_newer_full_checkpoint_is_treated_as_interrupted_run(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            checkpoint = root / "runs" / "small" / "last.ckpt"
+            checkpoint.parent.mkdir(parents=True)
+            checkpoint.write_bytes(b"synthetic-full-checkpoint")
+
+            interrupted = {"lastTraining": {"completedAt": "2000-01-01T00:00:00Z"}}
+            completed = {"lastTraining": {"completedAt": "2999-01-01T00:00:00Z"}}
+
+            self.assertEqual(
+                ml_worker.interrupted_run_checkpoint(root, "small", interrupted),
+                checkpoint,
+            )
+            self.assertIsNone(
+                ml_worker.interrupted_run_checkpoint(root, "small", completed)
+            )
+
+    def test_training_logs_are_preserved_in_unique_history_folder(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            run_dir = Path(temporary) / "runs" / "small"
+            run_dir.mkdir(parents=True)
+            (run_dir / "metrics.csv").write_text("val/mAP_50_95\n0.42\n")
+            (run_dir / "training_config.json").write_text('{"epochs": 20}')
+
+            archived = ml_worker.archive_run_logs(run_dir)
+
+            self.assertIsNotNone(archived)
+            self.assertEqual((archived / "metrics.csv").read_text(), "val/mAP_50_95\n0.42\n")
+            self.assertEqual((archived / "training_config.json").read_text(), '{"epochs": 20}')
+
     def test_old_export_signature_does_not_receive_new_optional_arguments(self):
         def old_export(output_dir="output", format="onnx", **kwargs):
             return output_dir, format, kwargs
