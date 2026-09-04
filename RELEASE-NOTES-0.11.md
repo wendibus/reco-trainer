@@ -20,9 +20,9 @@ The library is stored below `.reco-training/models/library/` in the selected loc
 ## Installation
 
 - **macOS:** Open `Reco-Trainer-Mac-0.11.0.dmg`, copy Reco Trainer to Applications and open it. The alpha build is ad-hoc signed and not Apple-notarized.
-- **Windows:** Extract `Reco Trainer Windows 0.11.zip` and run `Start Reco Trainer Windows.bat`.
-- **Linux:** Extract `Reco Trainer Linux 0.11.zip`, make `Start Reco Trainer Linux.sh` executable and run it.
-- **Docker:** Extract `Reco Trainer Docker 0.11.zip`, configure the local video-folder mount and start Docker Compose.
+- **Windows:** Extract `Reco.Trainer.Windows.0.11.zip` and run `Start Reco Trainer Windows.bat`.
+- **Linux:** Extract `Reco.Trainer.Linux.0.11.zip`, make `Start Reco Trainer Linux.sh` executable and run it.
+- **Docker:** Extract `Reco.Trainer.Docker.0.11.zip`, configure the local video-folder mount and start Docker Compose.
 
 Keep a backup of the complete `.reco-training` folder before upgrading important projects. Import `.recomodel` packages only from trusted publishers.
 

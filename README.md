@@ -46,7 +46,7 @@ Requirements: macOS 14 or newer and Apple silicon. Node.js 22 or newer and the X
 
 ### Windows
 
-1. Download and extract `Reco Trainer Windows 0.11.zip`.
+1. Download and extract `Reco.Trainer.Windows.0.11.zip`.
 2. Open the extracted folder.
 3. Run `Start Reco Trainer Windows.bat`.
 4. Keep the terminal windows open; the interface runs at `http://localhost:8765/`.
@@ -55,7 +55,7 @@ Requirements: Node.js 22, Python 3.11 or 3.12, and FFmpeg.
 
 ### Linux
 
-1. Download and extract `Reco Trainer Linux 0.11.zip`.
+1. Download and extract `Reco.Trainer.Linux.0.11.zip`.
 2. Run `chmod +x "Start Reco Trainer Linux.sh"` once.
 3. Run `./Start\ Reco\ Trainer\ Linux.sh`.
 4. If necessary, open `http://localhost:8765/` manually.
@@ -64,7 +64,7 @@ Requirements: Node.js 22, Python 3.11 or 3.12, FFmpeg, and Zenity or KDialog for
 
 ### Docker
 
-1. Download and extract `Reco Trainer Docker 0.11.zip`.
+1. Download and extract `Reco.Trainer.Docker.0.11.zip`.
 2. Set `RECO_VIDEO_FOLDER` to the absolute path of the local sports-video folder.
 3. Run `docker compose up --build` from the extracted folder.
 4. Open `http://localhost:8765/`.

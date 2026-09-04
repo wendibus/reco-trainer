@@ -17,9 +17,9 @@ This remains **work in progress / alpha software**. Keep backups, verify automat
 Download the files from the [Reco Trainer 0.11 release page](https://github.com/wendibus/reco-trainer/releases/tag/v0.11.0):
 
 - **macOS:** `Reco-Trainer-Mac-0.11.0.dmg` — open the image, drag Reco Trainer to Applications and launch it. The app is locally/ad-hoc signed and not Apple-notarized.
-- **Windows:** `Reco Trainer Windows 0.11.zip` — extract the complete archive and run `Start Reco Trainer Windows.bat`.
-- **Linux:** `Reco Trainer Linux 0.11.zip` — extract the archive, make `Start Reco Trainer Linux.sh` executable and run it.
-- **Docker:** `Reco Trainer Docker 0.11.zip` — extract the archive and follow `START-HERE.md` to mount a private local working folder and start Docker Compose.
+- **Windows:** `Reco.Trainer.Windows.0.11.zip` — extract the complete archive and run `Start Reco Trainer Windows.bat`.
+- **Linux:** `Reco.Trainer.Linux.0.11.zip` — extract the archive, make `Start Reco Trainer Linux.sh` executable and run it.
+- **Docker:** `Reco.Trainer.Docker.0.11.zip` — extract the archive and follow `START-HERE.md` to mount a private local working folder and start Docker Compose.
 - **Checksums:** use `SHA256SUMS.txt` to verify that your download is complete and unchanged.
 
 The [GitHub repository](https://github.com/wendibus/reco-trainer) contains the source code, installation instructions and privacy notes. See the [0.11 release notes](https://github.com/wendibus/reco-trainer/blob/main/RELEASE-NOTES-0.11.md) for the detailed changes.

@@ -36,8 +36,8 @@ rm -f "$WINDOWS_DIR/Start Reco Preview.command" "$WINDOWS_DIR/Start Reco Trainer
 rm -rf "$WINDOWS_DIR/docker" "$WINDOWS_DIR/scripts" "$WINDOWS_DIR/.openai"
 rm -f "$WINDOWS_DIR/Dockerfile" "$WINDOWS_DIR/.dockerignore" "$WINDOWS_DIR/docker-compose.yml" "$WINDOWS_DIR/frame_extractor.swift"
 xattr -cr "$WINDOWS_DIR"
-rm -f "$OUTPUT_DIR/Reco Trainer Windows 0.11.zip"
-(cd "$STAGE_DIR" && zip -q -r "$OUTPUT_DIR/Reco Trainer Windows 0.11.zip" "Reco Trainer Windows")
+rm -f "$OUTPUT_DIR/Reco.Trainer.Windows.0.11.zip"
+(cd "$STAGE_DIR" && zip -q -r "$OUTPUT_DIR/Reco.Trainer.Windows.0.11.zip" "Reco Trainer Windows")
 
 LINUX_DIR="$STAGE_DIR/Reco Trainer Linux"
 copy_common "$LINUX_DIR"
@@ -47,8 +47,8 @@ rm -f "$LINUX_DIR/Start Reco Preview.command" "$LINUX_DIR/Start Reco Trainer.com
 rm -rf "$LINUX_DIR/docker" "$LINUX_DIR/scripts" "$LINUX_DIR/.openai"
 rm -f "$LINUX_DIR/Dockerfile" "$LINUX_DIR/.dockerignore" "$LINUX_DIR/docker-compose.yml" "$LINUX_DIR/frame_extractor.swift"
 xattr -cr "$LINUX_DIR"
-rm -f "$OUTPUT_DIR/Reco Trainer Linux 0.11.zip"
-(cd "$STAGE_DIR" && zip -q -r "$OUTPUT_DIR/Reco Trainer Linux 0.11.zip" "Reco Trainer Linux")
+rm -f "$OUTPUT_DIR/Reco.Trainer.Linux.0.11.zip"
+(cd "$STAGE_DIR" && zip -q -r "$OUTPUT_DIR/Reco.Trainer.Linux.0.11.zip" "Reco Trainer Linux")
 
 DOCKER_DIR="$STAGE_DIR/Reco Trainer Docker"
 copy_common "$DOCKER_DIR"
@@ -56,10 +56,10 @@ rm -f "$DOCKER_DIR/Start Reco Preview.command" "$DOCKER_DIR/Start Reco Trainer.c
 rm -rf "$DOCKER_DIR/scripts" "$DOCKER_DIR/.openai"
 rm -f "$DOCKER_DIR/frame_extractor.swift"
 xattr -cr "$DOCKER_DIR"
-rm -f "$OUTPUT_DIR/Reco Trainer Docker 0.11.zip"
-(cd "$STAGE_DIR" && zip -q -r "$OUTPUT_DIR/Reco Trainer Docker 0.11.zip" "Reco Trainer Docker")
+rm -f "$OUTPUT_DIR/Reco.Trainer.Docker.0.11.zip"
+(cd "$STAGE_DIR" && zip -q -r "$OUTPUT_DIR/Reco.Trainer.Docker.0.11.zip" "Reco Trainer Docker")
 
 printf '%s\n' \
-  "$OUTPUT_DIR/Reco Trainer Windows 0.11.zip" \
-  "$OUTPUT_DIR/Reco Trainer Linux 0.11.zip" \
-  "$OUTPUT_DIR/Reco Trainer Docker 0.11.zip"
+  "$OUTPUT_DIR/Reco.Trainer.Windows.0.11.zip" \
+  "$OUTPUT_DIR/Reco.Trainer.Linux.0.11.zip" \
+  "$OUTPUT_DIR/Reco.Trainer.Docker.0.11.zip"
