@@ -197,6 +197,18 @@ select { height:34px; padding:0 9px; border:1px solid #cbd3df; border-radius:7px
 .benchmark-empty.stale { border-color:#e7c38d; background:#fff9ef; color:#906028; }
 .benchmark-log { margin-top:0; }
 
+.model-library { margin-top:9px; padding:9px; border:1px solid #d8e0ea; border-radius:9px; background:#f8fafc; }
+.model-library > strong { display:block; margin-bottom:7px; color:#34445b; font-size:9px; }
+.model-library-list { max-height:150px; display:flex; flex-direction:column; gap:6px; overflow:auto; }
+.model-library article { display:grid; grid-template-columns:minmax(150px,1fr) auto auto auto auto; gap:6px; align-items:center; padding:7px; border-radius:7px; background:#fff; font-size:7px; }
+.model-library article.active { outline:1px solid #57a785; background:#effaf5; }
+.model-library article b,.model-library article small,.model-library article code { display:block; max-width:280px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.model-library article small,.model-library article code { margin-top:2px; color:#7b8798; font-size:6px; }
+.model-library article span { display:flex; gap:3px; }
+.model-library article em { padding:2px 4px; border-radius:4px; background:#e8f2ff; color:#1766c2; font-size:6px; font-style:normal; font-weight:800; }
+.model-library article button { padding:4px 6px; font-size:6px; }
+.model-library article button.danger { color:#a73930; }
+
 .walkthrough-backdrop { position:fixed; inset:0; z-index:50; display:grid; place-items:center; padding:24px; background:rgba(12,20,34,.58); backdrop-filter:blur(5px); }
 .walkthrough-dialog { position:relative; width:min(610px,100%); padding:30px; border:1px solid rgba(255,255,255,.55); border-radius:20px; background:#fff; box-shadow:0 28px 80px rgba(8,20,42,.34); }
 .walkthrough-close { position:absolute; top:14px; right:14px; width:32px; height:32px; border:0; border-radius:50%; background:#eef2f7; color:#45536a; font-size:20px; line-height:1; }

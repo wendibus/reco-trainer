@@ -12,8 +12,9 @@ enum ProjectStoreError: LocalizedError {
     }
 }
 
-struct ProjectStore {
+struct ProjectStore: Sendable {
     static let projectDirectoryName = ".reco-training"
+    static let visibleProjectDirectoryName = "Reco Training"
     static let projectFileName = "project.json"
 
     let rootURL: URL
@@ -23,6 +24,12 @@ struct ProjectStore {
     var runsURL: URL { rootURL.appending(path: "runs", directoryHint: .isDirectory) }
     var exportsURL: URL { rootURL.appending(path: "exports", directoryHint: .isDirectory) }
     var backupsURL: URL { rootURL.appending(path: "backups", directoryHint: .isDirectory) }
+    var benchmarksURL: URL { rootURL.appending(path: "benchmarks", directoryHint: .isDirectory) }
+    var modelsURL: URL { rootURL.appending(path: "models", directoryHint: .isDirectory) }
+    var inboxURL: URL { rootURL.appending(path: "inbox", directoryHint: .isDirectory) }
+    var visibleRootURL: URL {
+        rootURL.deletingLastPathComponent().appending(path: Self.visibleProjectDirectoryName, directoryHint: .isDirectory)
+    }
     var projectFileURL: URL { rootURL.appending(path: Self.projectFileName) }
 
     static func forSourceFolder(_ folder: URL) -> ProjectStore {
@@ -31,9 +38,46 @@ struct ProjectStore {
 
     func prepare() throws {
         let manager = FileManager.default
-        for directory in [rootURL, framesURL, datasetURL, runsURL, exportsURL] {
+        for directory in [rootURL, framesURL, datasetURL, runsURL, exportsURL, backupsURL, benchmarksURL, modelsURL, inboxURL] {
             try manager.createDirectory(at: directory, withIntermediateDirectories: true)
         }
+        try createVisibleProjectShortcutIfNeeded()
+    }
+
+    /// Finder hides `.reco-training` because its name starts with a dot. Keep the
+    /// stable internal path for compatibility and expose a permanent, visible
+    /// shortcut beside it instead of changing a system-wide Finder preference.
+    private func createVisibleProjectShortcutIfNeeded() throws {
+        guard rootURL.lastPathComponent == Self.projectDirectoryName else { return }
+        let manager = FileManager.default
+        if manager.fileExists(atPath: visibleRootURL.path) {
+            return
+        }
+        try manager.createSymbolicLink(
+            atPath: visibleRootURL.path,
+            withDestinationPath: Self.projectDirectoryName
+        )
+    }
+
+    func preferredTrainingCheckpoint(for modelSize: ModelSize) -> URL? {
+        let modelRunURL = runsURL.appending(path: modelSize.rawValue, directoryHint: .isDirectory)
+        let preferredNames = ["checkpoint_best_total.pth", "checkpoint_best_ema.pth", "checkpoint.pth", "last.ckpt"]
+        for name in preferredNames {
+            let candidate = modelRunURL.appending(path: name)
+            if FileManager.default.fileExists(atPath: candidate.path) { return candidate }
+        }
+        guard let files = try? FileManager.default.contentsOfDirectory(
+            at: modelRunURL,
+            includingPropertiesForKeys: [.contentModificationDateKey],
+            options: [.skipsHiddenFiles]
+        ) else { return nil }
+        return files
+            .filter { ["pth", "ckpt"].contains($0.pathExtension.lowercased()) }
+            .max {
+                let left = (try? $0.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
+                let right = (try? $1.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
+                return left < right
+            }
     }
 
     func save(_ project: ProjectDocument) throws {

@@ -8,6 +8,7 @@ project directory selected by the user.
 from __future__ import annotations
 
 import argparse
+import csv
 import hashlib
 import importlib.metadata
 import importlib.util
@@ -429,6 +430,44 @@ def benchmark_detection_category(detected_name: str, class_id: int | None, sport
     return None
 
 
+def normalize_detection_batch(predictions: Any, expected_count: int) -> list[Any]:
+    """Normalize RF-DETR single/list/nested-list prediction return shapes."""
+    if expected_count < 1:
+        return []
+    if hasattr(predictions, "xyxy"):
+        items = [predictions]
+    elif isinstance(predictions, (list, tuple)):
+        items = list(predictions)
+    else:
+        raise RuntimeError(f"RF-DETR returned an unsupported prediction type: {type(predictions).__name__}")
+
+    if (
+        len(items) == 1
+        and expected_count > 1
+        and isinstance(items[0], (list, tuple))
+        and not hasattr(items[0], "xyxy")
+    ):
+        items = list(items[0])
+
+    normalized: list[Any] = []
+    for index, item in enumerate(items):
+        while isinstance(item, (list, tuple)) and len(item) == 1 and not hasattr(item, "xyxy"):
+            item = item[0]
+        if not hasattr(item, "xyxy"):
+            raise RuntimeError(
+                f"RF-DETR prediction {index + 1} has no detection boxes "
+                f"(type: {type(item).__name__})."
+            )
+        normalized.append(item)
+
+    if len(normalized) != expected_count:
+        raise RuntimeError(
+            f"RF-DETR returned {len(normalized)} prediction results for "
+            f"{expected_count} input images."
+        )
+    return normalized
+
+
 def benchmark(args: argparse.Namespace) -> None:
     project_root = Path(args.project).resolve()
     document = require_project(project_root, args.language)
@@ -482,10 +521,10 @@ def benchmark(args: argparse.Namespace) -> None:
                         raise RuntimeError(f"Benchmark frame is missing: {frame.get('id')}")
                     paths.append(str(candidate_path))
                 inference_started = time.perf_counter()
-                detected_batch = model.predict(paths, threshold=threshold)
+                detected_batch = normalize_detection_batch(
+                    model.predict(paths, threshold=threshold), len(batch)
+                )
                 inference_seconds += time.perf_counter() - inference_started
-                if len(batch) == 1:
-                    detected_batch = [detected_batch]
                 for frame, detections in zip(batch, detected_batch):
                     detection_data = (getattr(detections, "data", {}) or {})
                     names = detection_data.get("class_name")
@@ -532,6 +571,158 @@ def frame_has_category(frame: dict[str, Any], target_category: str) -> bool:
         annotation.get("category") == target_category
         for annotation in frame.get("annotations", [])
     )
+
+
+def box_iou(first: tuple[float, float, float, float], second: tuple[float, float, float, float]) -> float:
+    """Intersection over union for x/y/width/height boxes."""
+    ax, ay, aw, ah = first
+    bx, by, bw, bh = second
+    left, top = max(ax, bx), max(ay, by)
+    right, bottom = min(ax + aw, bx + bw), min(ay + ah, by + bh)
+    intersection = max(0.0, right - left) * max(0.0, bottom - top)
+    union = max(0.0, aw * ah) + max(0.0, bw * bh) - intersection
+    return intersection / union if union > 0 else 0.0
+
+
+def plausible_refined_box(
+    original: tuple[float, float, float, float],
+    candidate: tuple[float, float, float, float],
+    category: str,
+) -> bool:
+    """Reject aggressive OpenCV changes before they can become suggestions."""
+    ox, oy, ow, oh = original
+    cx, cy, cw, ch = candidate
+    if min(ow, oh, cw, ch) < 3.0:
+        return False
+    area_ratio = (cw * ch) / max(ow * oh, 1.0)
+    if not 0.20 <= area_ratio <= 2.20 or box_iou(original, candidate) < 0.15:
+        return False
+    original_center = (ox + ow / 2.0, oy + oh / 2.0)
+    candidate_center = (cx + cw / 2.0, cy + ch / 2.0)
+    center_shift = math.hypot(candidate_center[0] - original_center[0], candidate_center[1] - original_center[1])
+    if center_shift > math.hypot(ow, oh) * 0.48:
+        return False
+    aspect = cw / max(ch, 1.0)
+    return (0.14 <= aspect <= 4.8) if category == "puck" else (0.32 <= aspect <= 3.1)
+
+
+def opencv_refined_box(image: Any, annotation: dict[str, Any], cv2: Any, np: Any) -> tuple[tuple[float, float, float, float], float] | None:
+    """Propose a tighter foreground box inside a detector-provided region."""
+    image_height, image_width = image.shape[:2]
+    original = (
+        float(annotation.get("x", 0)), float(annotation.get("y", 0)),
+        float(annotation.get("width", 0)), float(annotation.get("height", 0)),
+    )
+    x, y, width, height = original
+    if min(width, height) < 5 or image_width < 2 or image_height < 2:
+        return None
+    margin = max(4, int(round(max(width, height) * 0.65)))
+    left, top = max(0, int(math.floor(x)) - margin), max(0, int(math.floor(y)) - margin)
+    right = min(image_width, int(math.ceil(x + width)) + margin)
+    bottom = min(image_height, int(math.ceil(y + height)) + margin)
+    roi = image[top:bottom, left:right]
+    if roi.size == 0 or roi.shape[0] < 6 or roi.shape[1] < 6:
+        return None
+    rectangle = (
+        max(1, int(round(x - left))), max(1, int(round(y - top))),
+        min(roi.shape[1] - 2, max(3, int(round(width)))),
+        min(roi.shape[0] - 2, max(3, int(round(height)))),
+    )
+    if rectangle[0] + rectangle[2] >= roi.shape[1]:
+        rectangle = (rectangle[0], rectangle[1], roi.shape[1] - rectangle[0] - 1, rectangle[3])
+    if rectangle[1] + rectangle[3] >= roi.shape[0]:
+        rectangle = (rectangle[0], rectangle[1], rectangle[2], roi.shape[0] - rectangle[1] - 1)
+    if rectangle[2] < 3 or rectangle[3] < 3:
+        return None
+    mask = np.zeros(roi.shape[:2], np.uint8)
+    background = np.zeros((1, 65), np.float64)
+    foreground = np.zeros((1, 65), np.float64)
+    try:
+        cv2.grabCut(roi, mask, rectangle, background, foreground, 3, cv2.GC_INIT_WITH_RECT)
+    except cv2.error:
+        return None
+    foreground_mask = np.where((mask == cv2.GC_FGD) | (mask == cv2.GC_PR_FGD), 255, 0).astype("uint8")
+    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
+    foreground_mask = cv2.morphologyEx(foreground_mask, cv2.MORPH_OPEN, kernel)
+    foreground_mask = cv2.morphologyEx(foreground_mask, cv2.MORPH_CLOSE, kernel)
+    contours, _ = cv2.findContours(foreground_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    best: tuple[tuple[float, float, float, float], float] | None = None
+    original_area = max(width * height, 1.0)
+    original_center = (x + width / 2.0, y + height / 2.0)
+    for contour in contours:
+        rx, ry, rw, rh = cv2.boundingRect(contour)
+        padding = max(1.0, round(max(rw, rh) * 0.08))
+        candidate = (
+            max(0.0, left + rx - padding), max(0.0, top + ry - padding),
+            min(float(image_width), left + rx + rw + padding) - max(0.0, left + rx - padding),
+            min(float(image_height), top + ry + rh + padding) - max(0.0, top + ry - padding),
+        )
+        if not plausible_refined_box(original, candidate, str(annotation.get("category", "ball"))):
+            continue
+        candidate_area = max(candidate[2] * candidate[3], 1.0)
+        fill = min(1.0, float(cv2.contourArea(contour)) / max(rw * rh, 1))
+        center = (candidate[0] + candidate[2] / 2.0, candidate[1] + candidate[3] / 2.0)
+        center_score = max(0.0, 1.0 - math.hypot(center[0] - original_center[0], center[1] - original_center[1]) / max(math.hypot(width, height), 1.0))
+        area_score = max(0.0, 1.0 - abs(math.log(candidate_area / original_area)) / math.log(5.0))
+        score = 0.40 * center_score + 0.30 * box_iou(original, candidate) + 0.15 * fill + 0.15 * area_score
+        if score >= 0.46 and (best is None or score > best[1]):
+            best = (candidate, score)
+    return best
+
+
+def refinable_annotations(frame: dict[str, Any]) -> list[dict[str, Any]]:
+    return [
+        item for item in frame.get("annotations", [])
+        if item.get("source") == "auto"
+        and item.get("category") in {"ball", "puck"}
+        and not item.get("opencvRefinement")
+    ]
+
+
+def refine_boxes(args: argparse.Namespace) -> None:
+    """Refine only unreviewed automatic ball/puck boxes; manual labels are immutable."""
+    try:
+        import cv2
+        import numpy as np
+    except ImportError as error:
+        raise SystemExit(localized(
+            args.language,
+            "OpenCV fehlt. Bitte zuerst „ML einrichten“ ausführen.",
+            "OpenCV is missing. Run “Set up ML” first.",
+            "Falta OpenCV. Ejecuta primero «Configurar ML».",
+            "OpenCV manque. Lancez d’abord « Configurer le ML ».",
+        )) from error
+    project_root = Path(args.project).resolve()
+    document = require_project(project_root, args.language)
+    checked = refined = unchanged = unreadable = 0
+    for frame in document.get("frames", []):
+        eligible = refinable_annotations(frame)
+        if not eligible:
+            continue
+        image = cv2.imread(str(project_root / frame["relativePath"]), cv2.IMREAD_COLOR)
+        if image is None:
+            unreadable += 1
+            continue
+        for annotation in eligible:
+            checked += 1
+            original = {key: float(annotation.get(key, 0)) for key in ("x", "y", "width", "height")}
+            result = opencv_refined_box(image, annotation, cv2, np)
+            if result is None:
+                unchanged += 1
+                continue
+            candidate, score = result
+            annotation.update({"x": candidate[0], "y": candidate[1], "width": candidate[2], "height": candidate[3]})
+            annotation["opencvRefinement"] = {"method": "grabcut-contour-v1", "score": round(score, 4), "original": original}
+            refined += 1
+    document["updatedAt"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    atomic_json(project_file(project_root), document)
+    emit(localized(
+        args.language,
+        f"OpenCV-Prüfung abgeschlossen: {refined} von {checked} automatischen Ball-/Puck-Boxen plausibel verfeinert; {unchanged} sicherheitshalber unverändert, {unreadable} Bilder nicht lesbar. Manuelle Boxen wurden nicht verändert.",
+        f"OpenCV review completed: plausibly refined {refined} of {checked} automatic ball/puck boxes; kept {unchanged} unchanged for safety, {unreadable} images unreadable. Manual boxes were not changed.",
+        f"Revisión OpenCV finalizada: {refined} de {checked} cuadros automáticos de balón/disco se refinaron; {unchanged} quedaron sin cambios por seguridad y {unreadable} imágenes no se pudieron leer. Los cuadros manuales no cambiaron.",
+        f"Vérification OpenCV terminée : {refined} boîtes automatiques ballon/palet affinées sur {checked} ; {unchanged} conservées par sécurité et {unreadable} images illisibles. Les boîtes manuelles n’ont pas été modifiées.",
+    ))
 
 
 def auto_label(args: argparse.Namespace) -> None:
@@ -597,9 +788,9 @@ def auto_label(args: argparse.Namespace) -> None:
         if not pending:
             continue
         paths = [str(project_root / frame["relativePath"]) for frame in pending]
-        detections_batch = model.predict(paths, threshold=args.threshold)
-        if len(pending) == 1:
-            detections_batch = [detections_batch]
+        detections_batch = normalize_detection_batch(
+            model.predict(paths, threshold=args.threshold), len(pending)
+        )
 
         for frame, detections in zip(pending, detections_batch):
             new_annotations = []
@@ -632,6 +823,10 @@ def auto_label(args: argparse.Namespace) -> None:
             boxes_added += len(new_annotations)
             if new_annotations:
                 frames_with_detections += 1
+        # Persist every completed batch so a later device/library error can be
+        # resumed without repeating the entire local inference run.
+        document["updatedAt"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        atomic_json(project_file(project_root), document)
         emit(localized(
             args.language,
             f"Automatisch geprüft: {min(start + batch_size, len(frames))}/{len(frames)}",
@@ -657,6 +852,17 @@ def auto_label(args: argparse.Namespace) -> None:
             f"No “{target_category}” detections above the threshold. Annotate a few examples manually, "
             "train the model, and then run automatic detection again.",
         ))
+    elif target_category in {"ball", "puck"}:
+        try:
+            refine_boxes(argparse.Namespace(project=str(project_root), language=args.language))
+        except SystemExit as error:
+            emit(localized(
+                args.language,
+                f"OpenCV-Nachprüfung übersprungen: {error}",
+                f"Skipped OpenCV post-review: {error}",
+                f"Se omitió la revisión posterior con OpenCV: {error}",
+                f"Post-vérification OpenCV ignorée : {error}",
+            ))
 
 
 def stable_bucket(value: str) -> int:
@@ -819,6 +1025,7 @@ def package_description(sport: str, model_size: str, classes: list[str]) -> str:
     """Return the canonical English-only description stored in exchange packages."""
     sport_name = {
         "football": "football",
+        "futsal": "futsal",
         "basketball": "basketball",
         "handball": "handball",
         "hockey": "hockey",
@@ -834,6 +1041,170 @@ def package_description(sport: str, model_size: str, classes: list[str]) -> str:
     )
 
 
+def validation_score(metrics: dict[str, Any] | None) -> float | None:
+    """Return the strict-box validation score used to compare local runs."""
+    if not isinstance(metrics, dict):
+        return None
+    for key, value in metrics.items():
+        normalized = str(key).lower().replace("val/", "").replace("val_", "").replace("test/", "").replace("test_", "")
+        if normalized in {"map_50_95", "map50_95", "ap/ball", "ap_ball"}:
+            try:
+                return float(value)
+            except (TypeError, ValueError):
+                continue
+    return None
+
+
+def manifest_validation_score(manifest: dict[str, Any] | None) -> float | None:
+    if not isinstance(manifest, dict):
+        return None
+    direct = validation_score(manifest.get("validationMetrics"))
+    if direct is not None:
+        return direct
+    summary = manifest.get("trainingSummary")
+    return validation_score(summary.get("validationMetrics")) if isinstance(summary, dict) else None
+
+
+def manifest_test_score(manifest: dict[str, Any] | None) -> float | None:
+    if not isinstance(manifest, dict):
+        return None
+    direct = validation_score(manifest.get("testMetrics"))
+    if direct is not None:
+        return direct
+    summary = manifest.get("trainingSummary")
+    return validation_score(summary.get("testMetrics")) if isinstance(summary, dict) else None
+
+
+def manifest_comparison_score(manifest: dict[str, Any] | None) -> float | None:
+    test_score = manifest_test_score(manifest)
+    return test_score if test_score is not None else manifest_validation_score(manifest)
+
+
+def latest_test_metrics(run_dir: Path) -> dict[str, float]:
+    metrics_path = run_dir / "metrics.csv"
+    if not metrics_path.is_file():
+        return {}
+    latest: dict[str, float] = {}
+    try:
+        with metrics_path.open(newline="", encoding="utf-8") as handle:
+            for row in csv.DictReader(handle):
+                if not row.get("test/mAP_50_95"):
+                    continue
+                parsed: dict[str, float] = {}
+                for key, value in row.items():
+                    if key.startswith("test/") and value not in {None, ""}:
+                        try:
+                            parsed[key] = float(value)
+                        except (TypeError, ValueError):
+                            pass
+                if parsed:
+                    latest = parsed
+    except (OSError, csv.Error):
+        return {}
+    return latest
+
+
+def library_manifests(project_root: Path) -> list[tuple[Path, dict[str, Any]]]:
+    library_root = project_root / "models" / "library"
+    records: list[tuple[Path, dict[str, Any]]] = []
+    for manifest_path in sorted(library_root.glob("*/manifest.json")) if library_root.is_dir() else []:
+        try:
+            manifest = load_json(manifest_path)
+            if isinstance(manifest, dict) and manifest.get("packageID"):
+                records.append((manifest_path, manifest))
+        except (OSError, ValueError, TypeError, json.JSONDecodeError):
+            continue
+    return records
+
+
+def activate_library_model(project_root: Path, manifest_path: Path, manifest: dict[str, Any]) -> dict[str, Any]:
+    weight_name = Path(str(manifest.get("weights", {}).get("file", ""))).name
+    weight_path = manifest_path.parent / "weights" / weight_name
+    if not weight_name or not weight_path.is_file():
+        raise ValueError("Model weights are missing")
+    active = {
+        "packageID": str(manifest["packageID"]),
+        "displayName": manifest.get("displayName") or manifest["packageID"],
+        "modelSize": manifest.get("modelSize"),
+        "sport": manifest.get("sport"),
+        "description": manifest.get("description"),
+        "weights": str(weight_path.relative_to(project_root)),
+        "activatedAt": datetime.now(timezone.utc).isoformat(),
+    }
+    atomic_json(project_root / "models" / "active.json", active)
+    return active
+
+
+def archive_local_checkpoint(
+    project_root: Path,
+    document: dict[str, Any],
+    model_size: str,
+    checkpoint: Path,
+    training_summary: dict[str, Any] | None,
+    source: str,
+) -> tuple[Path, dict[str, Any], bool]:
+    """Copy one immutable local model revision into the model library."""
+    digest = sha256_file(checkpoint)
+    for manifest_path, manifest in library_manifests(project_root):
+        if manifest.get("weights", {}).get("sha256") == digest:
+            return manifest_path, manifest, False
+
+    now = datetime.now(timezone.utc)
+    package_id = f"reco-{document['sport']}-{model_size}-{now.strftime('%Y%m%d-%H%M%S-%f')}"
+    sport_title = str(document["sport"]).replace("_", " ").title()
+    display_name = f"{sport_title} · {model_size.capitalize()} · {now.strftime('%Y-%m-%d %H:%M UTC')}"
+    classes = sorted({
+        str(annotation.get("category"))
+        for frame in document.get("frames", [])
+        if frame.get("reviewStatus") != "candidate"
+        for annotation in frame.get("annotations", [])
+        if annotation.get("category")
+    })
+    metrics = (training_summary or {}).get("validationMetrics", {})
+    test_metrics = (training_summary or {}).get("testMetrics", {})
+    manifest = {
+        "schemaVersion": 1,
+        "packageID": package_id,
+        "displayName": display_name,
+        "createdAt": now.isoformat(),
+        "sport": document["sport"],
+        "modelSize": model_size,
+        "classes": classes,
+        "description": package_description(document["sport"], model_size, classes),
+        "source": source,
+        "trainingSummary": training_summary,
+        "validationMetrics": metrics,
+        "testMetrics": test_metrics,
+        "statistics": {
+            "frameCount": len([frame for frame in document.get("frames", []) if frame.get("reviewStatus") != "candidate"]),
+            "annotationCount": sum(len(frame.get("annotations", [])) for frame in document.get("frames", []) if frame.get("reviewStatus") != "candidate"),
+        },
+        "weights": {"file": f"weights/{checkpoint.name}", "sha256": digest},
+        "privacy": "This library entry contains model weights and aggregate metadata only; no videos or frames.",
+    }
+    final = project_root / "models" / "library" / package_id
+    staging = project_root / "models" / f".archive-{uuid.uuid4().hex}"
+    try:
+        (staging / "weights").mkdir(parents=True, exist_ok=False)
+        shutil.copy2(checkpoint, staging / "weights" / checkpoint.name)
+        atomic_json(staging / "manifest.json", manifest)
+        final.parent.mkdir(parents=True, exist_ok=True)
+        staging.replace(final)
+    finally:
+        if staging.exists():
+            shutil.rmtree(staging)
+    return final / "manifest.json", manifest, True
+
+
+def preferred_run_checkpoint(run_dir: Path) -> Path | None:
+    for name in ["checkpoint_best_total.pth", "checkpoint_best_ema.pth", "checkpoint.pth", "last.ckpt"]:
+        candidate = run_dir / name
+        if candidate.is_file():
+            return candidate
+    candidates = [*run_dir.rglob("*.pth"), *run_dir.rglob("*.ckpt")] if run_dir.is_dir() else []
+    return max(candidates, key=lambda item: item.stat().st_mtime) if candidates else None
+
+
 def train(args: argparse.Namespace) -> None:
     project_root = Path(args.project).resolve()
     document = require_project(project_root, args.language)
@@ -843,6 +1214,30 @@ def train(args: argparse.Namespace) -> None:
     profile = training_profile(args.model, device)
     output_dir = project_root / "runs" / args.model
     output_dir.mkdir(parents=True, exist_ok=True)
+    continuation_checkpoint = newest_checkpoint(project_root, args.model)
+
+    # Older Reco Trainer versions kept only one mutable run checkpoint. Preserve
+    # it before RF-DETR writes the next run into the same directory.
+    if continuation_checkpoint is not None and (project_root / "runs") in continuation_checkpoint.parents:
+        legacy_summary = dict(document.get("lastTraining") or {})
+        if not legacy_summary.get("testMetrics"):
+            legacy_summary["testMetrics"] = latest_test_metrics(output_dir)
+        parent_manifest_path, parent_manifest, parent_created = archive_local_checkpoint(
+            project_root,
+            document,
+            args.model,
+            continuation_checkpoint,
+            legacy_summary,
+            "legacy-local-training",
+        )
+        active_path = project_root / "models" / "active.json"
+        if parent_created or not active_path.is_file():
+            activate_library_model(project_root, parent_manifest_path, parent_manifest)
+        emit(localized(
+            args.language,
+            f"Vorherigen Modellstand sicher archiviert: {parent_manifest.get('displayName', parent_manifest['packageID'])}",
+            f"Previous model revision safely archived: {parent_manifest.get('displayName', parent_manifest['packageID'])}",
+        ))
 
     emit(localized(
         args.language,
@@ -866,10 +1261,24 @@ def train(args: argparse.Namespace) -> None:
             "Apple GPU cores are used through Metal/MPS. The Neural Engine is used by the "
             "Core ML model for later detection, not by this PyTorch training run.",
         ))
-    model = model_class(
-        device=device,
-        gradient_checkpointing=profile["gradient_checkpointing"],
-    )
+    model_kwargs: dict[str, Any] = {
+        "device": device,
+        "gradient_checkpointing": profile["gradient_checkpointing"],
+    }
+    if continuation_checkpoint is not None:
+        model_kwargs["pretrain_weights"] = str(continuation_checkpoint)
+        emit(localized(
+            args.language,
+            f"Setze das zuletzt trainierte Modell fort: {continuation_checkpoint.name}",
+            f"Continuing from the latest trained model: {continuation_checkpoint.name}",
+        ))
+    else:
+        emit(localized(
+            args.language,
+            "Noch kein kompatibler Checkpoint vorhanden; Training startet mit dem Basismodell.",
+            "No compatible checkpoint exists yet; training starts from the base model.",
+        ))
+    model = model_class(**model_kwargs)
     train_kwargs = {
         "dataset_dir": str(dataset_root),
         "output_dir": str(output_dir),
@@ -925,6 +1334,8 @@ def train(args: argparse.Namespace) -> None:
         for frame in refreshed_frames
         for annotation in frame.get("annotations", [])
     ]
+    trained_checkpoint = preferred_run_checkpoint(output_dir)
+    test_metrics = latest_test_metrics(output_dir)
     training_result = {
         "completedAt": datetime.now(timezone.utc).isoformat(),
         "model": args.model,
@@ -936,14 +1347,50 @@ def train(args: argparse.Namespace) -> None:
         "classes": sorted({annotation.get("category") for annotation in all_annotations}),
         "splits": {name: len(items) for name, items in refreshed_splits.items()},
         "independentTest": len({frame.get("videoID") for frame in refreshed_frames}) >= 3,
-        "checkpoint": newest_checkpoint(project_root, args.model).name if newest_checkpoint(project_root, args.model) else None,
+        "checkpoint": trained_checkpoint.name if trained_checkpoint else None,
+        "continuedFrom": continuation_checkpoint.name if continuation_checkpoint else None,
         "performanceProfile": profile,
         "validationMetrics": validation_metrics,
+        "testMetrics": test_metrics,
     }
     refreshed["lastTraining"] = training_result
     refreshed["trainingHistory"] = [*refreshed.get("trainingHistory", []), training_result][-12:]
     refreshed["updatedAt"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     atomic_json(project_file(project_root), refreshed)
+
+    if trained_checkpoint is not None:
+        manifest_path, manifest, _ = archive_local_checkpoint(
+            project_root, refreshed, args.model, trained_checkpoint, training_result, "local-training"
+        )
+        active_path = project_root / "models" / "active.json"
+        current_manifest: dict[str, Any] | None = None
+        if active_path.is_file():
+            try:
+                active_id = str(load_json(active_path).get("packageID", ""))
+                current_manifest = next(
+                    (item for _, item in library_manifests(project_root) if item.get("packageID") == active_id),
+                    None,
+                )
+            except (OSError, ValueError, TypeError, json.JSONDecodeError):
+                current_manifest = None
+        new_score = manifest_comparison_score(manifest)
+        current_score = manifest_comparison_score(current_manifest)
+        promote = current_manifest is None or (
+            new_score is not None and (current_score is None or new_score > current_score)
+        )
+        if promote:
+            activate_library_model(project_root, manifest_path, manifest)
+            emit(localized(
+                args.language,
+                f"Neuer bester Modellstand aktiviert: {manifest['displayName']}",
+                f"New best model revision activated: {manifest['displayName']}",
+            ))
+        else:
+            emit(localized(
+                args.language,
+                f"Modellstand archiviert, aber nicht aktiviert (Qualität {new_score or 0:.4f}; bisher {current_score or 0:.4f}).",
+                f"Model revision archived but not activated (quality {new_score or 0:.4f}; current {current_score or 0:.4f}).",
+            ))
     emit(localized(
         args.language,
         f"Training abgeschlossen. Modell liegt in {output_dir}",
@@ -985,6 +1432,7 @@ def package_model(args: argparse.Namespace) -> None:
     manifest = {
         "schemaVersion": 1,
         "packageID": package_id,
+        "displayName": f"{str(document['sport']).replace('_', ' ').title()} · {args.model.capitalize()} · {created.strftime('%Y-%m-%d %H:%M UTC')}",
         "createdAt": created.isoformat(),
         "sport": document["sport"],
         "modelSize": args.model,
@@ -1081,6 +1529,7 @@ def install_model_package(args: argparse.Namespace) -> None:
         raise SystemExit(localized(args.language, "Unbekannte Modellgröße.", "Unknown model size."))
     allowed_classes = {
         "football": {"ball", "player", "goalkeeper", "referee", "goal"},
+        "futsal": {"ball", "player", "goalkeeper", "referee", "goal"},
         "basketball": {"ball", "player", "referee", "hoop"},
         "handball": {"ball", "player", "goalkeeper", "referee", "goal"},
         "hockey": {"puck", "player", "goalkeeper", "referee", "goal"},
@@ -1115,6 +1564,7 @@ def install_model_package(args: argparse.Namespace) -> None:
 
     active = {
         "packageID": package_id,
+        "displayName": manifest.get("displayName") or package_id,
         "modelSize": model_size,
         "sport": sport,
         "description": manifest.get("description"),
@@ -1123,6 +1573,89 @@ def install_model_package(args: argparse.Namespace) -> None:
     }
     atomic_json(project_root / "models" / "active.json", active)
     print(json.dumps({"installed": True, "active": active, "manifest": manifest}, ensure_ascii=False))
+
+
+def safe_package_id(value: str) -> str:
+    if not value or len(value) > 120 or any(character not in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-" for character in value):
+        raise ValueError("Invalid package ID")
+    return value
+
+
+def managed_model(project_root: Path, package_id: str) -> tuple[Path, dict[str, Any]]:
+    package_id = safe_package_id(package_id)
+    library_root = (project_root / "models" / "library").resolve()
+    manifest_path = (library_root / package_id / "manifest.json").resolve()
+    if library_root not in manifest_path.parents or not manifest_path.is_file():
+        raise ValueError("Model does not exist")
+    manifest = load_json(manifest_path)
+    if manifest.get("packageID") != package_id:
+        raise ValueError("Model manifest does not match its directory")
+    return manifest_path, manifest
+
+
+def list_models(args: argparse.Namespace) -> None:
+    project_root = Path(args.project).resolve()
+    require_project(project_root, args.language)
+    active_id = None
+    active_path = project_root / "models" / "active.json"
+    if active_path.is_file():
+        try:
+            active_id = load_json(active_path).get("packageID")
+        except (OSError, ValueError, TypeError, json.JSONDecodeError):
+            pass
+    entries = library_manifests(project_root)
+    scored = [(manifest_comparison_score(manifest), manifest.get("packageID")) for _, manifest in entries]
+    valid_scores = [item for item in scored if item[0] is not None]
+    best_id = max(valid_scores, default=(None, None), key=lambda item: item[0] if item[0] is not None else -1)[1]
+    models = []
+    for _, manifest in entries:
+        item = dict(manifest)
+        item["isActive"] = manifest.get("packageID") == active_id
+        item["isBest"] = manifest.get("packageID") == best_id
+        item["validationScore"] = manifest_validation_score(manifest)
+        item["testScore"] = manifest_test_score(manifest)
+        models.append(item)
+    models.sort(key=lambda item: (not item["isActive"], not item["isBest"], str(item.get("createdAt", ""))), reverse=False)
+    print(json.dumps({"models": models, "activePackageID": active_id, "bestPackageID": best_id}, ensure_ascii=False))
+
+
+def activate_model(args: argparse.Namespace) -> None:
+    project_root = Path(args.project).resolve()
+    document = require_project(project_root, args.language)
+    manifest_path, manifest = managed_model(project_root, args.package_id)
+    if manifest.get("sport") != document.get("sport"):
+        raise SystemExit(localized(args.language, "Das Modell gehört zu einer anderen Sportart.", "The model belongs to a different sport."))
+    active = activate_library_model(project_root, manifest_path, manifest)
+    print(json.dumps({"active": active}, ensure_ascii=False))
+
+
+def rename_model(args: argparse.Namespace) -> None:
+    project_root = Path(args.project).resolve()
+    require_project(project_root, args.language)
+    name = " ".join(str(args.name).split()).strip()
+    if not name or len(name) > 80 or any(ord(character) < 32 for character in name):
+        raise SystemExit(localized(args.language, "Der Modellname ist ungültig.", "The model name is invalid."))
+    manifest_path, manifest = managed_model(project_root, args.package_id)
+    manifest["displayName"] = name
+    atomic_json(manifest_path, manifest)
+    active_path = project_root / "models" / "active.json"
+    if active_path.is_file():
+        active = load_json(active_path)
+        if active.get("packageID") == args.package_id:
+            active["displayName"] = name
+            atomic_json(active_path, active)
+    print(json.dumps({"renamed": True, "packageID": args.package_id, "displayName": name}, ensure_ascii=False))
+
+
+def delete_model(args: argparse.Namespace) -> None:
+    project_root = Path(args.project).resolve()
+    require_project(project_root, args.language)
+    manifest_path, _ = managed_model(project_root, args.package_id)
+    active_path = project_root / "models" / "active.json"
+    if active_path.is_file() and load_json(active_path).get("packageID") == args.package_id:
+        raise SystemExit(localized(args.language, "Das aktive Modell kann nicht gelöscht werden. Zuerst ein anderes aktivieren.", "The active model cannot be deleted. Activate another model first."))
+    shutil.rmtree(manifest_path.parent)
+    print(json.dumps({"deleted": True, "packageID": args.package_id}, ensure_ascii=False))
 
 
 def export_model(args: argparse.Namespace) -> None:
@@ -1209,6 +1742,11 @@ def build_parser() -> argparse.ArgumentParser:
     label_parser.add_argument("--candidate-only", action="store_true")
     label_parser.set_defaults(func=auto_label)
 
+    refine_parser = commands.add_parser("refine-boxes")
+    refine_parser.add_argument("--project", required=True)
+    refine_parser.add_argument("--language", choices=["de", "en", "es", "fr"], default="de")
+    refine_parser.set_defaults(func=refine_boxes)
+
     train_parser = commands.add_parser("train")
     train_parser.add_argument("--project", required=True)
     train_parser.add_argument("--model", choices=MODEL_CLASSES, default="nano")
@@ -1239,6 +1777,30 @@ def build_parser() -> argparse.ArgumentParser:
     install_parser.add_argument("--file", required=True)
     install_parser.add_argument("--language", choices=["de", "en", "es", "fr"], default="de")
     install_parser.set_defaults(func=install_model_package)
+
+    list_models_parser = commands.add_parser("list-models")
+    list_models_parser.add_argument("--project", required=True)
+    list_models_parser.add_argument("--language", choices=["de", "en", "es", "fr"], default="de")
+    list_models_parser.set_defaults(func=list_models)
+
+    activate_model_parser = commands.add_parser("activate-model")
+    activate_model_parser.add_argument("--project", required=True)
+    activate_model_parser.add_argument("--package-id", required=True)
+    activate_model_parser.add_argument("--language", choices=["de", "en", "es", "fr"], default="de")
+    activate_model_parser.set_defaults(func=activate_model)
+
+    rename_model_parser = commands.add_parser("rename-model")
+    rename_model_parser.add_argument("--project", required=True)
+    rename_model_parser.add_argument("--package-id", required=True)
+    rename_model_parser.add_argument("--name", required=True)
+    rename_model_parser.add_argument("--language", choices=["de", "en", "es", "fr"], default="de")
+    rename_model_parser.set_defaults(func=rename_model)
+
+    delete_model_parser = commands.add_parser("delete-model")
+    delete_model_parser.add_argument("--project", required=True)
+    delete_model_parser.add_argument("--package-id", required=True)
+    delete_model_parser.add_argument("--language", choices=["de", "en", "es", "fr"], default="de")
+    delete_model_parser.set_defaults(func=delete_model)
 
     benchmark_parser = commands.add_parser("benchmark")
     benchmark_parser.add_argument("--project", required=True)

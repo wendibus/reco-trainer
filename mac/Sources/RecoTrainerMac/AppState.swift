@@ -2,7 +2,25 @@ import AppKit
 import Combine
 import CryptoKit
 import Foundation
-import UniformTypeIdentifiers
+
+enum LocalPickerPurpose: String, Identifiable, Sendable {
+    case trainingFolder
+    case activeLearningFolder
+    case modelPackage
+
+    var id: String { rawValue }
+}
+
+private struct FolderLoadSnapshot: Sendable {
+    var project: ProjectDocument?
+    var activeModel: ActiveModelRecord?
+    var installedModelCount: Int
+    var models: [ManagedModelRecord]
+    var continuationCheckpoints: [ModelSize: String]
+    var benchmarkGroundTruth: BenchmarkGroundTruthRecord?
+    var benchmarkReport: BenchmarkReport?
+    var errorMessage: String?
+}
 
 @MainActor
 final class AppState: ObservableObject {
@@ -27,6 +45,10 @@ final class AppState: ObservableObject {
     @Published var benchmarkGroundTruth: BenchmarkGroundTruthRecord?
     @Published var benchmarkReport: BenchmarkReport?
     @Published var errorMessage: String?
+    @Published var localPickerPurpose: LocalPickerPurpose?
+    @Published private(set) var installedModelCount = 0
+    @Published private(set) var managedModels: [ManagedModelRecord] = []
+    @Published private var continuationCheckpoints: [ModelSize: String] = [:]
 
     var store: ProjectStore? {
         selectedFolder.map(ProjectStore.forSourceFolder)
@@ -41,10 +63,8 @@ final class AppState: ObservableObject {
         project?.frames.filter { $0.reviewStatus == "candidate" } ?? []
     }
 
-    var installedModelCount: Int {
-        guard let root = store?.rootURL.appending(path: "models/library", directoryHint: .isDirectory),
-              let directories = try? FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: [.isDirectoryKey]) else { return 0 }
-        return directories.filter { FileManager.default.fileExists(atPath: $0.appending(path: "manifest.json").path) }.count
+    var continuationCheckpointName: String? {
+        continuationCheckpoints[modelSize]
     }
 
     var benchmarkReportIsCurrent: Bool {
@@ -56,49 +76,225 @@ final class AppState: ObservableObject {
     }
 
     func chooseFolder() {
-        let panel = NSOpenPanel()
-        panel.title = tr("Ordner mit Sportvideos auswählen", "Select folder containing sports videos")
-        panel.prompt = tr("Ordner verwenden", "Use folder")
-        panel.canChooseDirectories = true
-        panel.canChooseFiles = false
-        panel.allowsMultipleSelection = false
-        guard panel.runModal() == .OK, let url = panel.url else { return }
-        selectedFolder = url
-        loadExistingProjectIfPresent()
+        localPickerPurpose = .trainingFolder
+    }
+
+    func pickerInitialURL(for purpose: LocalPickerPurpose) -> URL {
+        switch purpose {
+        case .trainingFolder:
+            return selectedFolder ?? URL(filePath: "/Volumes", directoryHint: .isDirectory)
+        case .activeLearningFolder:
+            return URL(filePath: "/Volumes", directoryHint: .isDirectory)
+        case .modelPackage:
+            return FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
+                ?? FileManager.default.homeDirectoryForCurrentUser
+        }
+    }
+
+    func cancelLocalPicker() {
+        localPickerPurpose = nil
+    }
+
+    func completeLocalPicker(with url: URL) {
+        guard let purpose = localPickerPurpose else { return }
+        localPickerPurpose = nil
+        switch purpose {
+        case .trainingFolder:
+            selectedFolder = url
+            loadExistingProjectIfPresent()
+        case .activeLearningFolder:
+            guard let selectedFolder, let store else { return }
+            startActiveLearning(from: url, selectedFolder: selectedFolder, store: store)
+        case .modelPackage:
+            guard let store else { return }
+            importModelPackage(from: url, store: store)
+        }
     }
 
     func loadExistingProjectIfPresent() {
-        guard let store else { return }
-        if let loaded = try? store.load() {
-            project = loaded
-            sport = loaded.sport
-            selectedCategory = loaded.sport.categories.first ?? "ball"
-            selectedFrameID = loaded.frames.first?.id
-            framesPerVideo = loaded.framesPerVideo ?? 240
-            let activeURL = store.rootURL.appending(path: "models/active.json")
-            if let data = try? Data(contentsOf: activeURL),
-               let active = try? JSONDecoder().decode(ActiveModelRecord.self, from: data) {
-                activeModelPackageID = active.packageID
-                activeModelDescription = active.description
-                modelSize = ModelSize(rawValue: active.modelSize) ?? modelSize
+        guard let selectedFolder else { return }
+        let requestedFolder = selectedFolder.standardizedFileURL
+        isWorking = true
+        errorMessage = nil
+        project = nil
+        selectedFrameID = nil
+        installedModelCount = 0
+        managedModels = []
+        continuationCheckpoints = [:]
+        status = tr(
+            "Lade vorhandenes Trainingsprojekt …",
+            "Loading existing training project …",
+            "Cargando el proyecto de entrenamiento …",
+            "Chargement du projet d’entraînement …"
+        )
+
+        Task {
+            let snapshot = await Task.detached(priority: .userInitiated) {
+                Self.loadFolderSnapshot(from: requestedFolder)
+            }.value
+            guard self.selectedFolder?.standardizedFileURL == requestedFolder else { return }
+
+            self.project = snapshot.project
+            self.installedModelCount = snapshot.installedModelCount
+            self.managedModels = snapshot.models
+            self.continuationCheckpoints = snapshot.continuationCheckpoints
+            self.benchmarkGroundTruth = snapshot.benchmarkGroundTruth
+            self.benchmarkReport = snapshot.benchmarkReport
+            self.activeModelPackageID = snapshot.activeModel?.packageID
+            self.activeModelDescription = snapshot.activeModel?.description
+
+            if let loaded = snapshot.project {
+                self.sport = loaded.sport
+                self.selectedCategory = loaded.sport.categories.first ?? "ball"
+                self.selectedFrameID = loaded.frames.first?.id
+                self.framesPerVideo = loaded.framesPerVideo ?? 240
+                if let activeSize = snapshot.activeModel.flatMap({ ModelSize(rawValue: $0.modelSize) }) {
+                    self.modelSize = activeSize
+                } else if let lastModel = loaded.lastTraining?.model,
+                          let lastModelSize = ModelSize(rawValue: lastModel) {
+                    self.modelSize = lastModelSize
+                }
+                self.status = self.tr(
+                    "Projekt geladen: \(loaded.frames.count) Frames.",
+                    "Project loaded: \(loaded.frames.count) frames.",
+                    "Proyecto cargado: \(loaded.frames.count) fotogramas.",
+                    "Projet chargé : \(loaded.frames.count) images."
+                )
+            } else if let loadError = snapshot.errorMessage {
+                self.errorMessage = loadError
+                self.selectedCategory = self.sport.categories.first ?? "ball"
+                self.status = self.tr(
+                    "Trainingsprojekt konnte nicht geladen werden. Die vorhandenen Daten wurden nicht verändert.",
+                    "The training project could not be loaded. Existing data was not changed.",
+                    "No se pudo cargar el proyecto. Los datos existentes no se modificaron.",
+                    "Le projet n’a pas pu être chargé. Les données existantes n’ont pas été modifiées."
+                )
             } else {
-                activeModelPackageID = nil
-                activeModelDescription = nil
+                self.selectedCategory = self.sport.categories.first ?? "ball"
+                self.status = self.tr(
+                    "Ordner gewählt. Jetzt Videos analysieren.",
+                    "Folder selected. Analyze the videos next.",
+                    "Carpeta seleccionada. Analiza ahora los vídeos.",
+                    "Dossier sélectionné. Analysez maintenant les vidéos."
+                )
             }
-            loadBenchmarkState()
-            status = tr(
-                "Projekt geladen: \(loaded.frames.count) Frames.",
-                "Project loaded: \(loaded.frames.count) frames.",
-                "Proyecto cargado: \(loaded.frames.count) fotogramas.",
-                "Projet chargé : \(loaded.frames.count) images."
-            )
-        } else {
+            self.isWorking = false
+        }
+    }
+
+    nonisolated private static func loadFolderSnapshot(from folder: URL) -> FolderLoadSnapshot {
+        let store = ProjectStore.forSourceFolder(folder)
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+
+        let project: ProjectDocument?
+        var loadError: String?
+        do {
+            project = try store.load()
+        } catch ProjectStoreError.noProject {
             project = nil
-            selectedFrameID = nil
-            selectedCategory = sport.categories.first ?? "ball"
-            benchmarkGroundTruth = nil
-            benchmarkReport = nil
-            status = tr("Ordner gewählt. Jetzt Videos analysieren.", "Folder selected. Analyze the videos next.", "Carpeta seleccionada. Analiza ahora los vídeos.", "Dossier sélectionné. Analysez maintenant les vidéos.")
+        } catch {
+            project = nil
+            loadError = error.localizedDescription
+        }
+
+        let activeURL = store.rootURL.appending(path: "models/active.json")
+        let activeModel = (try? Data(contentsOf: activeURL)).flatMap {
+            try? decoder.decode(ActiveModelRecord.self, from: $0)
+        }
+
+        let libraryURL = store.rootURL.appending(path: "models/library", directoryHint: .isDirectory)
+        let modelDirectories = (try? FileManager.default.contentsOfDirectory(
+            at: libraryURL,
+            includingPropertiesForKeys: [.isDirectoryKey],
+            options: [.skipsHiddenFiles]
+        )) ?? []
+        var models = modelDirectories.compactMap { directory -> ManagedModelRecord? in
+            let manifest = directory.appending(path: "manifest.json")
+            guard let data = try? Data(contentsOf: manifest),
+                  var record = try? decoder.decode(ManagedModelRecord.self, from: data) else { return nil }
+            record.isActive = record.packageID == activeModel?.packageID
+            return record
+        }
+        if let bestID = models.compactMap({ model in model.comparisonScore.map { ($0, model.packageID) } }).max(by: { $0.0 < $1.0 })?.1 {
+            models = models.map { model in
+                var updated = model
+                updated.isBest = model.packageID == bestID
+                return updated
+            }
+        }
+        models.sort {
+            if ($0.isActive ?? false) != ($1.isActive ?? false) { return $0.isActive ?? false }
+            if ($0.isBest ?? false) != ($1.isBest ?? false) { return $0.isBest ?? false }
+            return ($0.createdAt ?? "") > ($1.createdAt ?? "")
+        }
+        let installedCount = models.count
+
+        var checkpoints: [ModelSize: String] = [:]
+        for size in ModelSize.allCases {
+            if let checkpoint = store.preferredTrainingCheckpoint(for: size) {
+                checkpoints[size] = checkpoint.lastPathComponent
+            }
+        }
+        if let activeModel,
+           let size = ModelSize(rawValue: activeModel.modelSize),
+           checkpoints[size] == nil {
+            checkpoints[size] = URL(filePath: activeModel.weights).lastPathComponent
+        }
+
+        let benchmarkURL = store.rootURL.appending(path: "benchmarks", directoryHint: .isDirectory)
+        let groundTruth = (try? Data(contentsOf: benchmarkURL.appending(path: "ground-truth.json"))).flatMap {
+            try? decoder.decode(BenchmarkGroundTruthRecord.self, from: $0)
+        }
+        let report = (try? Data(contentsOf: benchmarkURL.appending(path: "latest.json"))).flatMap {
+            try? decoder.decode(BenchmarkReport.self, from: $0)
+        }
+        if groundTruth?.datasetID == report?.datasetID,
+           let benchmarkBestID = report?.results.first(where: { $0.rank == 1 })?.packageID {
+            models = models.map { model in
+                var updated = model
+                updated.isBest = model.packageID == benchmarkBestID
+                return updated
+            }
+            models.sort {
+                if ($0.isActive ?? false) != ($1.isActive ?? false) { return $0.isActive ?? false }
+                if ($0.isBest ?? false) != ($1.isBest ?? false) { return $0.isBest ?? false }
+                return ($0.createdAt ?? "") > ($1.createdAt ?? "")
+            }
+        }
+
+        return FolderLoadSnapshot(
+            project: project,
+            activeModel: activeModel,
+            installedModelCount: installedCount,
+            models: models,
+            continuationCheckpoints: checkpoints,
+            benchmarkGroundTruth: groundTruth,
+            benchmarkReport: report,
+            errorMessage: loadError
+        )
+    }
+
+    private func refreshModelState() async {
+        guard let folder = selectedFolder?.standardizedFileURL else { return }
+        let snapshot = await Task.detached(priority: .utility) {
+            Self.loadFolderSnapshot(from: folder)
+        }.value
+        guard selectedFolder?.standardizedFileURL == folder else { return }
+        installedModelCount = snapshot.installedModelCount
+        managedModels = snapshot.models
+        continuationCheckpoints = snapshot.continuationCheckpoints
+        activeModelPackageID = snapshot.activeModel?.packageID
+        activeModelDescription = snapshot.activeModel?.description
+    }
+
+    func revealTrainingFolder() {
+        guard let store else { return }
+        do {
+            try store.prepare()
+            NSWorkspace.shared.activateFileViewerSelecting([store.visibleRootURL])
+        } catch {
+            errorMessage = error.localizedDescription
         }
     }
 
@@ -235,15 +431,24 @@ final class AppState: ObservableObject {
         )
     }}
 
+    func refineBoxes() { runWorkerAction(
+        tr(
+            "Prüfe automatische Ball- und Puck-Boxen lokal mit OpenCV …",
+            "Reviewing automatic ball and puck boxes locally with OpenCV …",
+            "Revisando localmente con OpenCV los cuadros automáticos de balón y disco …",
+            "Vérification locale avec OpenCV des boîtes automatiques ballon et palet …"
+        ),
+        reloadProject: true
+    ) { worker, output in
+        try await worker.refineBoxes(language: self.language, onOutput: output)
+    }}
+
     func startActiveLearning() {
-        guard let selectedFolder, let store else { return }
-        let panel = NSOpenPanel()
-        panel.title = tr("Ordner mit neuen, noch nicht verwendeten Videos auswählen", "Select folder with new, unused videos", "Selecciona una carpeta con vídeos nuevos", "Sélectionnez un dossier de nouvelles vidéos")
-        panel.prompt = tr("Videos prüfen", "Review videos", "Revisar vídeos", "Vérifier les vidéos")
-        panel.canChooseDirectories = true
-        panel.canChooseFiles = false
-        panel.allowsMultipleSelection = false
-        guard panel.runModal() == .OK, let folder = panel.url else { return }
+        guard selectedFolder != nil, store != nil else { return }
+        localPickerPurpose = .activeLearningFolder
+    }
+
+    private func startActiveLearning(from folder: URL, selectedFolder: URL, store: ProjectStore) {
         guard folder.standardizedFileURL != selectedFolder.standardizedFileURL else {
             errorMessage = tr("Bitte einen anderen Ordner als den bisherigen Trainingsordner wählen.", "Choose a folder different from the existing training folder.", "Elige una carpeta distinta de la carpeta de entrenamiento.", "Choisissez un dossier différent du dossier d’entraînement.")
             return
@@ -388,16 +593,11 @@ final class AppState: ObservableObject {
     }}
 
     func importModelPackage() {
-        guard let store else { return }
-        let panel = NSOpenPanel()
-        panel.title = tr("Reco-Modellpaket auswählen", "Select Reco model package")
-        panel.prompt = tr("Modell importieren", "Import model")
-        panel.canChooseDirectories = false
-        panel.canChooseFiles = true
-        panel.allowsMultipleSelection = false
-        panel.allowedContentTypes = [UTType(filenameExtension: "recomodel") ?? .data]
-        guard panel.runModal() == .OK, let fileURL = panel.url else { return }
+        guard store != nil else { return }
+        localPickerPurpose = .modelPackage
+    }
 
+    private func importModelPackage(from fileURL: URL, store: ProjectStore) {
         isWorking = true
         errorMessage = nil
         status = tr("Prüfe und importiere Modellpaket …", "Validating and importing model package …")
@@ -410,6 +610,7 @@ final class AppState: ObservableObject {
                 if let importedSize = ModelSize(rawValue: imported.active.modelSize) {
                     modelSize = importedSize
                 }
+                await refreshModelState()
                 switch language {
                 case .de: status = "Modell „\(imported.active.packageID)“ geprüft, installiert und aktiviert."
                 case .en: status = "Model “\(imported.active.packageID)” validated, installed, and activated."
@@ -420,6 +621,51 @@ final class AppState: ObservableObject {
                 errorMessage = error.localizedDescription
                 status = tr("Modellimport fehlgeschlagen.", "Model import failed.")
             }
+            isWorking = false
+        }
+    }
+
+    func activateModel(_ model: ManagedModelRecord) {
+        guard let store else { return }
+        isWorking = true
+        errorMessage = nil
+        Task {
+            do {
+                let response = try await MLWorker(projectRoot: store.rootURL).activateModel(packageID: model.packageID, language: language)
+                if let size = ModelSize(rawValue: response.active.modelSize) { modelSize = size }
+                await refreshModelState()
+                status = tr("Modell aktiviert: \(model.displayName ?? model.packageID)", "Model activated: \(model.displayName ?? model.packageID)", "Modelo activado: \(model.displayName ?? model.packageID)", "Modèle activé : \(model.displayName ?? model.packageID)")
+            } catch {
+                errorMessage = error.localizedDescription
+            }
+            isWorking = false
+        }
+    }
+
+    func renameModel(_ model: ManagedModelRecord, to name: String) {
+        guard let store else { return }
+        isWorking = true
+        errorMessage = nil
+        Task {
+            do {
+                try await MLWorker(projectRoot: store.rootURL).renameModel(packageID: model.packageID, name: name, language: language)
+                await refreshModelState()
+                status = tr("Modell umbenannt.", "Model renamed.", "Modelo renombrado.", "Modèle renommé.")
+            } catch { errorMessage = error.localizedDescription }
+            isWorking = false
+        }
+    }
+
+    func deleteModel(_ model: ManagedModelRecord) {
+        guard let store else { return }
+        isWorking = true
+        errorMessage = nil
+        Task {
+            do {
+                try await MLWorker(projectRoot: store.rootURL).deleteModel(packageID: model.packageID, language: language)
+                await refreshModelState()
+                status = tr("Modell gelöscht.", "Model deleted.", "Modelo eliminado.", "Modèle supprimé.")
+            } catch { errorMessage = error.localizedDescription }
             isWorking = false
         }
     }
@@ -444,6 +690,7 @@ final class AppState: ObservableObject {
                         if self.log.count > 30_000 { self.log.removeFirst(self.log.count - 30_000) }
                     }
                 }
+                await refreshModelState()
                 if reloadProject, let loaded = try? store.load() {
                     project = loaded
                     let automaticCount = loaded.frames

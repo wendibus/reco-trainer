@@ -2,14 +2,21 @@ import AppKit
 import SwiftUI
 
 struct ContentView: View {
+    private static let currentRelease = "0.11.0"
+
     @EnvironmentObject private var app: AppState
     @AppStorage("recoWalkthroughCompleteV1") private var walkthroughComplete = false
     @AppStorage("recoPreferredLanguageV1") private var preferredLanguage = ""
+    @AppStorage("recoLastSeenReleaseV1") private var lastSeenRelease = ""
     @State private var showWalkthrough = false
     @State private var showLanguagePicker = false
     @State private var walkthroughIndex = 0
     @State private var showBenchmark = false
     @State private var confirmFrameRemoval = false
+    @State private var showReleaseNotes = false
+    @State private var modelNameDrafts: [String: String] = [:]
+    @State private var modelPendingDeletion: ManagedModelRecord?
+    @State private var showModelLibrary = false
 
     var body: some View {
         NavigationSplitView {
@@ -35,6 +42,19 @@ struct ContentView: View {
             Button(app.tr("Abbrechen", "Cancel", "Cancelar", "Annuler"), role: .cancel) {}
         } message: {
             Text(app.tr("Nur der extrahierte Trainingsframe wird entfernt. Das Quellvideo bleibt unverändert.", "Only the extracted training frame is removed. The source video remains unchanged.", "Solo se quita el fotograma extraído. El vídeo original no se modifica.", "Seule l’image extraite est retirée. La vidéo source reste inchangée."))
+        }
+        .confirmationDialog(
+            app.tr("Modell dauerhaft löschen?", "Delete model permanently?", "¿Eliminar el modelo permanentemente?", "Supprimer définitivement le modèle ?"),
+            isPresented: Binding(get: { modelPendingDeletion != nil }, set: { if !$0 { modelPendingDeletion = nil } }),
+            titleVisibility: .visible
+        ) {
+            Button(app.tr("Modell löschen", "Delete model", "Eliminar modelo", "Supprimer le modèle"), role: .destructive) {
+                if let model = modelPendingDeletion { app.deleteModel(model) }
+                modelPendingDeletion = nil
+            }
+            Button(app.tr("Abbrechen", "Cancel", "Cancelar", "Annuler"), role: .cancel) { modelPendingDeletion = nil }
+        } message: {
+            Text(modelPendingDeletion?.displayName ?? modelPendingDeletion?.packageID ?? "")
         }
         .toolbar {
             ToolbarItem(placement: .principal) {
@@ -68,7 +88,11 @@ struct ContentView: View {
         .onAppear {
             if let saved = AppLanguage(rawValue: preferredLanguage) {
                 app.language = saved
-                if !walkthroughComplete { showWalkthrough = true }
+                if !walkthroughComplete {
+                    showWalkthrough = true
+                } else if lastSeenRelease != Self.currentRelease {
+                    showReleaseNotes = true
+                }
             } else {
                 showLanguagePicker = true
             }
@@ -93,6 +117,14 @@ struct ContentView: View {
                     showWalkthrough = false
                 }
             )
+        }
+        .sheet(isPresented: $showReleaseNotes, onDismiss: {
+            lastSeenRelease = Self.currentRelease
+        }) {
+            WhatsNewSheet(language: app.language) {
+                lastSeenRelease = Self.currentRelease
+                showReleaseNotes = false
+            }
         }
     }
 
@@ -203,7 +235,15 @@ struct ContentView: View {
 
     @ViewBuilder
     private var detail: some View {
-        if showBenchmark {
+        if let purpose = app.localPickerPurpose {
+            LocalFilePicker(
+                purpose: purpose,
+                language: app.language,
+                initialURL: app.pickerInitialURL(for: purpose),
+                select: app.completeLocalPicker,
+                cancel: app.cancelLocalPicker
+            )
+        } else if showBenchmark {
             benchmarkPanel
         } else if let frame = app.selectedFrame, let store = app.store {
             VStack(spacing: 14) {
@@ -393,7 +433,22 @@ struct ContentView: View {
                     action: app.autoLabel
                 )
                     .disabled(app.project == nil)
-                Button(app.tr("Lokal trainieren", "Train locally"), action: app.train)
+                Button(
+                    app.tr(
+                        "Ball-Boxen mit OpenCV prüfen",
+                        "Review ball boxes with OpenCV",
+                        "Revisar cuadros de balón con OpenCV",
+                        "Vérifier les boîtes de ballon avec OpenCV"
+                    ),
+                    action: app.refineBoxes
+                )
+                    .disabled(app.project == nil)
+                Button(
+                    app.continuationCheckpointName == nil
+                        ? app.tr("Lokal trainieren", "Train locally", "Entrenar localmente", "Entraîner localement")
+                        : app.tr("Letztes Modell weitertrainieren", "Continue latest model", "Continuar el último modelo", "Continuer le dernier modèle"),
+                    action: app.train
+                )
                     .buttonStyle(.borderedProminent)
                 Divider().frame(height: 22)
                 Button(app.tr("CPU-Modell (ONNX)", "CPU model (ONNX)"), action: app.exportCPU)
@@ -402,6 +457,31 @@ struct ContentView: View {
                 Button(app.tr("Modell importieren", "Import model"), action: app.importModelPackage)
             }
             .disabled(app.isWorking)
+
+            if app.selectedFolder != nil {
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Button(action: app.revealTrainingFolder) {
+                        Label(
+                            app.tr("Trainingsordner anzeigen", "Show training folder", "Mostrar carpeta de entrenamiento", "Afficher le dossier d’entraînement"),
+                            systemImage: "folder"
+                        )
+                    }
+                    Text("frames · dataset · runs · exports · backups · benchmarks · models · inbox")
+                        .font(.system(.caption2, design: .monospaced))
+                        .foregroundStyle(.secondary)
+                        .textSelection(.enabled)
+                }
+                if let checkpoint = app.continuationCheckpointName {
+                    Text(app.tr(
+                        "Das nächste Training setzt automatisch bei \(checkpoint) fort.",
+                        "The next training run automatically continues from \(checkpoint).",
+                        "El próximo entrenamiento continúa automáticamente desde \(checkpoint).",
+                        "Le prochain entraînement reprend automatiquement depuis \(checkpoint)."
+                    ))
+                    .font(.caption2)
+                    .foregroundStyle(.green)
+                }
+            }
 
             HStack {
                 Text(app.tr("Mindest-Sicherheit", "Minimum confidence"))
@@ -425,6 +505,8 @@ struct ContentView: View {
                 }
                 .font(.caption)
             }
+
+            modelLibraryPanel
 
             Text(app.tr(
                 "Nur Modellpakete aus einer vertrauenswürdigen Quelle importieren.",
@@ -462,6 +544,74 @@ struct ContentView: View {
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14))
     }
 
+    private var modelLibraryPanel: some View {
+        GroupBox {
+            DisclosureGroup(isExpanded: $showModelLibrary) {
+                if app.managedModels.isEmpty {
+                    Text(app.tr(
+                    "Nach dem nächsten Training wird jeder Modellstand automatisch hier archiviert.",
+                    "Every model revision will be archived here automatically after the next training run.",
+                    "Cada versión del modelo se archivará aquí automáticamente tras el próximo entrenamiento.",
+                    "Chaque version du modèle sera automatiquement archivée ici après le prochain entraînement."
+                    ))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                } else {
+                    ScrollView {
+                        VStack(spacing: 8) {
+                            ForEach(app.managedModels) { model in
+                            HStack(alignment: .center, spacing: 10) {
+                                VStack(alignment: .leading, spacing: 3) {
+                                    HStack(spacing: 5) {
+                                        Text(model.displayName ?? model.packageID).font(.caption.bold()).lineLimit(1)
+                                        if model.isActive == true { Text(app.tr("AKTIV", "ACTIVE", "ACTIVO", "ACTIF")).font(.system(size: 9, weight: .bold)).foregroundStyle(.green) }
+                                        if model.isBest == true { Text(app.tr("BESTES", "BEST", "MEJOR", "MEILLEUR")).font(.system(size: 9, weight: .bold)).foregroundStyle(.blue) }
+                                    }
+                                    Text("\(model.modelSize.uppercased()) · \(model.comparisonScore.map { String(format: model.testScore == nil ? "Val mAP %.4f" : "Test mAP %.4f", $0) } ?? "mAP –") · \(model.createdAt ?? "")")
+                                        .font(.system(.caption2, design: .monospaced))
+                                        .foregroundStyle(.secondary)
+                                        .lineLimit(1)
+                                    Text(model.packageID).font(.system(size: 9, design: .monospaced)).foregroundStyle(.tertiary).lineLimit(1)
+                                }
+                                Spacer(minLength: 6)
+                                TextField(
+                                    app.tr("Eigener Name", "Custom name", "Nombre propio", "Nom personnalisé"),
+                                    text: Binding(
+                                        get: { modelNameDrafts[model.packageID] ?? "" },
+                                        set: { modelNameDrafts[model.packageID] = $0 }
+                                    )
+                                )
+                                .textFieldStyle(.roundedBorder)
+                                .frame(width: 145)
+                                Button(app.tr("Umbenennen", "Rename", "Renombrar", "Renommer")) {
+                                    let name = modelNameDrafts[model.packageID] ?? ""
+                                    app.renameModel(model, to: name)
+                                    modelNameDrafts[model.packageID] = nil
+                                }
+                                .disabled((modelNameDrafts[model.packageID] ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || app.isWorking)
+                                Button(app.tr("Aktivieren", "Activate", "Activar", "Activer")) { app.activateModel(model) }
+                                    .disabled(model.isActive == true || app.isWorking)
+                                Button(role: .destructive) { modelPendingDeletion = model } label: { Image(systemName: "trash") }
+                                    .disabled(model.isActive == true || app.isWorking)
+                            }
+                            .padding(7)
+                            .background(model.isActive == true ? Color.green.opacity(0.08) : Color.secondary.opacity(0.06), in: RoundedRectangle(cornerRadius: 8))
+                            }
+                        }
+                    }
+                    .frame(maxHeight: 205)
+                }
+            } label: {
+                Label(
+                    "\(app.tr("Modellverwaltung", "Model library", "Biblioteca de modelos", "Bibliothèque de modèles")) (\(app.managedModels.count))",
+                    systemImage: "shippingbox.and.arrow.backward"
+                )
+                .font(.caption.bold())
+            }
+        }
+    }
+
     private func hardwareSummary(_ hardware: HardwareStatus) -> String {
         var parts = [hardware.recommendedDevice.uppercased()]
         if let memory = hardware.memoryGB { parts.append("\(memory) GB") }
@@ -489,6 +639,287 @@ struct ContentView: View {
                 .controlSize(.large)
         }
         .padding(40)
+    }
+}
+
+private struct LocalFileEntry: Identifiable, Sendable {
+    let url: URL
+    let isDirectory: Bool
+    var id: String { url.path }
+}
+
+private struct LocalDirectorySnapshot: Sendable {
+    let entries: [LocalFileEntry]
+    let error: String?
+}
+
+private struct LocalFilePicker: View {
+    let purpose: LocalPickerPurpose
+    let language: AppLanguage
+    let select: (URL) -> Void
+    let cancel: () -> Void
+
+    @State private var currentURL: URL
+    @State private var pathText: String
+    @State private var entries: [LocalFileEntry] = []
+    @State private var selectedFile: URL?
+    @State private var isLoading = false
+    @State private var loadError: String?
+
+    init(
+        purpose: LocalPickerPurpose,
+        language: AppLanguage,
+        initialURL: URL,
+        select: @escaping (URL) -> Void,
+        cancel: @escaping () -> Void
+    ) {
+        self.purpose = purpose
+        self.language = language
+        self.select = select
+        self.cancel = cancel
+        let normalized = initialURL.standardizedFileURL
+        _currentURL = State(initialValue: normalized)
+        _pathText = State(initialValue: normalized.path)
+    }
+
+    private var title: String {
+        switch purpose {
+        case .trainingFolder:
+            language.text("Ordner mit Sportvideos auswählen", "Select folder containing sports videos", "Seleccionar carpeta con vídeos deportivos", "Sélectionner le dossier des vidéos sportives")
+        case .activeLearningFolder:
+            language.text("Ordner mit neuen Videos auswählen", "Select folder with new videos", "Seleccionar carpeta con vídeos nuevos", "Sélectionner le dossier des nouvelles vidéos")
+        case .modelPackage:
+            language.text("Reco-Modellpaket auswählen", "Select Reco model package", "Seleccionar paquete de modelo Reco", "Sélectionner le paquet de modèle Reco")
+        }
+    }
+
+    private var shortcuts: [(String, String, URL)] {
+        let manager = FileManager.default
+        return [
+            (language.text("Laufwerke", "Drives", "Unidades", "Volumes"), "externaldrive", URL(filePath: "/Volumes", directoryHint: .isDirectory)),
+            (language.text("Persönlicher Ordner", "Home", "Carpeta personal", "Dossier personnel"), "house", manager.homeDirectoryForCurrentUser),
+            (language.text("Filme", "Movies", "Películas", "Films"), "film", manager.urls(for: .moviesDirectory, in: .userDomainMask).first ?? manager.homeDirectoryForCurrentUser),
+            (language.text("Downloads", "Downloads", "Descargas", "Téléchargements"), "arrow.down.circle", manager.urls(for: .downloadsDirectory, in: .userDomainMask).first ?? manager.homeDirectoryForCurrentUser),
+            (language.text("Schreibtisch", "Desktop", "Escritorio", "Bureau"), "desktopcomputer", manager.urls(for: .desktopDirectory, in: .userDomainMask).first ?? manager.homeDirectoryForCurrentUser)
+        ]
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack {
+                Label(title, systemImage: purpose == .modelPackage ? "shippingbox" : "folder")
+                    .font(.title2.bold())
+                Spacer()
+                Button(language.text("Abbrechen", "Cancel", "Cancelar", "Annuler"), action: cancel)
+            }
+
+            Text(language.text(
+                "Dieser lokale Browser ersetzt den blockierenden macOS-Dateidialog. Es werden keine Dateien hochgeladen.",
+                "This local browser replaces the blocking macOS file dialog. No files are uploaded.",
+                "Este navegador local sustituye al diálogo bloqueado de macOS. No se carga ningún archivo.",
+                "Ce navigateur local remplace la boîte de dialogue macOS bloquante. Aucun fichier n’est envoyé."
+            ))
+            .font(.callout)
+            .foregroundStyle(.secondary)
+
+            HStack(spacing: 8) {
+                Button {
+                    navigate(to: currentURL.deletingLastPathComponent())
+                } label: {
+                    Label(language.text("Zurück", "Up", "Subir", "Parent"), systemImage: "arrow.up")
+                }
+                .disabled(currentURL.path == "/")
+
+                TextField(language.text("Ordnerpfad", "Folder path", "Ruta de carpeta", "Chemin du dossier"), text: $pathText)
+                    .textFieldStyle(.roundedBorder)
+                    .onSubmit { navigate(to: URL(filePath: pathText, directoryHint: .isDirectory)) }
+                Button(language.text("Öffnen", "Open", "Abrir", "Ouvrir")) {
+                    navigate(to: URL(filePath: pathText, directoryHint: .isDirectory))
+                }
+            }
+
+            HStack(alignment: .top, spacing: 12) {
+                VStack(alignment: .leading, spacing: 6) {
+                    ForEach(shortcuts, id: \.2.path) { shortcut in
+                        Button {
+                            navigate(to: shortcut.2)
+                        } label: {
+                            Label(shortcut.0, systemImage: shortcut.1)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                        .buttonStyle(.plain)
+                        .padding(.vertical, 5)
+                    }
+                    Spacer()
+                }
+                .frame(width: 170)
+                .padding(10)
+                .background(.quaternary.opacity(0.45), in: RoundedRectangle(cornerRadius: 10))
+
+                Group {
+                    if isLoading {
+                        VStack(spacing: 12) {
+                            ProgressView()
+                            Text(language.text("Ordner wird lokal gelesen …", "Reading folder locally …", "Leyendo carpeta localmente …", "Lecture locale du dossier …"))
+                                .foregroundStyle(.secondary)
+                        }
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    } else if let loadError {
+                        ContentUnavailableView(
+                            language.text("Ordner nicht verfügbar", "Folder unavailable", "Carpeta no disponible", "Dossier indisponible"),
+                            systemImage: "exclamationmark.folder",
+                            description: Text(loadError)
+                        )
+                    } else if entries.isEmpty {
+                        ContentUnavailableView(
+                            language.text("Keine Unterordner", "No subfolders", "Sin subcarpetas", "Aucun sous-dossier"),
+                            systemImage: "folder",
+                            description: Text(purpose == .modelPackage
+                                ? language.text("Keine .recomodel-Datei in diesem Ordner.", "No .recomodel file in this folder.", "No hay ningún archivo .recomodel.", "Aucun fichier .recomodel dans ce dossier.")
+                                : language.text("Dieser Ordner kann trotzdem ausgewählt werden.", "This folder can still be selected.", "Esta carpeta se puede seleccionar igualmente.", "Ce dossier peut tout de même être sélectionné."))
+                        )
+                    } else {
+                        List(entries, selection: $selectedFile) { entry in
+                            Button {
+                                if entry.isDirectory {
+                                    navigate(to: entry.url)
+                                } else {
+                                    selectedFile = entry.url
+                                }
+                            } label: {
+                                Label(entry.url.lastPathComponent, systemImage: entry.isDirectory ? "folder.fill" : "shippingbox.fill")
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                            }
+                            .buttonStyle(.plain)
+                            .tag(entry.isDirectory ? nil as URL? : entry.url)
+                        }
+                        .listStyle(.inset)
+                    }
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+
+            HStack {
+                Image(systemName: "lock.fill").foregroundStyle(.green)
+                Text(currentURL.path).font(.caption).foregroundStyle(.secondary).lineLimit(2)
+                Spacer()
+                Button(selectionTitle) {
+                    if purpose == .modelPackage {
+                        if let selectedFile { select(selectedFile) }
+                    } else {
+                        select(currentURL)
+                    }
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(purpose == .modelPackage && selectedFile == nil)
+            }
+        }
+        .padding(22)
+        .task(id: currentURL) { await loadCurrentDirectory() }
+    }
+
+    private var selectionTitle: String {
+        purpose == .modelPackage
+            ? language.text("Modell importieren", "Import model", "Importar modelo", "Importer le modèle")
+            : language.text("Diesen Ordner verwenden", "Use this folder", "Usar esta carpeta", "Utiliser ce dossier")
+    }
+
+    private func navigate(to url: URL) {
+        let normalized = url.standardizedFileURL
+        selectedFile = nil
+        pathText = normalized.path
+        currentURL = normalized
+    }
+
+    @MainActor
+    private func loadCurrentDirectory() async {
+        let requestedURL = currentURL
+        isLoading = true
+        loadError = nil
+        let requestedPurpose = purpose
+        let snapshot = await Task.detached(priority: .userInitiated) {
+            Self.readDirectory(at: requestedURL, purpose: requestedPurpose)
+        }.value
+        guard currentURL == requestedURL else { return }
+        entries = snapshot.entries
+        loadError = snapshot.error
+        isLoading = false
+    }
+
+    nonisolated private static func readDirectory(at url: URL, purpose: LocalPickerPurpose) -> LocalDirectorySnapshot {
+        do {
+            let urls = try FileManager.default.contentsOfDirectory(
+                at: url,
+                includingPropertiesForKeys: [.isDirectoryKey],
+                options: [.skipsHiddenFiles, .skipsPackageDescendants]
+            )
+            let entries = urls.compactMap { candidate -> LocalFileEntry? in
+                let isDirectory = (try? candidate.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false
+                if isDirectory { return LocalFileEntry(url: candidate, isDirectory: true) }
+                guard purpose == .modelPackage, candidate.pathExtension.lowercased() == "recomodel" else { return nil }
+                return LocalFileEntry(url: candidate, isDirectory: false)
+            }.sorted {
+                if $0.isDirectory != $1.isDirectory { return $0.isDirectory }
+                return $0.url.lastPathComponent.localizedStandardCompare($1.url.lastPathComponent) == .orderedAscending
+            }
+            return LocalDirectorySnapshot(entries: entries, error: nil)
+        } catch {
+            return LocalDirectorySnapshot(entries: [], error: error.localizedDescription)
+        }
+    }
+}
+
+private struct WhatsNewSheet: View {
+    let language: AppLanguage
+    let dismiss: () -> Void
+
+    private var changes: [(String, String)] {
+        [
+            (
+                language.text("Versionierte Modellverwaltung", "Versioned model library", "Biblioteca de modelos versionada", "Bibliothèque de modèles versionnée"),
+                language.text("Jeder Trainingslauf wird unveränderlich archiviert. Modelle lassen sich benennen, aktivieren und löschen; der beste Testwert wird bevorzugt und ein schlechterer Lauf ersetzt ihn nicht automatisch.", "Every training run is archived immutably. Models can be named, activated, and deleted; the best independent test result is preferred and is not automatically replaced by a worse run.", "Cada entrenamiento se archiva de forma inmutable. Los modelos pueden nombrarse, activarse y eliminarse; se prefiere el mejor resultado de prueba y no se sustituye por uno peor.", "Chaque entraînement est archivé de façon immuable. Les modèles peuvent être nommés, activés et supprimés ; le meilleur résultat de test est privilégié et n’est pas remplacé par un moins bon.")
+            ),
+            (
+                language.text("Videoordner öffnen ohne Blockade", "Open video folders without blocking", "Abrir carpetas de vídeo sin bloqueos", "Ouverture des dossiers vidéo sans blocage"),
+                language.text("Projekt, Modelle und Checkpoints werden im Hintergrund geladen; interne Trainingsordner werden bei der Videosuche übersprungen.", "Projects, models, and checkpoints now load in the background, while internal training folders are skipped during video discovery.", "Los proyectos, modelos y puntos de control se cargan en segundo plano y las carpetas internas se omiten al buscar vídeos.", "Les projets, modèles et points de contrôle sont chargés en arrière-plan, et les dossiers internes sont ignorés lors de la recherche de vidéos.")
+            ),
+            (
+                language.text("Trainingsordner immer sichtbar", "Training folders always visible", "Carpetas de entrenamiento siempre visibles", "Dossiers d’entraînement toujours visibles"),
+                language.text("Der sichtbare Ordner „Reco Training“ führt direkt zu Frames, Datensatz, Modellen, Exporten und Sicherungen.", "The visible “Reco Training” folder provides direct access to frames, datasets, models, exports, and backups.", "La carpeta visible «Reco Training» da acceso directo a fotogramas, datos, modelos, exportaciones y copias.", "Le dossier visible « Reco Training » donne accès aux images, données, modèles, exports et sauvegardes.")
+            ),
+            (
+                language.text("Automatisch weitertrainieren", "Automatic continued training", "Continuación automática", "Reprise automatique"),
+                language.text("Ein neuer Lauf setzt beim besten kompatiblen Checkpoint des zuletzt trainierten Modells fort.", "A new run continues from the best compatible checkpoint of the latest trained model.", "Cada nueva ejecución continúa desde el mejor punto de control compatible del último modelo.", "Chaque nouvel entraînement reprend depuis le meilleur point de contrôle compatible du dernier modèle.")
+            ),
+            (
+                "Futsal + OpenCV",
+                language.text("Futsal ist verfügbar; automatische Ball- und Puck-Boxen erhalten zusätzlich eine rein lokale OpenCV-Prüfung.", "Futsal is available, and automatic ball and puck boxes receive an additional fully local OpenCV review.", "Futsal está disponible y los cuadros automáticos reciben una revisión OpenCV totalmente local.", "Le futsal est disponible et les boîtes automatiques bénéficient d’une vérification OpenCV entièrement locale.")
+            )
+        ]
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 22) {
+            Label(language.text("Neu in Reco Trainer", "What’s new in Reco Trainer", "Novedades de Reco Trainer", "Nouveautés de Reco Trainer"), systemImage: "sparkles")
+                .font(.title.bold())
+                .foregroundStyle(.blue)
+            ForEach(Array(changes.enumerated()), id: \.offset) { _, change in
+                VStack(alignment: .leading, spacing: 5) {
+                    Text(change.0).font(.headline)
+                    Text(change.1).foregroundStyle(.secondary)
+                }
+            }
+            Text(language.text("Videos und Trainingsbilder bleiben weiterhin vollständig auf diesem Rechner.", "Videos and training images continue to remain entirely on this computer.", "Los vídeos y las imágenes siguen permaneciendo por completo en este equipo.", "Les vidéos et images d’entraînement restent entièrement sur cet ordinateur."))
+                .font(.caption)
+                .foregroundStyle(.green)
+            HStack {
+                Spacer()
+                Button(language.text("Verstanden", "Got it", "Entendido", "Compris"), action: dismiss)
+                    .buttonStyle(.borderedProminent)
+            }
+        }
+        .padding(30)
+        .frame(width: 640)
     }
 }
 

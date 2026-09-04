@@ -69,3 +69,27 @@ import Testing
     #expect(!FileManager.default.fileExists(atPath: store.frameURL(for: frame).path))
     #expect(!FileManager.default.fileExists(atPath: benchmark.appending(path: "ground-truth.json").path))
 }
+
+@Test func videoDiscoverySkipsRecoTrainingDirectories() throws {
+    let folder = FileManager.default.temporaryDirectory
+        .appending(path: "reco-trainer-discovery-test-\(UUID().uuidString)", directoryHint: .isDirectory)
+    let store = ProjectStore.forSourceFolder(folder)
+    try store.prepare()
+
+    let sourceVideo = folder.appending(path: "match.mov")
+    let derivedVideo = store.framesURL.appending(path: "must-not-be-discovered.mov")
+    try Data().write(to: sourceVideo)
+    try Data().write(to: derivedVideo)
+
+    let videos = FrameExtractor().discoverVideos(in: folder)
+
+    #expect(videos.map(\.url.standardizedFileURL) == [sourceVideo.standardizedFileURL])
+}
+
+@Test @MainActor func choosingVideoFolderUsesLocalPicker() {
+    let app = AppState()
+
+    app.chooseFolder()
+
+    #expect(app.localPickerPurpose == .trainingFolder)
+}

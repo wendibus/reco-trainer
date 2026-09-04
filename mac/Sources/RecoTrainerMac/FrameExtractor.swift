@@ -25,11 +25,17 @@ struct FrameExtractor {
             options: [.skipsHiddenFiles, .skipsPackageDescendants]
         ) else { return [] }
 
-        return enumerator.compactMap { item in
-            guard let url = item as? URL,
-                  Self.supportedExtensions.contains(url.pathExtension.lowercased()) else { return nil }
-            return VideoSource(url: url)
-        }.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+        var videos: [VideoSource] = []
+        while let url = enumerator.nextObject() as? URL {
+            if url.lastPathComponent == ProjectStore.projectDirectoryName ||
+                url.lastPathComponent == ProjectStore.visibleProjectDirectoryName {
+                enumerator.skipDescendants()
+                continue
+            }
+            guard Self.supportedExtensions.contains(url.pathExtension.lowercased()) else { continue }
+            videos.append(VideoSource(url: url))
+        }
+        return videos.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
     }
 
     func extract(

@@ -16,6 +16,16 @@ mkdir -p "$APP_DIR/Contents/MacOS"
 mkdir -p "$APP_DIR/Contents/Resources"
 cp "$BUILD_DIR/$BUILD_TRIPLE/release/RecoTrainerMac" "$APP_DIR/Contents/MacOS/RecoTrainerMac"
 cp "$ROOT_DIR/Packaging/Info.plist" "$APP_DIR/Contents/Info.plist"
+ASSET_BUILD_DIR="$BUILD_DIR/asset-catalog"
+mkdir -p "$ASSET_BUILD_DIR"
+xcrun actool "$ROOT_DIR/Assets.xcassets" \
+  --compile "$ASSET_BUILD_DIR" \
+  --platform macosx \
+  --minimum-deployment-target 14.0 \
+  --app-icon AppIcon \
+  --output-partial-info-plist "$ASSET_BUILD_DIR/asset-info.plist"
+cp "$ASSET_BUILD_DIR/Assets.car" "$APP_DIR/Contents/Resources/Assets.car"
+cp "$ASSET_BUILD_DIR/AppIcon.icns" "$APP_DIR/Contents/Resources/AppIcon.icns"
 rsync -a --delete \
   --exclude '__pycache__' \
   --exclude '*.pyc' \

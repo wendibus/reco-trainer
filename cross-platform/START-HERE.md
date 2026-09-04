@@ -1,4 +1,4 @@
-# Reco Trainer Local 0.9
+# Reco Trainer Local 0.11
 
 Diese Version ist keine reine Vorschau mehr. Der Browser dient als Oberfläche; ein ausschließlich an `127.0.0.1` gebundener lokaler Worker verarbeitet die ausgewählten Videos auf demselben Mac.
 
@@ -18,6 +18,7 @@ Diese Version ist keine reine Vorschau mehr. Der Browser dient als Oberfläche; 
 12. „Austauschpaket“ erstellt eine `.recomodel`-Datei mit Modellgewichten, Prüfsummen und aggregierten Angaben. Sie enthält keine Videos, Frames, Pfade oder Videodateinamen.
 13. „Modell importieren“ prüft ein erhaltenes `.recomodel`-Paket und aktiviert es nur, wenn Sportart, Modellgröße, Klassen, Paketstruktur und Prüfsumme zum Projekt passen. Die lokale Bibliothek liegt unter `.reco-training/models/`.
 14. „Modelle testen“ öffnet den lokalen Benchmark. Zuerst alle automatischen Vorschläge prüfen und die richtigen Antworten festlegen. Danach werden alle kompatiblen importierten Modelle nacheinander auf denselben Bildern bewertet. Das Ranking nutzt 70 % mAP@0.50 und 30 % F1; die Geschwindigkeit entscheidet nur bei Gleichstand. Referenz, Vorhersagen und Berichte bleiben unter `.reco-training/benchmarks/`.
+15. Die „Modellverwaltung“ bewahrt jeden Trainingslauf getrennt auf. Eigene Namen vergeben, ein Modell aktivieren oder einen inaktiven Stand löschen. Das aktive Modell ist gegen Löschen geschützt; ein schlechterer Lauf ersetzt es nicht automatisch.
 
 Zum Beenden `Stop Reco Preview.command` doppelklicken oder im Terminal `Ctrl+C` drücken.
 
@@ -49,13 +50,15 @@ Der Ablauf für Modellpakete und GitHub Releases steht in `MODEL-EXCHANGE.md`.
 
 ---
 
-# Reco Trainer Local 0.9
+# Reco Trainer Local 0.11
 
 This is no longer a UI-only preview. The browser provides the interface while a loopback-only worker processes selected videos on the same Mac.
 
 Double-click `Start Reco Trainer.command`, select a sport and folder, and choose “Prepare videos locally”. Real JPEG frames are written to `.reco-training/frames/` inside the selected folder. “Set up ML” installs an isolated RF-DETR environment; auto-labeling, local training, and Core ML export then use the same local worker as the native Mac prototype.
 
 Version 0.9 adds a local active-learning queue. Choose **Review new videos**, select a separate folder, and confirm Ball or No ball, correct the box, or skip. Unreviewed candidates never enter training, export, or benchmarking. Frame extraction remains configurable per video, unsuitable images can be removed without changing source videos, and the complete workflow is available in German, English, Spanish, and French.
+
+Version 0.11 adds an immutable local model library. Each training run is retained as a separate revision with a readable name, timestamp, model size, validation score, active state and best marker. A worse revision is archived but does not automatically replace the active better model.
 
 “Test models” opens the local benchmark platform. Review every annotation first, freeze the correct answers as ground truth, and then run every compatible imported model against the same images. Reco Trainer ranks detection quality using 70% mAP@0.50 and 30% F1, with mean inference latency used only as a tie-breaker. False positives, missed objects, per-class results, and local prediction JSON are retained below `.reco-training/benchmarks/`; no image data is uploaded.
 

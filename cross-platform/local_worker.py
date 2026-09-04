@@ -39,6 +39,7 @@ MIN_FRAMES_PER_VIDEO = 4
 MAX_FRAMES_PER_VIDEO = 5000
 SPORT_CATEGORIES = {
     "football": ["ball", "player", "goalkeeper", "referee", "goal"],
+    "futsal": ["ball", "player", "goalkeeper", "referee", "goal"],
     "basketball": ["ball", "player", "referee", "hoop"],
     "handball": ["ball", "player", "goalkeeper", "referee", "goal"],
     "hockey": ["puck", "player", "goalkeeper", "referee", "goal"],
@@ -160,7 +161,19 @@ STATE = LocalState()
 
 
 def project_root_for(folder: Path) -> Path:
-    return folder / ".reco-training"
+    root = folder / ".reco-training"
+    # Dot-prefixed folders are hidden on macOS and Linux. Keep the stable
+    # internal path, but expose the same project permanently under a visible
+    # name. Windows Explorer already shows dot-prefixed directories and often
+    # requires elevated privileges for symlinks, so it is intentionally skipped.
+    if os.name != "nt":
+        visible = folder / "Reco Training"
+        if not os.path.lexists(visible):
+            try:
+                visible.symlink_to(Path(".reco-training"), target_is_directory=True)
+            except OSError:
+                pass
+    return root
 
 
 def load_project(root: Path) -> dict | None:
@@ -181,13 +194,16 @@ def model_library_snapshot(root: Path | None) -> dict:
                 manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
                 packages.append({
                     "packageID": manifest.get("packageID"),
+                    "displayName": manifest.get("displayName") or manifest.get("packageID"),
                     "createdAt": manifest.get("createdAt"),
                     "sport": manifest.get("sport"),
                     "modelSize": manifest.get("modelSize"),
                     "classes": manifest.get("classes", []),
                     "description": manifest.get("description"),
+                    "source": manifest.get("source"),
                     "statistics": manifest.get("statistics", {}),
-                    "validationMetrics": (manifest.get("trainingSummary") or {}).get("validationMetrics", {}),
+                    "validationMetrics": manifest.get("validationMetrics") or (manifest.get("trainingSummary") or {}).get("validationMetrics", {}),
+                    "testMetrics": manifest.get("testMetrics") or (manifest.get("trainingSummary") or {}).get("testMetrics", {}),
                 })
             except (OSError, ValueError, TypeError, json.JSONDecodeError):
                 continue
@@ -198,7 +214,29 @@ def model_library_snapshot(root: Path | None) -> dict:
             active_id = json.loads(active_path.read_text(encoding="utf-8")).get("packageID")
         except (OSError, ValueError, TypeError, json.JSONDecodeError):
             pass
-    return {"packages": packages, "activePackageID": active_id}
+    def score_metrics(metrics: dict) -> float | None:
+        for key, value in metrics.items():
+            normalized = str(key).lower().replace("val/", "").replace("val_", "")
+            normalized = normalized.replace("test/", "").replace("test_", "")
+            if normalized in {"map_50_95", "map50_95", "ap/ball", "ap_ball"}:
+                try:
+                    return float(value)
+                except (TypeError, ValueError):
+                    return None
+        return None
+    def score(item: dict) -> float | None:
+        test_score = score_metrics(item.get("testMetrics") or {})
+        return test_score if test_score is not None else score_metrics(item.get("validationMetrics") or {})
+    scored = [(score(item), item.get("packageID")) for item in packages]
+    scored = [item for item in scored if item[0] is not None]
+    best_id = max(scored, default=(None, None), key=lambda item: item[0])[1]
+    for item in packages:
+        item["isActive"] = item.get("packageID") == active_id
+        item["isBest"] = item.get("packageID") == best_id
+        item["validationScore"] = score_metrics(item.get("validationMetrics") or {})
+        item["testScore"] = score_metrics(item.get("testMetrics") or {})
+    packages.sort(key=lambda item: (not item["isActive"], not item["isBest"], str(item.get("createdAt") or "")))
+    return {"packages": packages, "activePackageID": active_id, "bestPackageID": best_id}
 
 
 def benchmark_snapshot(root: Path | None) -> dict:
@@ -687,6 +725,12 @@ def ml_action(action: str, payload: dict) -> None:
             elif action == "package-model":
                 executable = system_python()
                 args = ["package", "--project", str(root), "--model", model, "--language", language]
+            elif action in {"activate-model", "rename-model", "delete-model"}:
+                executable = system_python()
+                package_id = str(payload.get("packageID", ""))
+                args = [action, "--project", str(root), "--package-id", package_id, "--language", language]
+                if action == "rename-model":
+                    args.extend(["--name", str(payload.get("name", ""))])
             elif not venv_python.is_file():
                 raise RuntimeError("ML-Umgebung fehlt. Zuerst „ML einrichten“ anklicken.")
             elif action == "autolabel":
@@ -928,7 +972,7 @@ class Handler(BaseHTTPRequestHandler):
                 package_file = select_model_package()
                 threading.Thread(target=ml_action, args=("import-model", {**payload, "file": str(package_file)}), daemon=True).start()
                 self.json_response({"ok": True, "fileName": package_file.name})
-            elif self.path in {"/api/setup", "/api/autolabel", "/api/train", "/api/export-coreml", "/api/export-onnx", "/api/package-model", "/api/benchmark"}:
+            elif self.path in {"/api/setup", "/api/autolabel", "/api/train", "/api/export-coreml", "/api/export-onnx", "/api/package-model", "/api/benchmark", "/api/activate-model", "/api/rename-model", "/api/delete-model"}:
                 if STATE.busy:
                     raise RuntimeError("Ein lokaler Vorgang läuft bereits.")
                 action = self.path.removeprefix("/api/")

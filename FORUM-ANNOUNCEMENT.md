@@ -1,40 +1,39 @@
-# Reco Trainer 0.9: Reviewed active learning from new local videos (work in progress)
+# Reco Trainer 0.11: Versioned local model library (work in progress)
 
-Reco Trainer is an experimental, privacy-first tool for improving sports-camera detection models without uploading sensitive match footage. Videos, extracted frames, corrected labels, training runs and benchmark reports stay on the user's own computer.
+Reco Trainer is an experimental, privacy-first tool for improving sports-camera detection models without uploading sensitive match footage. Videos, extracted frames, labels, training runs and benchmark data stay on the user's own computer.
 
-Version 0.9 adds **Review new videos**. Select a separate folder of previously unused recordings and the current model creates a completely local review queue. Every candidate requires a human decision: Ball, No ball, correct the box, or Skip. Pending candidates are technically excluded from training, export, and benchmarking.
+Version 0.11 introduces a **versioned local model library**. Every completed training run is stored as a separate model instead of silently overwriting the previous result. Reco Trainer gives each model a readable name, records its origin and quality metrics, and clearly marks the currently active model and the best evaluated model.
 
-The workflow uses a recall-oriented confidence threshold and presents uncertain detections first. It keeps the complete frame visible so that ball-like lamps, heads, and logos can be judged in context. Previously used videos are skipped and source recordings are never modified.
+If a newly trained model performs worse than the active model on comparable evaluation data, it is still preserved for inspection, but it is not activated automatically. You can rename models, activate a different version, or delete inactive versions from the interface. The active version is protected against accidental deletion.
 
-Reco Trainer also includes a local model test platform. You define the correct answers by reviewing and freezing the annotations in a known image set. Reco Trainer then runs every compatible downloaded `.recomodel` package against exactly the same images and creates an automatic ranking.
+The comparison prefers results from the independent test set. If no test result is available, validation mAP is shown and clearly identified as such. For a meaningful ranking, use representative images from different recordings that were not included in training.
 
-The ranking includes mAP@0.50, precision, recall, F1, mean IoU, false positives, false negatives and inference time per image. Its quality score uses 70% mAP@0.50 and 30% F1; latency is only a tie-breaker. Models run sequentially to prevent them from competing for the same GPU, Apple Neural Engine or memory.
+Version 0.11 also includes the recent workflow improvements: resumable training from the latest checkpoint, permanently visible training subfolders, OpenCV-assisted box checks, Futsal support, safer video-folder scanning, reviewed active learning from new videos, and the local multi-model benchmark.
 
-For an honest comparison, the benchmark directory should contain representative images that were not used to train any of the compared models.
+This remains **work in progress / alpha software**. Keep backups, verify automatically generated labels, and evaluate every model on complete matches before using it in a production camera workflow.
 
-This remains **work in progress / alpha software**. Please keep backups, verify labels manually and do not treat the highest-ranked model as production-ready without testing it on complete matches.
+## Downloads and installation
 
-## Supported systems and downloads
+Download the files from the [Reco Trainer 0.11 release page](https://github.com/wendibus/reco-trainer/releases/tag/v0.11.0):
 
-Download the files from the [Reco Trainer 0.9 release page](https://github.com/wendibus/reco-trainer/releases/tag/v0.9.0):
+- **macOS:** `Reco-Trainer-Mac-0.11.0.dmg` — open the image, drag Reco Trainer to Applications and launch it. The app is locally/ad-hoc signed and not Apple-notarized.
+- **Windows:** `Reco Trainer Windows 0.11.zip` — extract the complete archive and run `Start Reco Trainer Windows.bat`.
+- **Linux:** `Reco Trainer Linux 0.11.zip` — extract the archive, make `Start Reco Trainer Linux.sh` executable and run it.
+- **Docker:** `Reco Trainer Docker 0.11.zip` — extract the archive and follow `START-HERE.md` to mount a private local working folder and start Docker Compose.
+- **Checksums:** use `SHA256SUMS.txt` to verify that your download is complete and unchanged.
 
-- **macOS:** `Reco.Trainer.Mac.0.9.dmg` — open it, drag Reco Trainer to Applications and start it. The alpha is locally/ad-hoc signed and not Apple-notarized.
-- **Windows:** `Reco.Trainer.Windows.0.9.zip` — extract it and run `Start Reco Trainer Windows.bat`.
-- **Linux:** `Reco.Trainer.Linux.0.9.zip` — extract it, make `Start Reco Trainer Linux.sh` executable and run it.
-- **Docker:** `Reco.Trainer.Docker.0.9.zip` — extract it, set the local video-folder mount and run Docker Compose as described in `START-HERE.md`.
+The [GitHub repository](https://github.com/wendibus/reco-trainer) contains the source code, installation instructions and privacy notes. See the [0.11 release notes](https://github.com/wendibus/reco-trainer/blob/main/RELEASE-NOTES-0.11.md) for the detailed changes.
 
-The source code, full installation instructions and privacy notes are in the [GitHub repository](https://github.com/wendibus/reco-trainer). Detailed changes and checksums are in the [0.9 release notes](https://github.com/wendibus/reco-trainer/blob/main/RELEASE-NOTES-0.9.md).
+## Suggested model workflow
 
-## Suggested test workflow
+1. Select a sport and a private local working folder.
+2. Prepare frames, remove unsuitable images and correct the target boxes.
+3. Train the model; Reco Trainer archives the result as a new version.
+4. Review the displayed test or validation score and give the model a useful name.
+5. Use **Test models** with a frozen, previously unseen image set to compare all compatible models fairly.
+6. Activate the winner only after checking false positives, false negatives and real-match behaviour.
+7. Add reviewed examples from new videos and repeat the cycle without losing older models.
 
-1. Select the sport and a private local folder.
-2. Choose the image count per video and prepare frames.
-3. Remove unsuitable images and correct all target boxes.
-4. Remove incorrect automatic suggestions.
-5. Import the compatible models you want to compare.
-6. Open **Test models** and freeze the correct answers.
-7. Run the benchmark and inspect both the ranking and the FP/FN counts.
+The interface and walkthrough are available in German, English, Spanish and French. Supported sports include basketball, football (soccer), Futsal, handball, hockey, rugby, lacrosse and American football.
 
-The interface and walkthrough are available in German, English, Spanish and French. Supported sports currently include basketball, football (soccer), handball, hockey, rugby, lacrosse and American football.
-
-Feedback is very welcome, especially for Windows/Linux installation, different Apple chips, large test sets, ranking reproducibility and cases where a numerically better model performs worse in a real match. Please include your operating system, hardware, sport, model size and the full error message—but **do not attach private footage, extracted frames or `.reco-training` folders**. Synthetic or redacted examples are preferable.
+Please test version 0.11 and report your operating system, hardware, sport, model size and the full error message. **Do not upload private footage, extracted frames, labels or `.reco-training` folders.** Synthetic or redacted examples are preferable.

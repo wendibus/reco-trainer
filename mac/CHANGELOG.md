@@ -1,5 +1,14 @@
 # Änderungen
 
+## 0.11.0
+
+- Jeder lokale Trainingslauf wird als unveränderlicher Modellstand in der Modellbibliothek archiviert.
+- Bestehende Checkpoints älterer Versionen werden vor dem nächsten Training automatisch gesichert.
+- Verständliche Modellnamen, Datum, Größe, Validierungs-mAP sowie Aktiv-/Bestmarkierung in der Oberfläche.
+- Modelle können umbenannt, aktiviert und – sofern inaktiv – gelöscht werden.
+- Schlechtere Trainingsläufe bleiben vergleichbar, ersetzen aber nicht automatisch das aktive bessere Modell.
+- Dieselbe Modellverwaltung ist in der Windows-, Linux- und Docker-Oberfläche verfügbar.
+
 ## 0.9.0
 
 - Neuer Active-Learning-Workflow „Neue Videos prüfen“ mit getrenntem Videoordner.

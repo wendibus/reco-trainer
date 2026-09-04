@@ -113,6 +113,20 @@ struct MLWorker: Sendable {
         )
     }
 
+    func refineBoxes(
+        language: AppLanguage,
+        onOutput: @escaping @Sendable (String) async -> Void
+    ) async throws {
+        _ = try await runPython(
+            arguments: [
+                try workerURL.path, "refine-boxes", "--project", projectRoot.path,
+                "--language", language.rawValue
+            ],
+            preferVenv: true,
+            onOutput: onOutput
+        )
+    }
+
     func exportCPU(
         modelSize: ModelSize,
         language: AppLanguage,
@@ -185,6 +199,28 @@ struct MLWorker: Sendable {
             preferVenv: false
         )
         return try JSONDecoder().decode(InstalledModelResponse.self, from: Data(output.utf8))
+    }
+
+    func activateModel(packageID: String, language: AppLanguage) async throws -> ActivatedModelResponse {
+        let output = try await runPython(
+            arguments: [try workerURL.path, "activate-model", "--project", projectRoot.path, "--package-id", packageID, "--language", language.rawValue],
+            preferVenv: false
+        )
+        return try JSONDecoder().decode(ActivatedModelResponse.self, from: Data(output.utf8))
+    }
+
+    func renameModel(packageID: String, name: String, language: AppLanguage) async throws {
+        _ = try await runPython(
+            arguments: [try workerURL.path, "rename-model", "--project", projectRoot.path, "--package-id", packageID, "--name", name, "--language", language.rawValue],
+            preferVenv: false
+        )
+    }
+
+    func deleteModel(packageID: String, language: AppLanguage) async throws {
+        _ = try await runPython(
+            arguments: [try workerURL.path, "delete-model", "--project", projectRoot.path, "--package-id", packageID, "--language", language.rawValue],
+            preferVenv: false
+        )
     }
 
     private func runPython(

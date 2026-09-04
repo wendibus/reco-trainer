@@ -1,7 +1,8 @@
 import Foundation
 
-enum Sport: String, Codable, CaseIterable, Identifiable {
+enum Sport: String, Codable, CaseIterable, Identifiable, Sendable {
     case football
+    case futsal
     case basketball
     case handball
     case hockey
@@ -19,6 +20,7 @@ enum Sport: String, Codable, CaseIterable, Identifiable {
             case .es: "Fútbol"
             case .en, .fr: "Football"
             }
+        case .futsal: "Futsal"
         case .basketball: "Basketball"
         case .handball: "Handball"
         case .hockey: "Hockey"
@@ -35,7 +37,7 @@ enum Sport: String, Codable, CaseIterable, Identifiable {
 
     var categories: [String] {
         switch self {
-        case .football: ["ball", "player", "goalkeeper", "referee", "goal"]
+        case .football, .futsal: ["ball", "player", "goalkeeper", "referee", "goal"]
         case .basketball: ["ball", "player", "referee", "hoop"]
         case .handball: ["ball", "player", "goalkeeper", "referee", "goal"]
         case .hockey: ["puck", "player", "goalkeeper", "referee", "goal"]
@@ -45,7 +47,7 @@ enum Sport: String, Codable, CaseIterable, Identifiable {
     }
 }
 
-struct BoxAnnotation: Codable, Identifiable, Equatable {
+struct BoxAnnotation: Codable, Identifiable, Equatable, Sendable {
     var id = UUID()
     var category: String
     var x: Double
@@ -56,7 +58,7 @@ struct BoxAnnotation: Codable, Identifiable, Equatable {
     var source: String = "manual"
 }
 
-struct FrameRecord: Codable, Identifiable, Equatable {
+struct FrameRecord: Codable, Identifiable, Equatable, Sendable {
     var id = UUID()
     var relativePath: String
     var videoID: String
@@ -68,7 +70,7 @@ struct FrameRecord: Codable, Identifiable, Equatable {
     var reviewStatus: String?
 }
 
-struct ProjectDocument: Codable, Equatable {
+struct ProjectDocument: Codable, Equatable, Sendable {
     static let schemaVersion = 2
 
     var schemaVersion = ProjectDocument.schemaVersion
@@ -83,7 +85,7 @@ struct ProjectDocument: Codable, Equatable {
     var trainingHistory: [TrainingResult]?
 }
 
-struct TrainingResult: Codable, Equatable {
+struct TrainingResult: Codable, Equatable, Sendable {
     var completedAt: String
     var model: String
     var device: String
@@ -95,16 +97,18 @@ struct TrainingResult: Codable, Equatable {
     var splits: [String: Int]
     var independentTest: Bool
     var checkpoint: String?
+    var continuedFrom: String?
     var validationMetrics: [String: Double]?
+    var testMetrics: [String: Double]?
 }
 
-struct VideoSource: Identifiable, Hashable {
+struct VideoSource: Identifiable, Hashable, Sendable {
     let url: URL
     var id: String { url.path }
     var name: String { url.lastPathComponent }
 }
 
-enum ModelSize: String, CaseIterable, Identifiable {
+enum ModelSize: String, CaseIterable, Identifiable, Sendable {
     case nano
     case small
 
@@ -112,7 +116,7 @@ enum ModelSize: String, CaseIterable, Identifiable {
     func title(language: AppLanguage) -> String { rawValue.capitalized }
 }
 
-struct HardwareStatus: Codable {
+struct HardwareStatus: Codable, Sendable {
     var python: String
     var platform: String
     var machine: String
@@ -126,7 +130,7 @@ struct HardwareStatus: Codable {
     var dataWorkers: Int?
 }
 
-struct ActiveModelRecord: Codable {
+struct ActiveModelRecord: Codable, Sendable {
     var packageID: String
     var modelSize: String
     var sport: String
@@ -135,12 +139,63 @@ struct ActiveModelRecord: Codable {
     var activatedAt: String
 }
 
-struct InstalledModelResponse: Codable {
+struct InstalledModelResponse: Codable, Sendable {
     var installed: Bool
     var active: ActiveModelRecord
 }
 
-struct BenchmarkAnnotationRecord: Codable, Equatable {
+struct ManagedModelRecord: Codable, Identifiable, Sendable {
+    var packageID: String
+    var displayName: String?
+    var createdAt: String?
+    var sport: String
+    var modelSize: String
+    var classes: [String]
+    var source: String?
+    var description: String?
+    var validationMetrics: [String: Double]?
+    var testMetrics: [String: Double]?
+    var trainingSummary: ManagedTrainingSummary?
+    var statistics: [String: Int]?
+    var isActive: Bool?
+    var isBest: Bool?
+
+    var id: String { packageID }
+
+    var validationScore: Double? {
+        guard let metrics = validationMetrics ?? trainingSummary?.validationMetrics else { return nil }
+        return Self.score(in: metrics)
+    }
+
+    var testScore: Double? {
+        guard let metrics = testMetrics ?? trainingSummary?.testMetrics else { return nil }
+        return Self.score(in: metrics)
+    }
+
+    var comparisonScore: Double? { testScore ?? validationScore }
+
+    private static func score(in metrics: [String: Double]) -> Double? {
+        return metrics.first { key, _ in
+            let normalized = key.lowercased()
+                .replacingOccurrences(of: "val/", with: "")
+                .replacingOccurrences(of: "val_", with: "")
+                .replacingOccurrences(of: "test/", with: "")
+                .replacingOccurrences(of: "test_", with: "")
+            return ["map_50_95", "map50_95", "ap/ball", "ap_ball"].contains(normalized)
+        }?.value
+    }
+}
+
+struct ManagedTrainingSummary: Codable, Sendable {
+    var validationMetrics: [String: Double]?
+    var testMetrics: [String: Double]?
+}
+
+struct ActivatedModelResponse: Codable, Sendable {
+    var active: ActiveModelRecord
+}
+
+struct BenchmarkAnnotationRecord: Codable, Equatable, Sendable {
     var category: String
     var x: Double
     var y: Double
@@ -148,7 +203,7 @@ struct BenchmarkAnnotationRecord: Codable, Equatable {
     var height: Double
 }
 
-struct BenchmarkFrameRecord: Codable, Equatable {
+struct BenchmarkFrameRecord: Codable, Equatable, Sendable {
     var id: String
     var relativePath: String
     var width: Int
@@ -156,12 +211,12 @@ struct BenchmarkFrameRecord: Codable, Equatable {
     var annotations: [BenchmarkAnnotationRecord]
 }
 
-struct BenchmarkDatasetIdentity: Codable {
+struct BenchmarkDatasetIdentity: Codable, Sendable {
     var sport: String
     var frames: [BenchmarkFrameRecord]
 }
 
-struct BenchmarkGroundTruthRecord: Codable {
+struct BenchmarkGroundTruthRecord: Codable, Sendable {
     var schemaVersion: Int
     var createdAt: String
     var sport: String
@@ -173,7 +228,7 @@ struct BenchmarkGroundTruthRecord: Codable {
     var classes: [String] { Array(Set(frames.flatMap(\.annotations).map(\.category))).sorted() }
 }
 
-struct BenchmarkMetrics: Codable {
+struct BenchmarkMetrics: Codable, Sendable {
     var qualityScore: Double
     var mAP50: Double
     var precision: Double
@@ -185,7 +240,7 @@ struct BenchmarkMetrics: Codable {
     var falseNegatives: Int
 }
 
-struct BenchmarkResult: Codable, Identifiable {
+struct BenchmarkResult: Codable, Identifiable, Sendable {
     var rank: Int?
     var packageID: String
     var modelSize: String?
@@ -196,7 +251,7 @@ struct BenchmarkResult: Codable, Identifiable {
     var id: String { packageID }
 }
 
-struct BenchmarkReport: Codable {
+struct BenchmarkReport: Codable, Sendable {
     var schemaVersion: Int
     var runID: String
     var createdAt: String
