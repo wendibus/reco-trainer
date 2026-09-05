@@ -145,6 +145,33 @@ class DatasetTests(unittest.TestCase):
         self.assertAlmostEqual(metrics["mAP50"], 1.0)
         self.assertAlmostEqual(metrics["qualityScore"], 100.0)
 
+    def test_box_iou_and_box_iou_xywh_are_independent_helpers(self):
+        """Regression test: ml_worker.py used to define box_iou twice — once for
+        xyxy corners (used by evaluate_predictions) and once for x/y/width/height
+        boxes (used by the OpenCV refinement). The second definition silently
+        shadowed the first at module scope, so evaluate_predictions computed IoU
+        against the wrong box format. The two helpers must stay distinct and each
+        must interpret its own coordinate format correctly.
+        """
+        self.assertIsNot(ml_worker.box_iou, ml_worker.box_iou_xywh)
+        overlap_xyxy = ml_worker.box_iou([0.0, 0.0, 10.0, 10.0], [5.0, 5.0, 15.0, 15.0])
+        self.assertAlmostEqual(overlap_xyxy, 25.0 / 175.0)
+        overlap_xywh = ml_worker.box_iou_xywh((0.0, 0.0, 10.0, 10.0), (5.0, 5.0, 10.0, 10.0))
+        self.assertAlmostEqual(overlap_xywh, 25.0 / 175.0)
+
+    def test_benchmark_scores_a_partial_overlap_below_threshold_as_a_miss(self):
+        """Unlike the other benchmark tests above, truth and prediction here are
+        NOT identical, so a box-format bug (xyxy vs. x/y/width/height) changes
+        the outcome instead of canceling out. This is what actually caught the
+        box_iou/box_iou_xywh name collision.
+        """
+        truth = [{"id": "frame-1", "annotations": [{"category": "ball", "x": 0, "y": 0, "width": 20, "height": 20}]}]
+        predictions = [{"frameID": "frame-1", "category": "ball", "confidence": .9, "box": [25, 0, 45, 20]}]
+        metrics = ml_worker.evaluate_predictions(truth, predictions, ["ball"])
+        self.assertEqual(metrics["truePositives"], 0)
+        self.assertEqual(metrics["falsePositives"], 1)
+        self.assertEqual(metrics["falseNegatives"], 1)
+
     def test_benchmark_penalizes_false_positives_and_missed_objects(self):
         truth = [{"id": "frame-1", "annotations": [
             {"category": "ball", "x": 10, "y": 20, "width": 10, "height": 10},

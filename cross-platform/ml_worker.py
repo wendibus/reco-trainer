@@ -574,7 +574,7 @@ def frame_has_category(frame: dict[str, Any], target_category: str) -> bool:
     )
 
 
-def box_iou(first: tuple[float, float, float, float], second: tuple[float, float, float, float]) -> float:
+def box_iou_xywh(first: tuple[float, float, float, float], second: tuple[float, float, float, float]) -> float:
     """Intersection over union for x/y/width/height boxes."""
     ax, ay, aw, ah = first
     bx, by, bw, bh = second
@@ -596,7 +596,7 @@ def plausible_refined_box(
     if min(ow, oh, cw, ch) < 3.0:
         return False
     area_ratio = (cw * ch) / max(ow * oh, 1.0)
-    if not 0.20 <= area_ratio <= 2.20 or box_iou(original, candidate) < 0.15:
+    if not 0.20 <= area_ratio <= 2.20 or box_iou_xywh(original, candidate) < 0.15:
         return False
     original_center = (ox + ow / 2.0, oy + oh / 2.0)
     candidate_center = (cx + cw / 2.0, cy + ch / 2.0)
@@ -665,7 +665,7 @@ def opencv_refined_box(image: Any, annotation: dict[str, Any], cv2: Any, np: Any
         center = (candidate[0] + candidate[2] / 2.0, candidate[1] + candidate[3] / 2.0)
         center_score = max(0.0, 1.0 - math.hypot(center[0] - original_center[0], center[1] - original_center[1]) / max(math.hypot(width, height), 1.0))
         area_score = max(0.0, 1.0 - abs(math.log(candidate_area / original_area)) / math.log(5.0))
-        score = 0.40 * center_score + 0.30 * box_iou(original, candidate) + 0.15 * fill + 0.15 * area_score
+        score = 0.40 * center_score + 0.30 * box_iou_xywh(original, candidate) + 0.15 * fill + 0.15 * area_score
         if score >= 0.46 and (best is None or score > best[1]):
             best = (candidate, score)
     return best

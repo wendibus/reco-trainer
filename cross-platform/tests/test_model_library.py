@@ -23,6 +23,56 @@ local_worker = load_module("model_library_local_worker", ROOT / "local_worker.py
 ml_worker = load_module("model_library_ml_worker", ROOT / "ml_worker.py")
 
 
+class BenchmarkMetricsTests(unittest.TestCase):
+    """Regression coverage for the box_iou/box_iou_xywh name collision.
+
+    ml_worker.py used to define two functions named ``box_iou`` (one for xyxy
+    boxes used by evaluate_predictions, one for x/y/width/height boxes used by
+    the OpenCV box refinement). The second definition silently shadowed the
+    first at module scope, so evaluate_predictions computed IoU against the
+    wrong box format and every benchmark mAP/precision/recall/F1 number was
+    wrong. These tests pin the correct, independent behavior of both helpers.
+    """
+
+    def test_box_iou_uses_xyxy_corners(self):
+        # Two 10x10 boxes overlapping in a 5x5 corner: intersection 25, union 175.
+        overlap = ml_worker.box_iou([0.0, 0.0, 10.0, 10.0], [5.0, 5.0, 15.0, 15.0])
+        self.assertAlmostEqual(overlap, 25.0 / 175.0)
+
+    def test_box_iou_xywh_uses_x_y_width_height(self):
+        # Same geometry expressed as (x, y, width, height).
+        overlap = ml_worker.box_iou_xywh((0.0, 0.0, 10.0, 10.0), (5.0, 5.0, 10.0, 10.0))
+        self.assertAlmostEqual(overlap, 25.0 / 175.0)
+
+    def test_evaluate_predictions_scores_a_perfect_match_as_one(self):
+        ground_truth_frames = [
+            {"id": "frame-1", "annotations": [{"category": "ball", "x": 10.0, "y": 10.0, "width": 20.0, "height": 20.0}]},
+        ]
+        predictions = [
+            {"frameID": "frame-1", "category": "ball", "confidence": 0.9, "box": [10.0, 10.0, 30.0, 30.0]},
+        ]
+        metrics = ml_worker.evaluate_predictions(ground_truth_frames, predictions, classes=["ball"])
+        self.assertEqual(metrics["truePositives"], 1)
+        self.assertEqual(metrics["falsePositives"], 0)
+        self.assertEqual(metrics["falseNegatives"], 0)
+        self.assertAlmostEqual(metrics["mAP50"], 1.0)
+        self.assertAlmostEqual(metrics["meanIoU"], 1.0)
+
+    def test_evaluate_predictions_rejects_low_overlap_boxes(self):
+        # A 20x20 ground-truth box vs. a same-size prediction shifted by 25px:
+        # IoU is below the 0.5 threshold, so this must count as FP + FN, not a match.
+        ground_truth_frames = [
+            {"id": "frame-1", "annotations": [{"category": "ball", "x": 0.0, "y": 0.0, "width": 20.0, "height": 20.0}]},
+        ]
+        predictions = [
+            {"frameID": "frame-1", "category": "ball", "confidence": 0.9, "box": [25.0, 0.0, 45.0, 20.0]},
+        ]
+        metrics = ml_worker.evaluate_predictions(ground_truth_frames, predictions, classes=["ball"])
+        self.assertEqual(metrics["truePositives"], 0)
+        self.assertEqual(metrics["falsePositives"], 1)
+        self.assertEqual(metrics["falseNegatives"], 1)
+
+
 class ModelLibraryTests(unittest.TestCase):
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory()
