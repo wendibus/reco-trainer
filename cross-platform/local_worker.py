@@ -487,6 +487,50 @@ def frames_per_video(value: object) -> int:
     return min(MAX_FRAMES_PER_VIDEO, max(MIN_FRAMES_PER_VIDEO, count))
 
 
+def extract_frames_for_video(
+    video: Path,
+    duration: float,
+    width: int,
+    height: int,
+    target_count: int,
+    output_dir: Path,
+    prefix: str,
+    ffmpeg: str | None,
+    apple_extractor: Path | None,
+    failure_message: str,
+) -> tuple[list[Path], float, int, int]:
+    """Extract up to target_count evenly spaced frames from one video.
+
+    Shared by initial project preparation and active-learning dataset expansion,
+    which previously built the same ffmpeg/Apple-extractor command and the same
+    even-height output scaling twice with only cosmetic differences.
+
+    Returns the generated frame paths (sorted), the sampling rate actually used
+    (frames per second of source video, needed by callers to compute each
+    frame's timestamp), and the scaled output width/height (max 1280px wide,
+    height rounded up to an even number since some encoders reject odd heights).
+    """
+    rate = max(target_count / duration, 1 / max(duration, 1.0))
+    pattern = output_dir / f"{prefix}-%06d.jpg"
+    command = (
+        [ffmpeg, "-hide_banner", "-loglevel", "error", "-y", "-i", str(video),
+         "-vf", f"fps={rate:.8f},scale='min(iw,1280)':-2",
+         "-frames:v", str(target_count), "-q:v", "2", str(pattern)]
+        if ffmpeg else
+        [str(apple_extractor), str(video), str(output_dir), prefix, str(target_count)]
+    )
+    result = subprocess.run(command, capture_output=True, text=True, check=False)
+    if result.returncode != 0:
+        raise RuntimeError(f"{failure_message}: {video.name}\n{result.stderr.strip()}")
+    generated = sorted(output_dir.glob(f"{prefix}-*.jpg"))
+    scale = min(1.0, 1280 / max(width, 1))
+    output_width = max(1, round(width * scale))
+    output_height = max(1, round(height * scale))
+    if output_height % 2:
+        output_height += 1
+    return generated, rate, output_width, output_height
+
+
 def extract_project(sport: str, requested_frames_per_video: int = DEFAULT_FRAMES_PER_VIDEO) -> None:
     try:
         folder = STATE.selected_folder
@@ -520,25 +564,12 @@ def extract_project(sport: str, requested_frames_per_video: int = DEFAULT_FRAMES
         try:
             for video, duration, width, height in infos:
                 target = count_per_video
-                rate = max(target / duration, 1 / max(duration, 1.0))
                 video_id = hashlib.sha256(str(video).encode("utf-8")).hexdigest()[:12]
-                pattern = temporary_frames / f"{video_id}-%06d.jpg"
                 STATE.update(operation="extracting", message=f"Extrahiere Trainingsbilder: {video.name}")
-                command = (
-                    [ffmpeg, "-hide_banner", "-loglevel", "error", "-y", "-i", str(video),
-                     "-vf", f"fps={rate:.8f},scale='min(iw,1280)':-2",
-                     "-frames:v", str(target), "-q:v", "2", str(pattern)]
-                    if ffmpeg else
-                    [str(apple_extractor), str(video), str(temporary_frames), video_id, str(target)]
+                generated, rate, output_width, output_height = extract_frames_for_video(
+                    video, duration, width, height, target, temporary_frames, video_id,
+                    ffmpeg, apple_extractor, "Frame-Extraktion fehlgeschlagen",
                 )
-                result = subprocess.run(command, capture_output=True, text=True, check=False)
-                if result.returncode != 0:
-                    raise RuntimeError(f"Frame-Extraktion fehlgeschlagen: {video.name}\n{result.stderr.strip()}")
-                generated = sorted(temporary_frames.glob(f"{video_id}-*.jpg"))
-                scale = min(1.0, 1280 / max(width, 1))
-                output_width = max(1, round(width * scale))
-                output_height = max(1, round(height * scale))
-                if output_height % 2: output_height += 1
                 for index, image_path in enumerate(generated, start=1):
                     frame_id = str(uuid.uuid5(uuid.NAMESPACE_URL, f"{video_id}:{index}"))
                     frames.append({
@@ -613,28 +644,16 @@ def expand_dataset(folder: Path, payload: dict) -> None:
         STATE.update(operation="active-learning-extract", busy=True, progress=0.01, error=None, log=[], message="Extrahiere lokale Prüfkandidaten …")
         for video, duration, width, height in infos:
             target = count_per_video
-            rate = max(target / duration, 1 / max(duration, 1.0))
             video_id = hashlib.sha256(str(video).encode("utf-8")).hexdigest()[:12]
             if video_id in known_video_ids:
                 completed += duration
                 STATE.update(progress=min(completed / total_duration * 0.45, 0.45), message=f"Bereits verwendetes Video übersprungen: {video.name}")
                 continue
             prefix = f"al-{video_id}"
-            pattern = frames_dir / f"{prefix}-%06d.jpg"
-            command = (
-                [ffmpeg, "-hide_banner", "-loglevel", "error", "-y", "-i", str(video),
-                 "-vf", f"fps={rate:.8f},scale='min(iw,1280)':-2", "-frames:v", str(target), "-q:v", "2", str(pattern)]
-                if ffmpeg else
-                [str(apple_extractor), str(video), str(frames_dir), prefix, str(target)]
+            generated, rate, output_width, output_height = extract_frames_for_video(
+                video, duration, width, height, target, frames_dir, prefix,
+                ffmpeg, apple_extractor, "Kandidaten-Extraktion fehlgeschlagen",
             )
-            result = subprocess.run(command, capture_output=True, text=True, check=False)
-            if result.returncode != 0:
-                raise RuntimeError(f"Kandidaten-Extraktion fehlgeschlagen: {video.name}\n{result.stderr.strip()}")
-            generated = sorted(frames_dir.glob(f"{prefix}-*.jpg"))
-            scale = min(1.0, 1280 / max(width, 1))
-            output_width = max(1, round(width * scale))
-            output_height = max(1, round(height * scale))
-            if output_height % 2: output_height += 1
             for index, image_path in enumerate(generated, start=1):
                 new_frames.append({
                     "id": str(uuid.uuid5(uuid.NAMESPACE_URL, f"active-learning:{video_id}:{index}")),

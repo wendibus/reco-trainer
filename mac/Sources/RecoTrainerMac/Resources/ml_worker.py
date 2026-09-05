@@ -125,7 +125,16 @@ def training_profile(
     memory_bytes: int | None = None,
     cpu_count: int | None = None,
 ) -> dict[str, Any]:
-    """Choose one fast, stable training job instead of competing GPU jobs."""
+    """Choose one fast, stable training job instead of competing GPU jobs.
+
+    The MPS memory breakpoints (12/20/36/72 GB) correspond to common Apple
+    unified-memory tiers (8/16 GB, 18/24 GB, 32/48 GB, 64/96+ GB machines);
+    batch sizes were chosen empirically to stay well under each tier's actual
+    usable memory rather than from a formula, since RF-DETR's real memory use
+    also depends on image resolution and model size in ways not worth modeling
+    exactly here. Gradient checkpointing trades compute for memory on tiers
+    where it doesn't fit otherwise.
+    """
     memory_bytes = total_memory_bytes() if memory_bytes is None else memory_bytes
     cpu_count = (os.cpu_count() or 1) if cpu_count is None else max(cpu_count, 1)
     memory_gb = max(1, round(memory_bytes / (1024**3))) if memory_bytes else 16
@@ -237,7 +246,30 @@ def doctor(_: argparse.Namespace) -> None:
     print(json.dumps(payload, ensure_ascii=False))
 
 
+def preferred_run_checkpoint(run_dir: Path) -> Path | None:
+    """Pick the single best checkpoint out of one RF-DETR run directory.
+
+    RF-DETR names its best/last checkpoints consistently; only fall back to the
+    newest file by mtime if none of those conventional names exist (e.g. a run
+    that used a custom callback or an older RF-DETR release).
+    """
+    if not run_dir.is_dir():
+        return None
+    for name in ("checkpoint_best_total.pth", "checkpoint_best_ema.pth", "checkpoint.pth", "last.ckpt"):
+        candidate = run_dir / name
+        if candidate.is_file():
+            return candidate
+    candidates = [*run_dir.rglob("*.pth"), *run_dir.rglob("*.ckpt")]
+    return max(candidates, key=lambda item: item.stat().st_mtime) if candidates else None
+
+
 def newest_checkpoint(project_root: Path, size: str) -> Path | None:
+    """Return the checkpoint that autolabel/benchmark/train should treat as current.
+
+    The activated library revision (see activate_library_model) wins whenever it
+    matches the requested model size; otherwise fall back to whatever the local
+    ``runs/<size>`` directory holds, which is the mutable in-progress training run.
+    """
     active_file = project_root / "models" / "active.json"
     library_root = (project_root / "models" / "library").resolve()
     if active_file.is_file():
@@ -253,20 +285,7 @@ def newest_checkpoint(project_root: Path, size: str) -> Path | None:
                 return active_path
         except (OSError, ValueError, TypeError, json.JSONDecodeError):
             pass
-    run_dir = project_root / "runs" / size
-    if not run_dir.exists():
-        return None
-    preferred = [
-        run_dir / "checkpoint_best_total.pth",
-        run_dir / "checkpoint_best_ema.pth",
-        run_dir / "checkpoint.pth",
-        run_dir / "last.ckpt",
-    ]
-    for checkpoint in preferred:
-        if checkpoint.is_file():
-            return checkpoint
-    candidates = [*run_dir.rglob("*.pth"), *run_dir.rglob("*.ckpt")]
-    return max(candidates, key=lambda item: item.stat().st_mtime) if candidates else None
+    return preferred_run_checkpoint(project_root / "runs" / size)
 
 
 def model_instance(project_root: Path, size: str, trained: bool, language: str = "de"):
@@ -590,7 +609,16 @@ def plausible_refined_box(
     candidate: tuple[float, float, float, float],
     category: str,
 ) -> bool:
-    """Reject aggressive OpenCV changes before they can become suggestions."""
+    """Reject aggressive OpenCV changes before they can become suggestions.
+
+    grabCut can return a contour that has drifted onto a nearby player, shadow,
+    or advertising board instead of the ball/puck. These thresholds are a cheap
+    plausibility filter, not a learned model: a refined box must stay close in
+    size (0.20x-2.20x area), overlap the original detection meaningfully (IoU
+    >= 0.15), stay centered near it (shift <= ~half the original box diagonal),
+    and keep a roughly ball-like aspect ratio. Pucks get a wider aspect-ratio
+    allowance because they are viewed edge-on far more often than a ball is.
+    """
     ox, oy, ow, oh = original
     cx, cy, cw, ch = candidate
     if min(ow, oh, cw, ch) < 3.0:
@@ -665,6 +693,9 @@ def opencv_refined_box(image: Any, annotation: dict[str, Any], cv2: Any, np: Any
         center = (candidate[0] + candidate[2] / 2.0, candidate[1] + candidate[3] / 2.0)
         center_score = max(0.0, 1.0 - math.hypot(center[0] - original_center[0], center[1] - original_center[1]) / max(math.hypot(width, height), 1.0))
         area_score = max(0.0, 1.0 - abs(math.log(candidate_area / original_area)) / math.log(5.0))
+        # Staying centered on the original detection matters most (a grabCut contour
+        # that drifts to a neighboring object is the main failure mode this guards
+        # against); overlap, fill, and area agreement matter less but still count.
         score = 0.40 * center_score + 0.30 * box_iou_xywh(original, candidate) + 0.15 * fill + 0.15 * area_score
         if score >= 0.46 and (best is None or score > best[1]):
             best = (candidate, score)
@@ -1195,15 +1226,6 @@ def archive_local_checkpoint(
         if staging.exists():
             shutil.rmtree(staging)
     return final / "manifest.json", manifest, True
-
-
-def preferred_run_checkpoint(run_dir: Path) -> Path | None:
-    for name in ["checkpoint_best_total.pth", "checkpoint_best_ema.pth", "checkpoint.pth", "last.ckpt"]:
-        candidate = run_dir / name
-        if candidate.is_file():
-            return candidate
-    candidates = [*run_dir.rglob("*.pth"), *run_dir.rglob("*.ckpt")] if run_dir.is_dir() else []
-    return max(candidates, key=lambda item: item.stat().st_mtime) if candidates else None
 
 
 def interrupted_run_checkpoint(

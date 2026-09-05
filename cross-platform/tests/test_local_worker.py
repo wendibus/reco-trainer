@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import stat
 import tempfile
 import unittest
 from pathlib import Path
@@ -116,6 +117,66 @@ class GroundTruthTests(unittest.TestCase):
 
             self.assertEqual(candidate["reviewStatus"], "reviewed")
             self.assertEqual(candidate["annotations"], [])
+
+
+class FrameExtractionTests(unittest.TestCase):
+    """Covers extract_frames_for_video, the helper factored out of extract_project
+    and expand_dataset (which used to build the same ffmpeg/Apple-extractor command
+    and the same even-height scaling logic twice, independently)."""
+
+    def _make_executable(self, path: Path, script: str) -> None:
+        path.write_text(script)
+        path.chmod(path.stat().st_mode | stat.S_IEXEC)
+
+    def test_uses_apple_extractor_and_scales_dimensions_to_even_height(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            output_dir = root / "frames"
+            output_dir.mkdir()
+            extractor = root / "fake-extractor.py"
+            self._make_executable(extractor, (
+                "#!/usr/bin/env python3\n"
+                "import sys, pathlib\n"
+                "video, output_dir, prefix, count = sys.argv[1:5]\n"
+                "for index in range(1, int(count) + 1):\n"
+                "    (pathlib.Path(output_dir) / f'{prefix}-{index:06d}.jpg').write_bytes(b'x')\n"
+            ))
+            video = root / "clip.mov"
+            video.write_bytes(b"fake video")
+
+            generated, rate, output_width, output_height = local_worker.extract_frames_for_video(
+                video, duration=10.0, width=1920, height=1081, target_count=5,
+                output_dir=output_dir, prefix="vid1",
+                ffmpeg=None, apple_extractor=extractor,
+                failure_message="Extraction failed",
+            )
+
+            self.assertEqual(len(generated), 5)
+            self.assertEqual(rate, 0.5)
+            # 1280/1920 is an exact 2/3 scale factor for this width.
+            self.assertEqual(output_width, 1280)
+            self.assertEqual(output_height % 2, 0)
+
+    def test_raises_with_video_name_and_stderr_on_extractor_failure(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            output_dir = root / "frames"
+            output_dir.mkdir()
+            extractor = root / "failing-extractor.py"
+            self._make_executable(extractor, "#!/usr/bin/env python3\nimport sys\nsys.stderr.write('boom')\nsys.exit(1)\n")
+            video = root / "clip.mov"
+            video.write_bytes(b"fake video")
+
+            with self.assertRaises(RuntimeError) as context:
+                local_worker.extract_frames_for_video(
+                    video, duration=10.0, width=100, height=100, target_count=5,
+                    output_dir=output_dir, prefix="vid1",
+                    ffmpeg=None, apple_extractor=extractor,
+                    failure_message="Extraction failed",
+                )
+            self.assertIn("Extraction failed", str(context.exception))
+            self.assertIn("clip.mov", str(context.exception))
+            self.assertIn("boom", str(context.exception))
 
 
 if __name__ == "__main__":

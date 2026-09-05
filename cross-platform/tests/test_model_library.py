@@ -58,6 +58,39 @@ class BenchmarkMetricsTests(unittest.TestCase):
         self.assertAlmostEqual(metrics["mAP50"], 1.0)
         self.assertAlmostEqual(metrics["meanIoU"], 1.0)
 
+    def test_average_precision_of_perfectly_ranked_detections_is_one(self):
+        ap = ml_worker.average_precision([1 / 3, 2 / 3, 1.0], [1.0, 1.0, 1.0])
+        self.assertAlmostEqual(ap, 1.0)
+
+    def test_average_precision_penalizes_missed_recall(self):
+        # Only one of two ground-truth objects is ever found, at perfect precision:
+        # the interpolated AP is the recall reached, since precision is 0 beyond it.
+        ap = ml_worker.average_precision([0.5], [1.0])
+        self.assertAlmostEqual(ap, 0.5)
+
+    def test_plausible_refined_box_accepts_a_tighter_centered_crop(self):
+        original = (100.0, 100.0, 20.0, 20.0)
+        candidate = (102.0, 102.0, 16.0, 16.0)
+        self.assertTrue(ml_worker.plausible_refined_box(original, candidate, "ball"))
+
+    def test_plausible_refined_box_rejects_a_tiny_candidate(self):
+        original = (100.0, 100.0, 20.0, 20.0)
+        candidate = (100.0, 100.0, 2.0, 2.0)
+        self.assertFalse(ml_worker.plausible_refined_box(original, candidate, "ball"))
+
+    def test_plausible_refined_box_rejects_an_implausible_area_change(self):
+        original = (100.0, 100.0, 20.0, 20.0)
+        candidate = (90.0, 90.0, 60.0, 60.0)  # 9x the original area
+        self.assertFalse(ml_worker.plausible_refined_box(original, candidate, "ball"))
+
+    def test_plausible_refined_box_aspect_ratio_tolerance_is_category_specific(self):
+        # A wide, flat box (aspect 4.0) is implausible for a round ball but within
+        # the wider tolerance intentionally given to pucks, viewed edge-on more often.
+        original = (100.0, 100.0, 20.0, 20.0)
+        candidate = (100.0, 108.0, 20.0, 5.0)
+        self.assertFalse(ml_worker.plausible_refined_box(original, candidate, "ball"))
+        self.assertTrue(ml_worker.plausible_refined_box(original, candidate, "puck"))
+
     def test_evaluate_predictions_rejects_low_overlap_boxes(self):
         # A 20x20 ground-truth box vs. a same-size prediction shifted by 25px:
         # IoU is below the 0.5 threshold, so this must count as FP + FN, not a match.
