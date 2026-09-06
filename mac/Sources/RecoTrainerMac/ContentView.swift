@@ -317,7 +317,11 @@ struct ContentView: View {
                             }
                             Button(app.tr("Geprüfte Antworten festlegen", "Freeze reviewed answers", "Fijar respuestas revisadas", "Figer les réponses vérifiées"), action: app.freezeBenchmarkGroundTruth)
                                 .buttonStyle(.borderedProminent)
-                                .disabled(app.project == nil || app.isWorking || (app.project?.frames.flatMap(\.annotations).contains { $0.source == "auto" } ?? false))
+                                .disabled(app.project == nil || app.isWorking || app.hasUnreviewedTrainingAnnotations)
+                            if !app.isWorking && app.hasUnreviewedTrainingAnnotations {
+                                Label(app.tr("Automatische Vorschläge zuerst übernehmen, korrigieren oder verwerfen.", "Accept, correct, or reject automatic suggestions first.", "Primero acepta, corrige o rechaza las sugerencias automáticas.", "Acceptez, corrigez ou refusez d’abord les suggestions automatiques."), systemImage: "exclamationmark.triangle")
+                                    .font(.caption).foregroundStyle(.orange)
+                            }
                         }.frame(maxWidth: .infinity, minHeight: 125, alignment: .topLeading)
                     }
                     GroupBox(app.tr("2 · Lokale Modelle", "2 · Local models", "2 · Modelos locales", "2 · Modèles locaux")) {
@@ -335,7 +339,15 @@ struct ContentView: View {
                             Button(app.tr("Alle Modelle lokal testen", "Test every model locally", "Probar todos los modelos localmente", "Tester tous les modèles localement"), action: app.benchmarkModels)
                                 .buttonStyle(.borderedProminent)
                                 .disabled(app.benchmarkGroundTruth == nil || app.installedModelCount == 0 || app.isWorking)
-                            if app.isWorking { ProgressView() }
+                            if app.isWorking {
+                                ProgressView()
+                            } else if app.benchmarkGroundTruth == nil {
+                                Label(app.tr("Zuerst Schritt 1 abschließen.", "Finish step 1 first.", "Primero completa el paso 1.", "Terminez d’abord l’étape 1."), systemImage: "exclamationmark.triangle")
+                                    .font(.caption).foregroundStyle(.orange)
+                            } else if app.installedModelCount == 0 {
+                                Label(app.tr("Noch kein Modell trainiert oder importiert.", "No model trained or imported yet.", "Aún no se ha entrenado ni importado ningún modelo.", "Aucun modèle entraîné ou importé pour l’instant."), systemImage: "exclamationmark.triangle")
+                                    .font(.caption).foregroundStyle(.orange)
+                            }
                         }.frame(maxWidth: .infinity, minHeight: 125, alignment: .topLeading)
                     }
                 }

@@ -63,6 +63,15 @@ final class AppState: ObservableObject {
         project?.frames.filter { $0.reviewStatus == "candidate" } ?? []
     }
 
+    /// Mirrors freezeBenchmarkGroundTruth()'s own frame filter: only training
+    /// frames (not pending active-learning candidates, which freezing ignores
+    /// entirely) matter for whether ground truth can be frozen.
+    var hasUnreviewedTrainingAnnotations: Bool {
+        (project?.frames.filter { $0.reviewStatus != "candidate" } ?? [])
+            .flatMap(\.annotations)
+            .contains { $0.source == "auto" }
+    }
+
     var continuationCheckpointName: String? {
         continuationCheckpoints[modelSize]
     }
@@ -545,7 +554,7 @@ final class AppState: ObservableObject {
             guard !reviewedProjectFrames.isEmpty else {
                 throw NSError(domain: "RecoBenchmark", code: 1, userInfo: [NSLocalizedDescriptionKey: tr("Das Projekt enthält keine Testbilder.", "The project contains no test images.", "El proyecto no contiene imágenes de prueba.", "Le projet ne contient aucune image de test.")])
             }
-            guard !reviewedProjectFrames.flatMap(\.annotations).contains(where: { $0.source == "auto" }) else {
+            guard !hasUnreviewedTrainingAnnotations else {
                 throw NSError(domain: "RecoBenchmark", code: 2, userInfo: [NSLocalizedDescriptionKey: tr("Vor dem Modelltest alle automatischen Vorschläge übernehmen, korrigieren oder verwerfen.", "Accept, correct, or reject every automatic suggestion before benchmarking.", "Acepta, corrige o rechaza todas las sugerencias automáticas antes de comparar.", "Acceptez, corrigez ou refusez toutes les suggestions automatiques avant la comparaison.")])
             }
             let frames = reviewedProjectFrames.map { frame in

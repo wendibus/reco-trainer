@@ -93,3 +93,38 @@ import Testing
 
     #expect(app.localPickerPurpose == .trainingFolder)
 }
+
+// Regression coverage: the "Freeze reviewed answers" button used to stay disabled
+// whenever ANY frame in the whole project had an unreviewed automatic annotation,
+// including pending active-learning review candidates. Those candidate frames are
+// excluded from ground truth by freezeBenchmarkGroundTruth() itself, so they should
+// never be able to block freezing - only unreviewed training frames should.
+@Test @MainActor func benchmarkFreezeIgnoresUnreviewedActiveLearningCandidates() {
+    let app = AppState()
+    let reviewedTrainingFrame = FrameRecord(
+        relativePath: "frames/reviewed.jpg", videoID: "v1", videoName: "clip.mov", timestamp: 0,
+        width: 10, height: 10,
+        annotations: [BoxAnnotation(category: "ball", x: 1, y: 1, width: 2, height: 2, source: "manual")]
+    )
+    var pendingCandidateFrame = FrameRecord(
+        relativePath: "frames/candidate.jpg", videoID: "v2", videoName: "clip2.mov", timestamp: 0,
+        width: 10, height: 10,
+        annotations: [BoxAnnotation(category: "ball", x: 1, y: 1, width: 2, height: 2, source: "auto")]
+    )
+    pendingCandidateFrame.reviewStatus = "candidate"
+    app.project = ProjectDocument(name: "Test", sport: .basketball, sourceFolder: "/tmp/videos", frames: [reviewedTrainingFrame, pendingCandidateFrame])
+
+    #expect(app.hasUnreviewedTrainingAnnotations == false)
+}
+
+@Test @MainActor func benchmarkFreezeBlocksOnUnreviewedTrainingAnnotations() {
+    let app = AppState()
+    let unreviewedTrainingFrame = FrameRecord(
+        relativePath: "frames/unreviewed.jpg", videoID: "v1", videoName: "clip.mov", timestamp: 0,
+        width: 10, height: 10,
+        annotations: [BoxAnnotation(category: "ball", x: 1, y: 1, width: 2, height: 2, source: "auto")]
+    )
+    app.project = ProjectDocument(name: "Test", sport: .basketball, sourceFolder: "/tmp/videos", frames: [unreviewedTrainingFrame])
+
+    #expect(app.hasUnreviewedTrainingAnnotations == true)
+}
