@@ -1,5 +1,13 @@
 # Änderungen
 
+## 0.12.2
+
+- Der lokale Modellvergleich berechnet die Boxüberlappung (IoU) jetzt korrekt; Qualitätswerte, mAP, Präzision und Recall sind zuverlässiger.
+- Offene Prüfkandidaten aus der Datensatzerweiterung blockieren das Festlegen der Referenz nicht mehr fälschlich.
+- Beide Aktionen im Modellvergleich zeigen jetzt einen Hinweis, welche Voraussetzung noch fehlt.
+- Die Windows- und Linux-Startskripte warnen deutlich, wenn die gefundene Python-Version nicht 3.11 oder 3.12 ist.
+- Interne Code-Dopplungen bei Checkpoint-Suche und Frame-Extraktion entfernt; automatische Tests laufen jetzt bei jedem Commit.
+
 ## 0.12.1
 
 - Abgebrochene Trainingsläufe werden vollständig mit Optimizer, Lernratenplan, EMA und Callback-Zuständen fortgesetzt.

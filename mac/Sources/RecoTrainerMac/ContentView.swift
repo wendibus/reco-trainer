@@ -2,7 +2,7 @@ import AppKit
 import SwiftUI
 
 struct ContentView: View {
-    private static let currentRelease = "0.12.1"
+    private static let currentRelease = "0.12.2"
 
     @EnvironmentObject private var app: AppState
     @AppStorage("recoWalkthroughCompleteV1") private var walkthroughComplete = false
@@ -939,16 +939,16 @@ private struct WhatsNewSheet: View {
     private var changes: [(String, String)] {
         [
             (
-                language.text("Training sicher fortsetzen", "Safely resume training", "Reanudar el entrenamiento de forma segura", "Reprendre l’entraînement en toute sécurité"),
-                language.text("Ein abgebrochener Lauf wird vollständig mit Optimizer, Lernratenplan, EMA und Early Stopping fortgesetzt.", "An interrupted run now resumes with its optimizer, learning-rate schedule, EMA, and early-stopping state intact.", "Una ejecución interrumpida continúa con su optimizador, plan de aprendizaje, EMA y parada temprana intactos.", "Un entraînement interrompu reprend avec son optimiseur, son programme de taux, son EMA et son arrêt anticipé.")
+                language.text("Genauerer Modellvergleich", "More accurate model comparison", "Comparación de modelos más precisa", "Comparaison de modèles plus précise"),
+                language.text("Der lokale Modellvergleich berechnet die Boxüberlappung jetzt korrekt; Qualitätswerte, mAP, Präzision und Recall sind zuverlässiger.", "The local model benchmark now computes box overlap correctly, making quality scores, mAP, precision, and recall more reliable.", "La comparación local de modelos calcula ahora correctamente el solapamiento de los cuadros; los valores de calidad, mAP, precisión y recall son más fiables.", "La comparaison locale de modèles calcule désormais correctement le chevauchement des boîtes ; les scores de qualité, le mAP, la précision et le recall sont plus fiables.")
             ),
             (
-                language.text("Schonendere Feinabstimmung", "Gentler fine-tuning", "Ajuste fino más cuidadoso", "Ajustement plus progressif"),
-                language.text("Weitere Trainingszyklen starten vom besten Modell mit reduzierter Lernrate, Cosine-Verlauf und geduldigerem Early Stopping.", "Further training cycles start from the best model with a reduced learning rate, cosine decay, and more patient early stopping.", "Los nuevos ciclos parten del mejor modelo con una tasa reducida, descenso coseno y una parada temprana más paciente.", "Les nouveaux cycles repartent du meilleur modèle avec un taux réduit, une décroissance cosinus et un arrêt anticipé plus patient.")
+                language.text("Referenz festlegen zuverlässiger", "Freezing ground truth is more reliable", "Fijar la referencia es más fiable", "Figer la référence est plus fiable"),
+                language.text("Offene Prüfkandidaten aus der Datensatzerweiterung blockieren das Festlegen der Referenz nicht mehr fälschlich.", "Pending active-learning review candidates no longer incorrectly block freezing the ground truth.", "Los candidatos de revisión pendientes del aprendizaje activo ya no bloquean incorrectamente la fijación de la referencia.", "Les candidats de révision en attente de l’apprentissage actif ne bloquent plus incorrectement le fait de figer la référence.")
             ),
             (
-                language.text("Messwerte bleiben erhalten", "Metrics are preserved", "Las métricas se conservan", "Les mesures sont conservées"),
-                language.text("Frühere Protokolle werden archiviert. Kleine Validierungs- oder Testsätze werden deutlich als vorläufig gekennzeichnet.", "Previous logs are archived, and small validation or test splits are clearly marked as preliminary.", "Los registros anteriores se archivan y los conjuntos pequeños de validación o prueba se marcan como preliminares.", "Les journaux précédents sont archivés et les petits jeux de validation ou de test sont signalés comme provisoires.")
+                language.text("Klarere Hinweise bei Windows/Linux-Einrichtung", "Clearer setup hints on Windows/Linux", "Indicaciones más claras en la configuración de Windows/Linux", "Indications plus claires pour la configuration Windows/Linux"),
+                language.text("Die Startskripte warnen jetzt deutlich, wenn die gefundene Python-Version nicht 3.11 oder 3.12 ist.", "The launcher scripts now clearly warn when the detected Python version is not 3.11 or 3.12.", "Los scripts de inicio avisan ahora claramente cuando la versión de Python detectada no es 3.11 ni 3.12.", "Les scripts de lancement avertissent désormais clairement lorsque la version de Python détectée n’est pas 3.11 ou 3.12.")
             )
         ]
     }
