@@ -435,6 +435,14 @@ struct ContentView: View {
             }
             .frame(width: 180)
             Spacer()
+            if app.automaticAnnotationCountOnSelectedFrame > 0 {
+                Label("\(app.automaticAnnotationCountOnSelectedFrame)", systemImage: "sparkles")
+                    .foregroundStyle(.orange)
+                    .help(app.tr("Automatische Vorschläge auf diesem Bild", "Automatic suggestions on this image", "Sugerencias automáticas en esta imagen", "Suggestions automatiques sur cette image"))
+                Button(app.tr("Übernehmen", "Accept auto", "Aceptar auto", "Accepter auto")) { app.acceptAllAutomaticAnnotations() }
+                    .tint(.green)
+                Button(app.tr("Verwerfen", "Reject auto", "Rechazar auto", "Rejeter auto"), role: .destructive) { app.rejectAllAutomaticAnnotations() }
+            }
             if let frame = app.selectedFrame {
                 Text("\(frame.width) × \(frame.height) · \(frame.videoName)")
                     .foregroundStyle(.secondary)

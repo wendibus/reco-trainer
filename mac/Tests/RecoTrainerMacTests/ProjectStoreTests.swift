@@ -117,6 +117,59 @@ import Testing
     #expect(app.hasUnreviewedTrainingAnnotations == false)
 }
 
+// Regression coverage: the annotation editor has no way to select, move, or resize
+// an individual box, so bulk accept/reject is the only mechanism that can ever clear
+// source == "auto" on a regular training frame (as opposed to an active-learning
+// candidate, which has its own separate Ball/No-ball review flow). Without this,
+// hasUnreviewedTrainingAnnotations can never become false once autolabel has run,
+// permanently blocking step 1 of the benchmark workflow.
+@Test @MainActor func acceptingAutomaticAnnotationsMarksThemManual() throws {
+    let folder = FileManager.default.temporaryDirectory
+        .appending(path: "reco-trainer-accept-auto-test-\(UUID().uuidString)", directoryHint: .isDirectory)
+    let app = AppState()
+    app.selectedFolder = folder
+    let frame = FrameRecord(
+        relativePath: "frames/one.jpg", videoID: "v1", videoName: "clip.mov", timestamp: 0,
+        width: 10, height: 10,
+        annotations: [
+            BoxAnnotation(category: "ball", x: 1, y: 1, width: 2, height: 2, source: "auto"),
+            BoxAnnotation(category: "ball", x: 4, y: 4, width: 2, height: 2, source: "manual"),
+        ]
+    )
+    app.project = ProjectDocument(name: "Test", sport: .basketball, sourceFolder: folder.path, frames: [frame])
+    app.selectedFrameID = frame.id
+
+    #expect(app.automaticAnnotationCountOnSelectedFrame == 1)
+
+    app.acceptAllAutomaticAnnotations()
+
+    #expect(app.automaticAnnotationCountOnSelectedFrame == 0)
+    #expect(app.project?.frames.first?.annotations.count == 2)
+    #expect(app.project?.frames.first?.annotations.allSatisfy { $0.source == "manual" } == true)
+}
+
+@Test @MainActor func rejectingAutomaticAnnotationsRemovesOnlyAutoBoxes() throws {
+    let folder = FileManager.default.temporaryDirectory
+        .appending(path: "reco-trainer-reject-auto-test-\(UUID().uuidString)", directoryHint: .isDirectory)
+    let app = AppState()
+    app.selectedFolder = folder
+    let frame = FrameRecord(
+        relativePath: "frames/one.jpg", videoID: "v1", videoName: "clip.mov", timestamp: 0,
+        width: 10, height: 10,
+        annotations: [
+            BoxAnnotation(category: "ball", x: 1, y: 1, width: 2, height: 2, source: "auto"),
+            BoxAnnotation(category: "ball", x: 4, y: 4, width: 2, height: 2, source: "manual"),
+        ]
+    )
+    app.project = ProjectDocument(name: "Test", sport: .basketball, sourceFolder: folder.path, frames: [frame])
+    app.selectedFrameID = frame.id
+
+    app.rejectAllAutomaticAnnotations()
+
+    #expect(app.project?.frames.first?.annotations.count == 1)
+    #expect(app.project?.frames.first?.annotations.first?.source == "manual")
+}
+
 @Test @MainActor func benchmarkFreezeBlocksOnUnreviewedTrainingAnnotations() {
     let app = AppState()
     let unreviewedTrainingFrame = FrameRecord(

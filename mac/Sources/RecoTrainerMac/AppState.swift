@@ -368,6 +368,29 @@ final class AppState: ObservableObject {
         }
     }
 
+    var automaticAnnotationCountOnSelectedFrame: Int {
+        selectedFrame?.annotations.filter { $0.source == "auto" }.count ?? 0
+    }
+
+    /// Marks every automatic suggestion on the selected frame as reviewed. Moving or
+    /// resizing an individual box is not yet possible in this editor, so accepting a
+    /// whole frame at once is the only way to clear source == "auto" without deleting
+    /// and manually redrawing every box - which would defeat the point of auto-labeling.
+    func acceptAllAutomaticAnnotations() {
+        guard let frame = selectedFrame else { return }
+        let updated = frame.annotations.map { annotation -> BoxAnnotation in
+            var accepted = annotation
+            if accepted.source == "auto" { accepted.source = "manual" }
+            return accepted
+        }
+        updateAnnotations(for: frame.id, updated)
+    }
+
+    func rejectAllAutomaticAnnotations() {
+        guard let frame = selectedFrame else { return }
+        updateAnnotations(for: frame.id, frame.annotations.filter { $0.source != "auto" })
+    }
+
     func updateAnnotations(for frameID: UUID, _ annotations: [BoxAnnotation]) {
         guard var document = project,
               let index = document.frames.firstIndex(where: { $0.id == frameID }),
