@@ -22,10 +22,8 @@ where ffmpeg >nul 2>nul
 if errorlevel 1 (
   echo FFmpeg was not found. Install FFmpeg before preparing videos.
 )
-%RECO_PYTHON% -c "import sys; sys.exit(0 if sys.version_info[:2] in ((3, 11), (3, 12)) else 1)" >nul 2>nul
-if errorlevel 1 (
-  echo Warning: this Python is not 3.11 or 3.12. Uploading and browsing videos will still work, but Set up ML (RF-DETR/PyTorch) may fail to install or train. Install Python 3.11 or 3.12 if that happens.
-)
+%RECO_PYTHON% -c "import sys; v = sys.version_info; sys.exit(0 if v.major == 3 and v.minor in [11, 12] else 1)" >nul 2>nul
+if errorlevel 1 echo Warning: this Python is not 3.11 or 3.12. Uploading and browsing videos will still work, but the Set up ML step needs 3.11 or 3.12 and may fail otherwise.
 if not exist node_modules call npm install
 start "Reco Local Worker" /min cmd /c "%RECO_PYTHON% local_worker.py --port 8766"
 start "" cmd /c "timeout /t 4 /nobreak >nul && start http://localhost:8765/"
