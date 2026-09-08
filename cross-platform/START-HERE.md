@@ -34,13 +34,13 @@ To stop, double-click `Stop Reco Preview.command` (macOS) or press `Ctrl+C` in t
 ### Windows
 
 - Node.js 22, **Python 3.11 or 3.12** (a different version may work for browsing/uploading videos, but "Set up ML" needs 3.11/3.12 specifically), and FFmpeg.
-- Start with `Start Reco Trainer Windows.bat`. The script warns if it finds a Python other than 3.11/3.12.
+- Start with `Start Reco Trainer Windows.bat`. If the detected Python isn't 3.11/3.12, Reco Trainer's own status line shows a warning once it starts.
 - No CUDA (NVIDIA) GPU is required. Without one, training falls back to CPU, which works but is significantly slower. AMD GPUs are not currently accelerated.
 
 ### Linux
 
 - Node.js 22, **Python 3.11 or 3.12**, FFmpeg, and Zenity or KDialog for native folder selection.
-- Start with `Start Reco Trainer Linux.sh`. The script warns if it finds a Python other than 3.11/3.12.
+- Start with `Start Reco Trainer Linux.sh`. If the detected Python isn't 3.11/3.12, Reco Trainer's own status line shows a warning once it starts.
 - Same CPU-fallback behavior as Windows without CUDA.
 
 ### Docker

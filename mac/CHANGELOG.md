@@ -1,5 +1,10 @@
 # Änderungen
 
+## 0.12.3
+
+- Der Windows-Starter (`Start Reco Trainer Windows.bat`) öffnete sich kurz und schloss sich sofort wieder, ausgelöst durch die in 0.12.2 hinzugefügte Python-Versionsprüfung. Die Prüfung läuft jetzt in Reco Trainer selbst statt im Batch-Skript und wird über die Statuszeile angezeigt.
+- Automatische Vorschläge lassen sich jetzt in der Mac-App direkt annehmen oder verwerfen (bisher gab es dafür keinen Mechanismus, wodurch Schritt 1 des Modellvergleichs nach jedem "Automatisch markieren" dauerhaft blockiert war).
+
 ## 0.12.2
 
 - Der lokale Modellvergleich berechnet die Boxüberlappung (IoU) jetzt korrekt; Qualitätswerte, mAP, Präzision und Recall sind zuverlässiger.

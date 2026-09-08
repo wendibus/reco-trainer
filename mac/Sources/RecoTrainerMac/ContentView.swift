@@ -2,7 +2,7 @@ import AppKit
 import SwiftUI
 
 struct ContentView: View {
-    private static let currentRelease = "0.12.2"
+    private static let currentRelease = "0.12.3"
 
     @EnvironmentObject private var app: AppState
     @AppStorage("recoWalkthroughCompleteV1") private var walkthroughComplete = false
@@ -947,16 +947,16 @@ private struct WhatsNewSheet: View {
     private var changes: [(String, String)] {
         [
             (
+                language.text("Automatische Vorschläge übernehmen oder verwerfen", "Accept or reject automatic suggestions", "Aceptar o rechazar sugerencias automáticas", "Accepter ou rejeter les suggestions automatiques"),
+                language.text("Neue Schaltflächen übernehmen oder verwerfen alle automatischen Boxen eines Bildes auf einmal, sodass sich die Referenz für den Modellvergleich jetzt zuverlässig festlegen lässt.", "New buttons accept or reject every automatic box on an image at once, so freezing the ground truth for the model comparison is now reliably reachable.", "Nuevos botones aceptan o rechazan de una vez todos los cuadros automáticos de una imagen, de modo que ahora se puede fijar de forma fiable la referencia para la comparación de modelos.", "De nouveaux boutons acceptent ou rejettent en une fois toutes les boîtes automatiques d’une image, ce qui permet désormais de figer de manière fiable la référence pour la comparaison de modèles.")
+            ),
+            (
                 language.text("Genauerer Modellvergleich", "More accurate model comparison", "Comparación de modelos más precisa", "Comparaison de modèles plus précise"),
                 language.text("Der lokale Modellvergleich berechnet die Boxüberlappung jetzt korrekt; Qualitätswerte, mAP, Präzision und Recall sind zuverlässiger.", "The local model benchmark now computes box overlap correctly, making quality scores, mAP, precision, and recall more reliable.", "La comparación local de modelos calcula ahora correctamente el solapamiento de los cuadros; los valores de calidad, mAP, precisión y recall son más fiables.", "La comparaison locale de modèles calcule désormais correctement le chevauchement des boîtes ; les scores de qualité, le mAP, la précision et le recall sont plus fiables.")
             ),
             (
                 language.text("Referenz festlegen zuverlässiger", "Freezing ground truth is more reliable", "Fijar la referencia es más fiable", "Figer la référence est plus fiable"),
                 language.text("Offene Prüfkandidaten aus der Datensatzerweiterung blockieren das Festlegen der Referenz nicht mehr fälschlich.", "Pending active-learning review candidates no longer incorrectly block freezing the ground truth.", "Los candidatos de revisión pendientes del aprendizaje activo ya no bloquean incorrectamente la fijación de la referencia.", "Les candidats de révision en attente de l’apprentissage actif ne bloquent plus incorrectement le fait de figer la référence.")
-            ),
-            (
-                language.text("Klarere Hinweise bei Windows/Linux-Einrichtung", "Clearer setup hints on Windows/Linux", "Indicaciones más claras en la configuración de Windows/Linux", "Indications plus claires pour la configuration Windows/Linux"),
-                language.text("Die Startskripte warnen jetzt deutlich, wenn die gefundene Python-Version nicht 3.11 oder 3.12 ist.", "The launcher scripts now clearly warn when the detected Python version is not 3.11 or 3.12.", "Los scripts de inicio avisan ahora claramente cuando la versión de Python detectada no es 3.11 ni 3.12.", "Les scripts de lancement avertissent désormais clairement lorsque la version de Python détectée n’est pas 3.11 ou 3.12.")
             )
         ]
     }

@@ -119,6 +119,32 @@ class GroundTruthTests(unittest.TestCase):
             self.assertEqual(candidate["annotations"], [])
 
 
+class PythonVersionWarningTests(unittest.TestCase):
+    """python_version_warning() replaced an inline Python check that used to live in
+    Start Reco Preview Windows.bat, where it broke the launcher on real Windows
+    (cmd.exe aborted the whole script instead of just printing the warning). Doing
+    the check here in plain Python, instead of batch, is what makes it testable.
+    """
+
+    def setUp(self):
+        self.original_version_info = local_worker.sys.version_info
+
+    def tearDown(self):
+        local_worker.sys.version_info = self.original_version_info
+
+    def test_no_warning_for_3_11_or_3_12(self):
+        local_worker.sys.version_info = (3, 11, 5, "final", 0)
+        self.assertIsNone(local_worker.python_version_warning())
+        local_worker.sys.version_info = (3, 12, 0, "final", 0)
+        self.assertIsNone(local_worker.python_version_warning())
+
+    def test_warns_for_other_versions(self):
+        local_worker.sys.version_info = (3, 13, 0, "final", 0)
+        warning = local_worker.python_version_warning()
+        self.assertIsNotNone(warning)
+        self.assertIn("3.13", warning)
+
+
 class FrameExtractionTests(unittest.TestCase):
     """Covers extract_frames_for_video, the helper factored out of extract_project
     and expand_dataset (which used to build the same ffmpeg/Apple-extractor command

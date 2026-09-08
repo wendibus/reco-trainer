@@ -1003,12 +1003,30 @@ class Handler(BaseHTTPRequestHandler):
             self.json_response({"error": str(error)}, HTTPStatus.BAD_REQUEST)
 
 
+def python_version_warning() -> str | None:
+    """Flag a Python other than 3.11/3.12 without touching platform launcher scripts.
+
+    Video browsing/upload works on any Python 3, but "Set up ML" installs
+    rfdetr[train,onnx,coreml], which is only validated against 3.11/3.12.
+    """
+    if sys.version_info[:2] in {(3, 11), (3, 12)}:
+        return None
+    return (
+        f"Python {sys.version_info[0]}.{sys.version_info[1]} erkannt (empfohlen: 3.11 oder 3.12). "
+        "Video-Vorschau und -Upload funktionieren, aber „ML einrichten“ kann fehlschlagen."
+    )
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Reco Trainer loopback worker")
     parser.add_argument("--port", type=int, default=DEFAULT_PORT)
     args = parser.parse_args()
     if HOST not in {"127.0.0.1", "localhost", "0.0.0.0"}:
         raise SystemExit("RECO_BIND_HOST muss 127.0.0.1, localhost oder 0.0.0.0 sein.")
+    warning = python_version_warning()
+    if warning:
+        print(f"WARNUNG: {warning}", flush=True)
+        STATE.update(message=warning)
     server = ThreadingHTTPServer((HOST, args.port), Handler)
     print(f"Reco Local Worker: http://{HOST}:{args.port}", flush=True)
     server.serve_forever()
