@@ -272,6 +272,7 @@ struct ContentView: View {
                     imageURL: store.frameURL(for: frame),
                     frame: frame,
                     selectedCategory: app.selectedCategory,
+                    categories: app.sport.categories,
                     language: app.language
                 ) { annotations in
                     app.updateAnnotations(for: frame.id, annotations)
