@@ -2,7 +2,7 @@ import AppKit
 import SwiftUI
 
 struct ContentView: View {
-    private static let currentRelease = "0.12.3"
+    private static let currentRelease = "0.12.4"
 
     @EnvironmentObject private var app: AppState
     @AppStorage("recoWalkthroughCompleteV1") private var walkthroughComplete = false
@@ -983,16 +983,16 @@ private struct WhatsNewSheet: View {
     private var changes: [(String, String)] {
         [
             (
-                language.text("Automatische Vorschläge übernehmen oder verwerfen", "Accept or reject automatic suggestions", "Aceptar o rechazar sugerencias automáticas", "Accepter ou rejeter les suggestions automatiques"),
-                language.text("Neue Schaltflächen übernehmen oder verwerfen alle automatischen Boxen eines Bildes auf einmal, sodass sich die Referenz für den Modellvergleich jetzt zuverlässig festlegen lässt.", "New buttons accept or reject every automatic box on an image at once, so freezing the ground truth for the model comparison is now reliably reachable.", "Nuevos botones aceptan o rechazan de una vez todos los cuadros automáticos de una imagen, de modo que ahora se puede fijar de forma fiable la referencia para la comparación de modelos.", "De nouveaux boutons acceptent ou rejettent en une fois toutes les boîtes automatiques d’une image, ce qui permet désormais de figer de manière fiable la référence pour la comparaison de modèles.")
+                language.text("Mehrere Klassen auf einmal automatisch markieren", "Auto-label several classes at once", "Marcar automáticamente varias clases a la vez", "Marquer automatiquement plusieurs classes à la fois"),
+                language.text("Ein Durchlauf erkennt jetzt alle ausgewählten Klassen gleichzeitig, statt jede Klasse einzeln nacheinander zu markieren. Nicht unterstützte Klassen sind ausgegraut, solange kein eigenes Modell trainiert wurde.", "One run now detects every selected class at once instead of labeling each class separately. Classes the current model can't detect yet are greyed out until a custom model is trained.", "Una sola pasada detecta ahora todas las clases seleccionadas a la vez, en vez de marcar cada clase por separado. Las clases que el modelo aún no puede detectar aparecen atenuadas hasta entrenar un modelo propio.", "Une seule passe détecte désormais toutes les classes sélectionnées à la fois, au lieu de marquer chaque classe séparément. Les classes que le modèle actuel ne sait pas encore détecter sont grisées tant qu’aucun modèle personnalisé n’est entraîné.")
             ),
             (
-                language.text("Genauerer Modellvergleich", "More accurate model comparison", "Comparación de modelos más precisa", "Comparaison de modèles plus précise"),
-                language.text("Der lokale Modellvergleich berechnet die Boxüberlappung jetzt korrekt; Qualitätswerte, mAP, Präzision und Recall sind zuverlässiger.", "The local model benchmark now computes box overlap correctly, making quality scores, mAP, precision, and recall more reliable.", "La comparación local de modelos calcula ahora correctamente el solapamiento de los cuadros; los valores de calidad, mAP, precisión y recall son más fiables.", "La comparaison locale de modèles calcule désormais correctement le chevauchement des boîtes ; les scores de qualité, le mAP, la précision et le recall sont plus fiables.")
+                language.text("Boxen auswählen, verschieben, löschen und umlabeln", "Select, move, delete, and relabel boxes", "Seleccionar, mover, eliminar y reetiquetar cuadros", "Sélectionner, déplacer, supprimer et réétiqueter des boîtes"),
+                language.text("Ein Klick wählt eine bestehende Box aus; sie lässt sich verschieben, löschen oder auf eine andere Klasse ändern (z. B. Spieler ↔ Schiedsrichter) - vorher ging das nur durch Löschen und Neuzeichnen.", "Clicking an existing box selects it; it can now be moved, deleted, or relabeled to a different class (e.g. player ↔ referee) - previously the only option was deleting and redrawing it.", "Al hacer clic en un cuadro existente se selecciona; ahora se puede mover, eliminar o cambiar a otra clase (por ejemplo, jugador ↔ árbitro) - antes solo se podía eliminar y volver a dibujar.", "Cliquer sur une boîte existante la sélectionne ; elle peut désormais être déplacée, supprimée ou réétiquetée vers une autre classe (par ex. joueur ↔ arbitre) - auparavant, il fallait la supprimer et la redessiner.")
             ),
             (
-                language.text("Referenz festlegen zuverlässiger", "Freezing ground truth is more reliable", "Fijar la referencia es más fiable", "Figer la référence est plus fiable"),
-                language.text("Offene Prüfkandidaten aus der Datensatzerweiterung blockieren das Festlegen der Referenz nicht mehr fälschlich.", "Pending active-learning review candidates no longer incorrectly block freezing the ground truth.", "Los candidatos de revisión pendientes del aprendizaje activo ya no bloquean incorrectamente la fijación de la referencia.", "Les candidats de révision en attente de l’apprentissage actif ne bloquent plus incorrectement le fait de figer la référence.")
+                language.text("Schnellere Frame-Extraktion", "Faster frame extraction", "Extracción de fotogramas más rápida", "Extraction d’images plus rapide"),
+                language.text("Videos lokal vorbereiten liest jedes Video jetzt in einem Durchgang statt für jedes Bild einzeln neu zu springen.", "Preparing videos locally now reads each video in a single pass instead of re-seeking separately for every frame.", "Preparar los vídeos localmente ahora lee cada vídeo en una sola pasada en vez de buscar por separado para cada fotograma.", "La préparation locale des vidéos lit désormais chaque vidéo en une seule passe au lieu de rechercher séparément chaque image.")
             )
         ]
     }

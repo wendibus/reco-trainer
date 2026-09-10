@@ -1,5 +1,12 @@
 # Änderungen
 
+## 0.12.4
+
+- "Automatisch markieren" erkennt jetzt mehrere ausgewählte Klassen in einem Durchlauf, statt für jede Klasse einen eigenen Durchlauf zu benötigen. Nicht vom aktuellen Modell unterstützte Klassen sind bei der Auswahl ausgegraut.
+- Die OpenCV-Nachprüfung automatischer Boxen ist von Ball/Puck auf alle Sport-Klassen (Spieler, Schiedsrichter, Torwart, Korb, Tor, Torpfosten) erweitert.
+- Boxen im Annotations-Editor lassen sich jetzt anklicken, auswählen, verschieben, löschen und auf eine andere Klasse ändern (z. B. Spieler ↔ Schiedsrichter) - vorher ging das nur durch Löschen und komplettes Neuzeichnen.
+- "Videos lokal vorbereiten" liest jedes Video in einem Durchgang statt für jeden Frame einzeln neu zu springen; das beschleunigt die Extraktion spürbar.
+
 ## 0.12.3
 
 - Der Windows-Starter (`Start Reco Trainer Windows.bat`) öffnete sich kurz und schloss sich sofort wieder, ausgelöst durch die in 0.12.2 hinzugefügte Python-Versionsprüfung. Die Prüfung läuft jetzt in Reco Trainer selbst statt im Batch-Skript und wird über die Statuszeile angezeigt.
