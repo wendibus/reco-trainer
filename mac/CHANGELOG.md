@@ -1,5 +1,9 @@
 # Änderungen
 
+## 0.12.5
+
+- Ein abgebrochener Trainingslauf ließ sich nicht mehr fortsetzen, wenn seitdem über automatisches Markieren eine neue Klasse hinzugekommen war: Training stürzte mit einem "size mismatch"-Fehler ab, bevor eine einzige Epoche lief. Reco Trainer prüft jetzt vor dem Fortsetzen, ob die Klassenanzahl noch zum abgebrochenen Checkpoint passt, und startet andernfalls automatisch einen neuen Feinabstimmungslauf statt abzustürzen.
+
 ## 0.12.4
 
 - "Automatisch markieren" erkennt jetzt mehrere ausgewählte Klassen in einem Durchlauf, statt für jede Klasse einen eigenen Durchlauf zu benötigen. Nicht vom aktuellen Modell unterstützte Klassen sind bei der Auswahl ausgegraut.

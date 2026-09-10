@@ -2,7 +2,7 @@ import AppKit
 import SwiftUI
 
 struct ContentView: View {
-    private static let currentRelease = "0.12.4"
+    private static let currentRelease = "0.12.5"
 
     @EnvironmentObject private var app: AppState
     @AppStorage("recoWalkthroughCompleteV1") private var walkthroughComplete = false
@@ -983,16 +983,8 @@ private struct WhatsNewSheet: View {
     private var changes: [(String, String)] {
         [
             (
-                language.text("Mehrere Klassen auf einmal automatisch markieren", "Auto-label several classes at once", "Marcar automáticamente varias clases a la vez", "Marquer automatiquement plusieurs classes à la fois"),
-                language.text("Ein Durchlauf erkennt jetzt alle ausgewählten Klassen gleichzeitig, statt jede Klasse einzeln nacheinander zu markieren. Nicht unterstützte Klassen sind ausgegraut, solange kein eigenes Modell trainiert wurde.", "One run now detects every selected class at once instead of labeling each class separately. Classes the current model can't detect yet are greyed out until a custom model is trained.", "Una sola pasada detecta ahora todas las clases seleccionadas a la vez, en vez de marcar cada clase por separado. Las clases que el modelo aún no puede detectar aparecen atenuadas hasta entrenar un modelo propio.", "Une seule passe détecte désormais toutes les classes sélectionnées à la fois, au lieu de marquer chaque classe séparément. Les classes que le modèle actuel ne sait pas encore détecter sont grisées tant qu’aucun modèle personnalisé n’est entraîné.")
-            ),
-            (
-                language.text("Boxen auswählen, verschieben, löschen und umlabeln", "Select, move, delete, and relabel boxes", "Seleccionar, mover, eliminar y reetiquetar cuadros", "Sélectionner, déplacer, supprimer et réétiqueter des boîtes"),
-                language.text("Ein Klick wählt eine bestehende Box aus; sie lässt sich verschieben, löschen oder auf eine andere Klasse ändern (z. B. Spieler ↔ Schiedsrichter) - vorher ging das nur durch Löschen und Neuzeichnen.", "Clicking an existing box selects it; it can now be moved, deleted, or relabeled to a different class (e.g. player ↔ referee) - previously the only option was deleting and redrawing it.", "Al hacer clic en un cuadro existente se selecciona; ahora se puede mover, eliminar o cambiar a otra clase (por ejemplo, jugador ↔ árbitro) - antes solo se podía eliminar y volver a dibujar.", "Cliquer sur une boîte existante la sélectionne ; elle peut désormais être déplacée, supprimée ou réétiquetée vers une autre classe (par ex. joueur ↔ arbitre) - auparavant, il fallait la supprimer et la redessiner.")
-            ),
-            (
-                language.text("Schnellere Frame-Extraktion", "Faster frame extraction", "Extracción de fotogramas más rápida", "Extraction d’images plus rapide"),
-                language.text("Videos lokal vorbereiten liest jedes Video jetzt in einem Durchgang statt für jedes Bild einzeln neu zu springen.", "Preparing videos locally now reads each video in a single pass instead of re-seeking separately for every frame.", "Preparar los vídeos localmente ahora lee cada vídeo en una sola pasada en vez de buscar por separado para cada fotograma.", "La préparation locale des vidéos lit désormais chaque vidéo en une seule passe au lieu de rechercher séparément chaque image.")
+                language.text("Trainingsabsturz beim Fortsetzen behoben", "Fixed a training crash when resuming", "Corregido un fallo de entrenamiento al reanudar", "Correction d’un plantage lors de la reprise"),
+                language.text("Ein abgebrochener Trainingslauf ließ sich nicht mehr fortsetzen, wenn seitdem eine neue Klasse markiert wurde. Reco Trainer erkennt das jetzt und startet stattdessen einen neuen Feinabstimmungslauf, statt abzustürzen.", "An interrupted training run could no longer resume after a new class had been annotated since. Reco Trainer now detects this and starts a new fine-tuning cycle instead of crashing.", "Un entrenamiento interrumpido ya no podía reanudarse si desde entonces se había anotado una nueva clase. Reco Trainer lo detecta ahora e inicia un nuevo ciclo de ajuste fino en lugar de fallar.", "Un entraînement interrompu ne pouvait plus reprendre si une nouvelle classe avait été annotée entre-temps. Reco Trainer le détecte désormais et démarre un nouveau cycle d’ajustement au lieu de planter.")
             )
         ]
     }
