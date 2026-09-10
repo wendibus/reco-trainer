@@ -204,6 +204,51 @@ class ResumeCheckpointValidationTests(unittest.TestCase):
         self.assertIsNone(ml_worker.dataset_class_count(dataset_root, "missing-split"))
 
 
+class CallWithSupportedKwargsModelConstructionTests(unittest.TestCase):
+    """Regression coverage for a second, related crash: RF-DETR's model_class(...)
+    infers num_classes from whatever pretrain_weights checkpoint it's given (or
+    defaults to 90 COCO classes) instead of from the current dataset, so training
+    silently ran with too few classes and crashed deep in loss matching. train()
+    now always passes an explicit num_classes computed from the dataset, filtered
+    through call_with_supported_kwargs so older RF-DETR installs that don't accept
+    the kwarg still work.
+    """
+
+    def test_num_classes_is_passed_through_when_supported(self):
+        class Model:
+            def __init__(self, device, num_classes):
+                self.device = device
+                self.num_classes = num_classes
+
+        model, ignored = ml_worker.call_with_supported_kwargs(
+            Model, {"device": "cpu", "num_classes": 3}
+        )
+        self.assertEqual(model.num_classes, 3)
+        self.assertEqual(ignored, [])
+
+    def test_num_classes_is_dropped_for_older_constructors_without_it(self):
+        class Model:
+            def __init__(self, device):
+                self.device = device
+
+        model, ignored = ml_worker.call_with_supported_kwargs(
+            Model, {"device": "cpu", "num_classes": 3}
+        )
+        self.assertEqual(model.device, "cpu")
+        self.assertEqual(ignored, ["num_classes"])
+
+    def test_num_classes_passes_through_a_kwargs_catchall_constructor(self):
+        class Model:
+            def __init__(self, **kwargs):
+                self.kwargs = kwargs
+
+        model, ignored = ml_worker.call_with_supported_kwargs(
+            Model, {"device": "cpu", "num_classes": 3}
+        )
+        self.assertEqual(model.kwargs, {"device": "cpu", "num_classes": 3})
+        self.assertEqual(ignored, [])
+
+
 class ModelLibraryTests(unittest.TestCase):
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory()

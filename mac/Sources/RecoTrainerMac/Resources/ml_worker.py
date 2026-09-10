@@ -1512,7 +1512,24 @@ def train(args: argparse.Namespace) -> None:
             "Noch kein kompatibler Checkpoint vorhanden; Training startet mit dem Basismodell.",
             "No compatible checkpoint exists yet; training starts from the base model.",
         ))
-    model = model_class(**model_kwargs)
+    # Without an explicit num_classes, RF-DETR infers the detection head's size from
+    # whichever checkpoint pretrain_weights points to (falling back to 90 COCO classes
+    # for the base model) rather than from the dataset it's about to train on. If that
+    # checkpoint was saved with fewer classes than the project now has - the same class
+    # of problem validate_resume_checkpoint() guards against for a full resume, but here
+    # for the weights-only continuation path - training would silently run with too few
+    # classes and crash later when a training batch has a target class index that
+    # doesn't fit, deep inside loss matching rather than at a clear startup check.
+    current_class_count = dataset_class_count(dataset_root, "train")
+    if current_class_count is not None:
+        model_kwargs["num_classes"] = current_class_count
+    model, ignored_model_kwargs = call_with_supported_kwargs(model_class, model_kwargs)
+    if ignored_model_kwargs:
+        emit(localized(
+            args.language,
+            f"Die installierte RF-DETR-Version kennt diese Modell-Optionen noch nicht: {', '.join(ignored_model_kwargs)}.",
+            f"The installed RF-DETR version does not yet support these model options: {', '.join(ignored_model_kwargs)}.",
+        ))
     target_epochs = max(args.epochs, (resume_completed_epochs or 0) + 1) if resume_checkpoint else args.epochs
     patience = max(8, min(20, math.ceil(args.epochs * 0.5)))
     train_kwargs = {
