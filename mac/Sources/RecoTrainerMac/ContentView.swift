@@ -2,7 +2,7 @@ import AppKit
 import SwiftUI
 
 struct ContentView: View {
-    private static let currentRelease = "0.12.5"
+    private static let currentRelease = "0.12.6"
 
     @EnvironmentObject private var app: AppState
     @AppStorage("recoWalkthroughCompleteV1") private var walkthroughComplete = false
@@ -983,8 +983,8 @@ private struct WhatsNewSheet: View {
     private var changes: [(String, String)] {
         [
             (
-                language.text("Trainingsabsturz beim Fortsetzen behoben", "Fixed a training crash when resuming", "Corregido un fallo de entrenamiento al reanudar", "Correction d’un plantage lors de la reprise"),
-                language.text("Ein abgebrochener Trainingslauf ließ sich nicht mehr fortsetzen, wenn seitdem eine neue Klasse markiert wurde. Reco Trainer erkennt das jetzt und startet stattdessen einen neuen Feinabstimmungslauf, statt abzustürzen.", "An interrupted training run could no longer resume after a new class had been annotated since. Reco Trainer now detects this and starts a new fine-tuning cycle instead of crashing.", "Un entrenamiento interrumpido ya no podía reanudarse si desde entonces se había anotado una nueva clase. Reco Trainer lo detecta ahora e inicia un nuevo ciclo de ajuste fino en lugar de fallar.", "Un entraînement interrompu ne pouvait plus reprendre si une nouvelle classe avait été annotée entre-temps. Reco Trainer le détecte désormais et démarre un nouveau cycle d’ajustement au lieu de planter.")
+                language.text("Weiterer Trainingsabsturz nach einer neuen Klasse behoben", "Fixed another training crash after a new class was added", "Corregido otro fallo de entrenamiento tras añadir una nueva clase", "Correction d’un autre plantage après l’ajout d’une nouvelle classe"),
+                language.text("Nach dem Überspringen eines nicht mehr passenden Fortsetzungsversuchs konnte ein neuer Feinabstimmungslauf trotzdem noch mit der veralteten, kleineren Klassenanzahl des Checkpoints starten und später abstürzen. Reco Trainer verwendet jetzt immer die aktuelle Klassenanzahl des Projekts.", "After skipping a resume attempt that no longer matched, a new fine-tuning cycle could still start with the checkpoint's stale, smaller class count and crash later. Reco Trainer now always uses the project's current class count.", "Tras omitir un intento de reanudación que ya no coincidía, un nuevo ciclo de ajuste fino aún podía iniciarse con el número de clases obsoleto y menor del checkpoint, fallando más tarde. Reco Trainer ahora usa siempre el número de clases actual del proyecto.", "Après avoir ignoré une reprise qui ne correspondait plus, un nouveau cycle d’ajustement pouvait quand même démarrer avec le nombre de classes obsolète et plus petit du point de contrôle, puis planter plus tard. Reco Trainer utilise désormais toujours le nombre de classes actuel du projet.")
             )
         ]
     }

@@ -1,5 +1,9 @@
 # Änderungen
 
+## 0.12.6
+
+- Nach dem Überspringen eines nicht mehr passenden Fortsetzungsversuchs konnte ein neuer Feinabstimmungslauf trotzdem noch mit der veralteten, kleineren Klassenanzahl des Checkpoints starten und später mit einem Absturz tief in der Trainingslogik enden. Reco Trainer verwendet jetzt immer die aktuelle Klassenanzahl des Projekts für den Modellaufbau.
+
 ## 0.12.5
 
 - Ein abgebrochener Trainingslauf ließ sich nicht mehr fortsetzen, wenn seitdem über automatisches Markieren eine neue Klasse hinzugekommen war: Training stürzte mit einem "size mismatch"-Fehler ab, bevor eine einzige Epoche lief. Reco Trainer prüft jetzt vor dem Fortsetzen, ob die Klassenanzahl noch zum abgebrochenen Checkpoint passt, und startet andernfalls automatisch einen neuen Feinabstimmungslauf statt abzustürzen.
