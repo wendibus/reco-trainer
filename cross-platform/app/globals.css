@@ -133,6 +133,9 @@ select { height:34px; padding:0 9px; border:1px solid #cbd3df; border-radius:7px
 .training-controls { display:flex; align-items:flex-end; gap:14px; margin-top:8px; }
 .training-controls > label { display:flex; flex:0 0 180px; flex-wrap:wrap; justify-content:space-between; gap:4px; color:#617086; font-size:8px; }
 .training-controls input { width:100%; accent-color:var(--accent); }
+.auto-label-categories { display:flex; flex-wrap:wrap; align-items:center; gap:8px; }
+.auto-label-category-toggle { display:flex; align-items:center; gap:4px; padding:4px 7px; border:1px solid #cbd4df; border-radius:6px; background:#fff; color:#40506a; font-size:9px; font-weight:700; }
+.auto-label-category-toggle input { width:auto; accent-color:var(--accent); }
 .training-actions { flex:1; flex-wrap:wrap; justify-content:flex-end; margin-top:0; }
 .training-actions button { min-height:30px; padding-block:5px; }
 .exchange-status { margin-top:8px; overflow:hidden; color:#657286; font-size:8px; text-overflow:ellipsis; white-space:nowrap; }

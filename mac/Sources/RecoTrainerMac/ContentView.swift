@@ -490,17 +490,22 @@ struct ContentView: View {
                 }
             }
 
+            HStack(spacing: 6) {
+                Text(app.tr("Automatisch markieren:", "Auto-label:", "Marcado automático:", "Marquage automatique :"))
+                    .font(.subheadline).foregroundStyle(.secondary)
+                ForEach(app.sport.categories, id: \.self) { category in
+                    autoLabelCategoryChip(category)
+                }
+            }
+
             HStack {
                 Button(app.tr("Hardware prüfen", "Check hardware"), action: app.checkHardware)
                 Button(app.tr("ML einrichten", "Set up ML"), action: app.prepareEnvironment)
                 Button(
-                    app.tr(
-                        "Automatisch: \(app.language.category(app.selectedCategory))",
-                        "Auto-detect: \(app.language.category(app.selectedCategory))"
-                    ),
+                    app.tr("Automatisch markieren", "Auto-label"),
                     action: app.autoLabel
                 )
-                    .disabled(app.project == nil)
+                    .disabled(app.project == nil || app.autoLabelCategories.isEmpty)
                 Button(
                     app.tr(
                         "Ball-Boxen mit OpenCV prüfen",
@@ -680,6 +685,27 @@ struct ContentView: View {
                 )
                 .font(.caption.bold())
             }
+        }
+    }
+
+    @ViewBuilder
+    private func autoLabelCategoryChip(_ category: String) -> some View {
+        let isSelected = app.autoLabelCategories.contains(category)
+        let toggle = {
+            if isSelected {
+                app.autoLabelCategories.remove(category)
+            } else {
+                app.autoLabelCategories.insert(category)
+            }
+        }
+        if isSelected {
+            Button(app.language.category(category), action: toggle)
+                .buttonStyle(.borderedProminent)
+                .controlSize(.small)
+        } else {
+            Button(app.language.category(category), action: toggle)
+                .buttonStyle(.bordered)
+                .controlSize(.small)
         }
     }
 

@@ -94,6 +94,24 @@ import Testing
     #expect(app.localPickerPurpose == .trainingFolder)
 }
 
+// autoLabelCategories drives the multi-select "Automatisch markieren" chips and is
+// deliberately separate from selectedCategory (used for hand-drawing a box and the
+// active-learning Ball/No-ball review, both inherently single-category).
+@Test @MainActor func autoLabelCategoriesDefaultsToBallAndSupportsMultiSelection() {
+    let app = AppState()
+
+    #expect(app.autoLabelCategories == ["ball"])
+
+    app.autoLabelCategories.insert("player")
+    #expect(app.autoLabelCategories == ["ball", "player"])
+
+    app.autoLabelCategories.remove("ball")
+    #expect(app.autoLabelCategories == ["player"])
+
+    // selectedCategory (single-select, used for drawing) is unaffected by autoLabelCategories.
+    #expect(app.selectedCategory == "ball")
+}
+
 // Regression coverage: the "Freeze reviewed answers" button used to stay disabled
 // whenever ANY frame in the whole project had an unreviewed automatic annotation,
 // including pending active-learning review candidates. Those candidate frames are

@@ -755,7 +755,10 @@ def ml_action(action: str, payload: dict) -> None:
             elif action == "autolabel":
                 backup_project(root, "automatisch")
                 threshold = min(0.95, max(0.05, float(payload.get("threshold", 0.25))))
-                args = ["autolabel", "--project", str(root), "--model", model, "--category", payload.get("category", "ball"), "--threshold", str(threshold), "--language", language]
+                categories = payload.get("categories") or [payload.get("category", "ball")]
+                if not isinstance(categories, list) or not categories:
+                    raise RuntimeError("Mindestens eine Klasse für die automatische Markierung auswählen.")
+                args = ["autolabel", "--project", str(root), "--model", model, "--category", *[str(item) for item in categories], "--threshold", str(threshold), "--language", language]
                 if payload.get("candidateOnly"):
                     args.append("--candidate-only")
             elif action == "benchmark":
