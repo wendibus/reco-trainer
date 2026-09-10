@@ -1,3 +1,4 @@
+import CoreGraphics
 import Foundation
 import Testing
 @testable import RecoTrainerMac
@@ -123,6 +124,38 @@ import Testing
     #expect(app.autoLabelSupportedCategories == ["ball", "player"])
     #expect(!app.autoLabelSupportedCategories.contains("referee"))
     #expect(!app.autoLabelSupportedCategories.contains("hoop"))
+}
+
+// annotation(at:among:) backs click-to-select in the annotation editor. Preferring the
+// smallest containing box keeps a small box nested inside a larger one - e.g. a ball
+// box inside a player box - individually selectable instead of always hitting the box
+// underneath it.
+@Test func annotationHitTestPrefersTheSmallestContainingBox() {
+    let bigBox = BoxAnnotation(category: "player", x: 0, y: 0, width: 100, height: 100)
+    let smallBox = BoxAnnotation(category: "ball", x: 40, y: 40, width: 10, height: 10)
+    let annotations = [bigBox, smallBox]
+
+    #expect(annotation(at: CGPoint(x: 45, y: 45), among: annotations)?.id == smallBox.id)
+    #expect(annotation(at: CGPoint(x: 5, y: 5), among: annotations)?.id == bigBox.id)
+    #expect(annotation(at: CGPoint(x: 200, y: 200), among: annotations) == nil)
+}
+
+// clampedMove(...) backs drag-to-move: a box dragged past an edge should stop at the
+// edge instead of moving partly or fully outside the frame.
+@Test func clampedMoveKeepsTheBoxInsideTheFrame() {
+    let box = BoxAnnotation(category: "player", x: 10, y: 10, width: 20, height: 20)
+
+    let pastTopLeft = clampedMove(of: box, byImageDelta: CGSize(width: -50, height: -50), imageWidth: 100, imageHeight: 100)
+    #expect(pastTopLeft.x == 0)
+    #expect(pastTopLeft.y == 0)
+
+    let pastBottomRight = clampedMove(of: box, byImageDelta: CGSize(width: 200, height: 200), imageWidth: 100, imageHeight: 100)
+    #expect(pastBottomRight.x == 80)
+    #expect(pastBottomRight.y == 80)
+
+    let withinBounds = clampedMove(of: box, byImageDelta: CGSize(width: 5, height: 5), imageWidth: 100, imageHeight: 100)
+    #expect(withinBounds.x == 15)
+    #expect(withinBounds.y == 15)
 }
 
 // Regression coverage: the "Freeze reviewed answers" button used to stay disabled

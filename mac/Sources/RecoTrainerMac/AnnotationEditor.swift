@@ -2,9 +2,15 @@ import AppKit
 import SwiftUI
 
 struct AnnotationEditor: View {
+    private enum DragKind {
+        case drawing
+        case moving(original: BoxAnnotation)
+    }
+
     let imageURL: URL
     let frame: FrameRecord
     let selectedCategory: String
+    let categories: [String]
     let language: AppLanguage
     let onChange: ([BoxAnnotation]) -> Void
 
@@ -17,17 +23,27 @@ struct AnnotationEditor: View {
     @State private var isPanning = false
     @State private var undoStack: [[BoxAnnotation]] = []
     @State private var redoStack: [[BoxAnnotation]] = []
+    @State private var selectedAnnotationID: UUID?
+    @State private var activeDrag: DragKind?
+    @State private var liveMoveOffset: CGSize = .zero
+
+    private var selectedAnnotation: BoxAnnotation? {
+        guard let selectedAnnotationID else { return nil }
+        return frame.annotations.first { $0.id == selectedAnnotationID }
+    }
 
     init(
         imageURL: URL,
         frame: FrameRecord,
         selectedCategory: String,
+        categories: [String],
         language: AppLanguage,
         onChange: @escaping ([BoxAnnotation]) -> Void
     ) {
         self.imageURL = imageURL
         self.frame = frame
         self.selectedCategory = selectedCategory
+        self.categories = categories
         self.language = language
         self.onChange = onChange
     }
@@ -56,9 +72,16 @@ struct AnnotationEditor: View {
 
                     Canvas { context, _ in
                         for annotation in frame.annotations {
-                            let rect = screenRect(for: annotation, imageRect: fitted)
+                            var rect = screenRect(for: annotation, imageRect: fitted)
+                            if case .moving(let original) = activeDrag, original.id == annotation.id {
+                                rect = rect.offsetBy(dx: liveMoveOffset.width, dy: liveMoveOffset.height)
+                            }
+                            let isSelected = annotation.id == selectedAnnotationID
                             let color = color(for: annotation.category)
-                            context.stroke(Path(rect), with: .color(color), lineWidth: 3)
+                            context.stroke(Path(rect), with: .color(color), lineWidth: isSelected ? 4 : 3)
+                            if isSelected {
+                                context.stroke(Path(rect.insetBy(dx: -3, dy: -3)), with: .color(.white), lineWidth: 1.5)
+                            }
                             context.draw(
                                 Text(language.category(annotation.category)).font(.caption.bold()).foregroundStyle(.white),
                                 at: CGPoint(x: rect.minX + 5, y: max(rect.minY - 10, fitted.minY + 10)),
@@ -72,7 +95,7 @@ struct AnnotationEditor: View {
                     }
                     .contentShape(Rectangle())
                     .gesture(
-                        DragGesture(minimumDistance: 3, coordinateSpace: .local)
+                        DragGesture(minimumDistance: 0, coordinateSpace: .local)
                             .onChanged { value in
                                 if isPanning {
                                     let start = panStartOffset ?? offset
@@ -86,9 +109,27 @@ struct AnnotationEditor: View {
                                         container: container,
                                         scale: effectiveZoom
                                     )
-                                } else {
+                                    return
+                                }
+                                if activeDrag == nil {
+                                    let start = clamp(value.startLocation, to: fitted)
+                                    let imagePoint = imagePoint(from: start, in: fitted)
+                                    if let hit = annotation(at: imagePoint, among: frame.annotations) {
+                                        activeDrag = .moving(original: hit)
+                                        selectedAnnotationID = hit.id
+                                    } else {
+                                        activeDrag = .drawing
+                                        selectedAnnotationID = nil
+                                    }
+                                }
+                                switch activeDrag {
+                                case .moving:
+                                    liveMoveOffset = value.translation
+                                case .drawing:
                                     dragStart = clamp(value.startLocation, to: fitted)
                                     dragCurrent = clamp(value.location, to: fitted)
+                                case nil:
+                                    break
                                 }
                             }
                             .onEnded { value in
@@ -96,27 +137,45 @@ struct AnnotationEditor: View {
                                     panStartOffset = nil
                                     return
                                 }
-                                let start = clamp(value.startLocation, to: fitted)
-                                let end = clamp(value.location, to: fitted)
-                                let rect = normalizedRect(from: start, to: end)
-                                guard rect.width >= 5, rect.height >= 5, fitted.contains(start) else {
+                                defer {
+                                    activeDrag = nil
+                                    liveMoveOffset = .zero
                                     dragStart = nil
                                     dragCurrent = nil
-                                    return
                                 }
-                                let scaleX = Double(frame.width) / fitted.width
-                                let scaleY = Double(frame.height) / fitted.height
-                                var updated = frame.annotations
-                                updated.append(BoxAnnotation(
-                                    category: selectedCategory,
-                                    x: Double(rect.minX - fitted.minX) * scaleX,
-                                    y: Double(rect.minY - fitted.minY) * scaleY,
-                                    width: Double(rect.width) * scaleX,
-                                    height: Double(rect.height) * scaleY
-                                ))
-                                dragStart = nil
-                                dragCurrent = nil
-                                commit(updated)
+                                switch activeDrag {
+                                case .moving(let original):
+                                    let scaleX = Double(frame.width) / fitted.width
+                                    let scaleY = Double(frame.height) / fitted.height
+                                    let delta = CGSize(
+                                        width: Double(value.translation.width) * scaleX,
+                                        height: Double(value.translation.height) * scaleY
+                                    )
+                                    var moved = clampedMove(of: original, byImageDelta: delta, imageWidth: frame.width, imageHeight: frame.height)
+                                    moved.source = "manual"
+                                    var updated = frame.annotations
+                                    guard let index = updated.firstIndex(where: { $0.id == original.id }) else { return }
+                                    updated[index] = moved
+                                    commit(updated)
+                                case .drawing:
+                                    let start = clamp(value.startLocation, to: fitted)
+                                    let end = clamp(value.location, to: fitted)
+                                    let rect = normalizedRect(from: start, to: end)
+                                    guard rect.width >= 5, rect.height >= 5, fitted.contains(start) else { return }
+                                    let scaleX = Double(frame.width) / fitted.width
+                                    let scaleY = Double(frame.height) / fitted.height
+                                    var updated = frame.annotations
+                                    updated.append(BoxAnnotation(
+                                        category: selectedCategory,
+                                        x: Double(rect.minX - fitted.minX) * scaleX,
+                                        y: Double(rect.minY - fitted.minY) * scaleY,
+                                        width: Double(rect.width) * scaleX,
+                                        height: Double(rect.height) * scaleY
+                                    ))
+                                    commit(updated)
+                                case nil:
+                                    break
+                                }
                             }
                     )
                     .simultaneousGesture(
@@ -207,7 +266,58 @@ struct AnnotationEditor: View {
                 }
                 .disabled(frame.annotations.isEmpty)
             }
+
+            if let selected = selectedAnnotation {
+                HStack {
+                    Label(
+                        language.text("Ausgewählt: \(language.category(selected.category))", "Selected: \(language.category(selected.category))"),
+                        systemImage: "cursorarrow.rays"
+                    )
+                    .font(.callout)
+                    Picker(language.text("Klasse ändern", "Change class"), selection: Binding(
+                        get: { selected.category },
+                        set: { relabelSelected(to: $0) }
+                    )) {
+                        ForEach(categories, id: \.self) { Text(language.category($0)).tag($0) }
+                    }
+                    .frame(width: 160)
+                    Button(role: .destructive) {
+                        deleteSelected()
+                    } label: {
+                        Label(language.text("Löschen", "Delete", "Eliminar", "Supprimer"), systemImage: "trash")
+                    }
+                    .keyboardShortcut(.delete, modifiers: [])
+                    Spacer()
+                }
+                .padding(8)
+                .background(.blue.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
+            }
         }
+    }
+
+    private func deleteSelected() {
+        guard let id = selectedAnnotationID else { return }
+        commit(frame.annotations.filter { $0.id != id })
+        selectedAnnotationID = nil
+    }
+
+    private func relabelSelected(to category: String) {
+        guard let id = selectedAnnotationID else { return }
+        var updated = frame.annotations
+        guard let index = updated.firstIndex(where: { $0.id == id }) else { return }
+        guard updated[index].category != category else { return }
+        updated[index].category = category
+        updated[index].source = "manual"
+        commit(updated)
+    }
+
+    private func imagePoint(from screenPoint: CGPoint, in fitted: CGRect) -> CGPoint {
+        let scaleX = Double(frame.width) / fitted.width
+        let scaleY = Double(frame.height) / fitted.height
+        return CGPoint(
+            x: Double(screenPoint.x - fitted.minX) * scaleX,
+            y: Double(screenPoint.y - fitted.minY) * scaleY
+        )
     }
 
     private func commit(_ annotations: [BoxAnnotation]) {
