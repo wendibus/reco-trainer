@@ -112,6 +112,19 @@ import Testing
     #expect(app.selectedCategory == "ball")
 }
 
+// Regression coverage for a real point of confusion: selecting "referee" or "hoop" in
+// the auto-label chips silently did nothing (base model only knows COCO's "sports ball"
+// and "person"), with the explanation buried in the log instead of visible at the chip.
+// autoLabelSupportedCategories is what the chip UI now uses to grey those out up front.
+@Test @MainActor func autoLabelSupportedCategoriesExcludesUnknownClassesWithoutACustomModel() {
+    let app = AppState()
+    app.sport = .basketball
+
+    #expect(app.autoLabelSupportedCategories == ["ball", "player"])
+    #expect(!app.autoLabelSupportedCategories.contains("referee"))
+    #expect(!app.autoLabelSupportedCategories.contains("hoop"))
+}
+
 // Regression coverage: the "Freeze reviewed answers" button used to stay disabled
 // whenever ANY frame in the whole project had an unreviewed automatic annotation,
 // including pending active-learning review candidates. Those candidate frames are

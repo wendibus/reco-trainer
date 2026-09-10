@@ -691,6 +691,7 @@ struct ContentView: View {
     @ViewBuilder
     private func autoLabelCategoryChip(_ category: String) -> some View {
         let isSelected = app.autoLabelCategories.contains(category)
+        let isSupported = app.autoLabelSupportedCategories.contains(category)
         let toggle = {
             if isSelected {
                 app.autoLabelCategories.remove(category)
@@ -706,6 +707,14 @@ struct ContentView: View {
             Button(app.language.category(category), action: toggle)
                 .buttonStyle(.bordered)
                 .controlSize(.small)
+                .disabled(!isSupported)
+                .opacity(isSupported ? 1 : 0.4)
+                .help(isSupported ? "" : app.tr(
+                    "Das allgemeine Basismodell kennt diese Klasse nicht. Zuerst manuell markieren und ein eigenes Modell trainieren.",
+                    "The generic base model does not know this class. Annotate it manually first and train a custom model.",
+                    "El modelo base general no conoce esta clase. Anótala manualmente primero y entrena un modelo propio.",
+                    "Le modèle de base générique ne connaît pas cette classe. Annotez-la d’abord manuellement puis entraînez un modèle personnalisé."
+                ))
         }
     }
 

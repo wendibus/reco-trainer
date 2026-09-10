@@ -80,6 +80,18 @@ final class AppState: ObservableObject {
         continuationCheckpoints[modelSize]
     }
 
+    /// Categories the current model (base or custom-trained) can actually detect
+    /// right now. Mirrors ml_worker.py's auto_label() check: the Apache-2.0 base
+    /// model only knows COCO's "sports ball" (-> ball/puck) and "person" (-> player)
+    /// classes; sport-specific classes like referee/hoop/goal need a custom-trained
+    /// model for the selected model size first. Once one exists, every category is
+    /// assumed available, since a completed local training run covers whatever was
+    /// annotated.
+    var autoLabelSupportedCategories: Set<String> {
+        guard continuationCheckpointName == nil else { return Set(sport.categories) }
+        return Set(sport.categories).intersection(["ball", "puck", "player"])
+    }
+
     var benchmarkReportIsCurrent: Bool {
         benchmarkReport?.datasetID == benchmarkGroundTruth?.datasetID
     }
