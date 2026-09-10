@@ -95,6 +95,37 @@ import Testing
     #expect(app.localPickerPurpose == .trainingFolder)
 }
 
+// autoLabelCategories drives the multi-select "Automatisch markieren" chips and is
+// deliberately separate from selectedCategory (used for hand-drawing a box and the
+// active-learning Ball/No-ball review, both inherently single-category).
+@Test @MainActor func autoLabelCategoriesDefaultsToBallAndSupportsMultiSelection() {
+    let app = AppState()
+
+    #expect(app.autoLabelCategories == ["ball"])
+
+    app.autoLabelCategories.insert("player")
+    #expect(app.autoLabelCategories == ["ball", "player"])
+
+    app.autoLabelCategories.remove("ball")
+    #expect(app.autoLabelCategories == ["player"])
+
+    // selectedCategory (single-select, used for drawing) is unaffected by autoLabelCategories.
+    #expect(app.selectedCategory == "ball")
+}
+
+// Regression coverage for a real point of confusion: selecting "referee" or "hoop" in
+// the auto-label chips silently did nothing (base model only knows COCO's "sports ball"
+// and "person"), with the explanation buried in the log instead of visible at the chip.
+// autoLabelSupportedCategories is what the chip UI now uses to grey those out up front.
+@Test @MainActor func autoLabelSupportedCategoriesExcludesUnknownClassesWithoutACustomModel() {
+    let app = AppState()
+    app.sport = .basketball
+
+    #expect(app.autoLabelSupportedCategories == ["ball", "player"])
+    #expect(!app.autoLabelSupportedCategories.contains("referee"))
+    #expect(!app.autoLabelSupportedCategories.contains("hoop"))
+}
+
 // annotation(at:among:) backs click-to-select in the annotation editor. Preferring the
 // smallest containing box keeps a small box nested inside a larger one - e.g. a ball
 // box inside a player box - individually selectable instead of always hitting the box

@@ -91,6 +91,33 @@ class BenchmarkMetricsTests(unittest.TestCase):
         self.assertFalse(ml_worker.plausible_refined_box(original, candidate, "ball"))
         self.assertTrue(ml_worker.plausible_refined_box(original, candidate, "puck"))
 
+    def test_detection_category_map_merges_multiple_selected_categories(self):
+        mapping = ml_worker.detection_category_map(["ball", "player"])
+        self.assertEqual(mapping["sports ball"], "ball")
+        self.assertEqual(mapping["person"], "player")
+        mapping_custom = ml_worker.detection_category_map(["hoop"])
+        self.assertEqual(mapping_custom["hoop"], "hoop")
+        self.assertNotIn("sports ball", mapping_custom)
+
+    def test_plausible_refined_box_covers_every_sport_category(self):
+        # CATEGORY_ASPECT_BOUNDS must cover every category any sport_categories()
+        # entry can produce, or refinable_annotations() would silently exclude it.
+        all_categories = {
+            "ball", "player", "referee", "hoop",  # basketball
+            "puck", "goalkeeper", "goal",  # hockey (+ football/handball/etc.)
+            "goalpost",  # rugby / american football
+        }
+        self.assertTrue(all_categories.issubset(ml_worker.CATEGORY_ASPECT_BOUNDS.keys()))
+
+    def test_plausible_refined_box_rejects_unrealistic_player_aspect(self):
+        # An upright player box (tall, narrow) refined into a very wide box is
+        # implausible - could be two overlapping players merged into one blob.
+        original = (100.0, 100.0, 20.0, 60.0)
+        wide_candidate = (95.0, 100.0, 40.0, 30.0)  # aspect 1.33, outside player bounds
+        narrow_candidate = (100.0, 100.0, 15.0, 60.0)  # aspect 0.25, within player bounds
+        self.assertFalse(ml_worker.plausible_refined_box(original, wide_candidate, "player"))
+        self.assertTrue(ml_worker.plausible_refined_box(original, narrow_candidate, "player"))
+
     def test_evaluate_predictions_rejects_low_overlap_boxes(self):
         # A 20x20 ground-truth box vs. a same-size prediction shifted by 25px:
         # IoU is below the 0.5 threshold, so this must count as FP + FN, not a match.

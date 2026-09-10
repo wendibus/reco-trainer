@@ -304,12 +304,19 @@ def model_instance(project_root: Path, size: str, trained: bool, language: str =
     return model_class(**kwargs)
 
 
-def detection_category_map(target_category: str) -> dict[str, str]:
-    mapping = {target_category: target_category}
-    if target_category in {"ball", "puck"}:
-        mapping["sports ball"] = target_category
-    elif target_category == "player":
-        mapping["person"] = "player"
+def detection_category_map(target_categories: list[str]) -> dict[str, str]:
+    """Merge the base-model COCO alias map for every selected target category.
+
+    ball/puck and player never co-occur in the same sport's category list
+    (see sport_categories), so "sports ball"/"person" can only ever resolve
+    to one project category per project in practice.
+    """
+    mapping = {category: category for category in target_categories}
+    for category in target_categories:
+        if category in {"ball", "puck"}:
+            mapping["sports ball"] = category
+        elif category == "player":
+            mapping["person"] = "player"
     return mapping
 
 
@@ -604,6 +611,25 @@ def box_iou_xywh(first: tuple[float, float, float, float], second: tuple[float, 
     return intersection / union if union > 0 else 0.0
 
 
+CATEGORY_ASPECT_BOUNDS: dict[str, tuple[float, float]] = {
+    # (min width/height, max width/height). ball/puck are the original,
+    # empirically-tuned values. The rest are a first documented estimate,
+    # not validated against real footage: player/referee/goalkeeper assume a
+    # roughly upright person (generous on the wide side for crouching/arms-out
+    # poses); hoop is a compact, slightly-wide structure; goal is wide
+    # (mouth width dominates); goalpost is tall and narrow (the uprights).
+    # These are the first thing to retune if refinement looks wrong for a class.
+    "ball": (0.32, 3.1),
+    "puck": (0.14, 4.8),
+    "player": (0.20, 1.3),
+    "referee": (0.20, 1.3),
+    "goalkeeper": (0.20, 1.3),
+    "hoop": (0.5, 2.5),
+    "goal": (1.5, 6.0),
+    "goalpost": (0.05, 0.6),
+}
+
+
 def plausible_refined_box(
     original: tuple[float, float, float, float],
     candidate: tuple[float, float, float, float],
@@ -611,13 +637,18 @@ def plausible_refined_box(
 ) -> bool:
     """Reject aggressive OpenCV changes before they can become suggestions.
 
-    grabCut can return a contour that has drifted onto a nearby player, shadow,
-    or advertising board instead of the ball/puck. These thresholds are a cheap
-    plausibility filter, not a learned model: a refined box must stay close in
-    size (0.20x-2.20x area), overlap the original detection meaningfully (IoU
-    >= 0.15), stay centered near it (shift <= ~half the original box diagonal),
-    and keep a roughly ball-like aspect ratio. Pucks get a wider aspect-ratio
-    allowance because they are viewed edge-on far more often than a ball is.
+    grabCut can return a contour that has drifted onto a nearby object,
+    shadow, or advertising board instead of the annotated one - a real risk
+    for person-shaped categories in particular, since two overlapping
+    players can merge into a single foreground blob. These thresholds are a
+    cheap plausibility filter, not a learned model: a refined box must stay
+    close in size (0.20x-2.20x area), overlap the original detection
+    meaningfully (IoU >= 0.15), stay centered near it (shift <= ~half the
+    original box diagonal), and keep a plausible aspect ratio for its
+    category (see CATEGORY_ASPECT_BOUNDS) - this is what should catch a
+    blob that merged two overlapping players, since it would come out much
+    wider than a single person. Area-ratio and center-shift stay the same
+    across every category; only the aspect-ratio range is category-specific.
     """
     ox, oy, ow, oh = original
     cx, cy, cw, ch = candidate
@@ -632,7 +663,8 @@ def plausible_refined_box(
     if center_shift > math.hypot(ow, oh) * 0.48:
         return False
     aspect = cw / max(ch, 1.0)
-    return (0.14 <= aspect <= 4.8) if category == "puck" else (0.32 <= aspect <= 3.1)
+    low, high = CATEGORY_ASPECT_BOUNDS.get(category, CATEGORY_ASPECT_BOUNDS["ball"])
+    return low <= aspect <= high
 
 
 def opencv_refined_box(image: Any, annotation: dict[str, Any], cv2: Any, np: Any) -> tuple[tuple[float, float, float, float], float] | None:
@@ -706,13 +738,13 @@ def refinable_annotations(frame: dict[str, Any]) -> list[dict[str, Any]]:
     return [
         item for item in frame.get("annotations", [])
         if item.get("source") == "auto"
-        and item.get("category") in {"ball", "puck"}
+        and item.get("category") in CATEGORY_ASPECT_BOUNDS
         and not item.get("opencvRefinement")
     ]
 
 
 def refine_boxes(args: argparse.Namespace) -> None:
-    """Refine only unreviewed automatic ball/puck boxes; manual labels are immutable."""
+    """Refine only unreviewed automatic boxes of a refinable category; manual labels are immutable."""
     try:
         import cv2
         import numpy as np
@@ -750,10 +782,10 @@ def refine_boxes(args: argparse.Namespace) -> None:
     atomic_json(project_file(project_root), document)
     emit(localized(
         args.language,
-        f"OpenCV-Prüfung abgeschlossen: {refined} von {checked} automatischen Ball-/Puck-Boxen plausibel verfeinert; {unchanged} sicherheitshalber unverändert, {unreadable} Bilder nicht lesbar. Manuelle Boxen wurden nicht verändert.",
-        f"OpenCV review completed: plausibly refined {refined} of {checked} automatic ball/puck boxes; kept {unchanged} unchanged for safety, {unreadable} images unreadable. Manual boxes were not changed.",
-        f"Revisión OpenCV finalizada: {refined} de {checked} cuadros automáticos de balón/disco se refinaron; {unchanged} quedaron sin cambios por seguridad y {unreadable} imágenes no se pudieron leer. Los cuadros manuales no cambiaron.",
-        f"Vérification OpenCV terminée : {refined} boîtes automatiques ballon/palet affinées sur {checked} ; {unchanged} conservées par sécurité et {unreadable} images illisibles. Les boîtes manuelles n’ont pas été modifiées.",
+        f"OpenCV-Prüfung abgeschlossen: {refined} von {checked} automatischen Boxen plausibel verfeinert; {unchanged} sicherheitshalber unverändert, {unreadable} Bilder nicht lesbar. Manuelle Boxen wurden nicht verändert.",
+        f"OpenCV review completed: plausibly refined {refined} of {checked} automatic boxes; kept {unchanged} unchanged for safety, {unreadable} images unreadable. Manual boxes were not changed.",
+        f"Revisión OpenCV finalizada: {refined} de {checked} cuadros automáticos se refinaron; {unchanged} quedaron sin cambios por seguridad y {unreadable} imágenes no se pudieron leer. Los cuadros manuales no cambiaron.",
+        f"Vérification OpenCV terminée : {refined} boîtes automatiques affinées sur {checked} ; {unchanged} conservées par sécurité et {unreadable} images illisibles. Les boîtes manuelles n’ont pas été modifiées.",
     ))
 
 
@@ -770,20 +802,27 @@ def auto_label(args: argparse.Namespace) -> None:
             "The project does not contain any frames yet.",
         ))
 
-    target_category = args.category
-    category_map = detection_category_map(target_category)
+    target_categories = list(dict.fromkeys(args.category))  # de-duplicate, keep order
+    category_map = detection_category_map(target_categories)
+    has_checkpoint = newest_checkpoint(project_root, args.model) is not None
 
-    if newest_checkpoint(project_root, args.model) is None and target_category not in {"ball", "puck", "player"}:
+    unsupported = [
+        category for category in target_categories
+        if not has_checkpoint and category not in {"ball", "puck", "player"}
+    ]
+    for category in unsupported:
         emit(localized(
             args.language,
-            f"Das allgemeine Basismodell kennt die Klasse „{target_category}“ nicht. "
+            f"Das allgemeine Basismodell kennt die Klasse „{category}“ nicht. "
             "Diese Klasse zunächst manuell markieren und ein eigenes Modell trainieren.",
-            f"The generic base model does not know the “{target_category}” class. "
+            f"The generic base model does not know the “{category}” class. "
             "Annotate this class manually first and train a custom model.",
         ))
+    target_categories = [category for category in target_categories if category not in unsupported]
+    if not target_categories:
         return
 
-    if target_category == "player" and newest_checkpoint(project_root, args.model) is None:
+    if "player" in target_categories and not has_checkpoint:
         emit(localized(
             args.language,
             "Hinweis: Das Basismodell liefert nur die Klasse „Person“. Zuschauer und Schiedsrichter "
@@ -796,27 +835,31 @@ def auto_label(args: argparse.Namespace) -> None:
     processed_frames = 0
     frames_with_detections = 0
     boxes_added = 0
-    skipped_existing = sum(
-        1
-        for frame in frames
-        if frame_has_category(frame, target_category)
-    )
+    already_present = {
+        category: sum(1 for frame in frames if frame_has_category(frame, category))
+        for category in target_categories
+    }
     device = detect_device()
     profile = training_profile(args.model, device)
     batch_size = profile["batch_size"] if device != "cpu" else 1
+    category_list = ", ".join(target_categories)
     emit(localized(
         args.language,
-        f"Vorbeschriftung nutzt {device.upper()} mit Batch {batch_size}.",
-        f"Pre-labeling uses {device.upper()} with batch {batch_size}.",
+        f"Vorbeschriftung für „{category_list}“ nutzt {device.upper()} mit Batch {batch_size}.",
+        f"Pre-labeling for “{category_list}” uses {device.upper()} with batch {batch_size}.",
     ))
 
     for start in range(0, len(frames), batch_size):
         batch_frames = frames[start : start + batch_size]
-        pending = [
-            frame
+        # Each frame may already have some of the selected categories (e.g. from
+        # an earlier single-category run) - only request/keep the ones it's still
+        # missing, so a frame with "ball" already present but not "player" gets
+        # just the player boxes added, not a duplicate set of ball boxes.
+        wanted_by_frame_id = {
+            frame["id"]: {category for category in target_categories if not frame_has_category(frame, category)}
             for frame in batch_frames
-            if not frame_has_category(frame, target_category)
-        ]
+        }
+        pending = [frame for frame in batch_frames if wanted_by_frame_id[frame["id"]]]
         if not pending:
             continue
         paths = [str(project_root / frame["relativePath"]) for frame in pending]
@@ -825,6 +868,7 @@ def auto_label(args: argparse.Namespace) -> None:
         )
 
         for frame, detections in zip(pending, detections_batch):
+            wanted = wanted_by_frame_id[frame["id"]]
             new_annotations = []
             names = detections.data.get("class_name") if hasattr(detections, "data") else None
             for index, box in enumerate(detections.xyxy):
@@ -834,7 +878,7 @@ def auto_label(args: argparse.Namespace) -> None:
                     class_id = int(detections.class_id[index])
                     detected_name = "person" if class_id == 0 else "sports ball" if class_id == 32 else ""
                 category = category_map.get(detected_name)
-                if not category:
+                if not category or category not in wanted:
                     continue
                 x1, y1, x2, y2 = [float(value) for value in box]
                 confidence = float(detections.confidence[index])
@@ -867,24 +911,25 @@ def auto_label(args: argparse.Namespace) -> None:
 
     document["updatedAt"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     atomic_json(project_file(project_root), document)
+    skipped_existing = sum(already_present.values())
     emit(localized(
         args.language,
-        f"Vorbeschriftung für „{target_category}“ abgeschlossen: {boxes_added} Boxen in "
+        f"Vorbeschriftung für „{category_list}“ abgeschlossen: {boxes_added} Boxen in "
         f"{frames_with_detections} von {processed_frames} geprüften Frames. "
-        f"{skipped_existing} Frames hatten bereits diese Klasse und wurden nicht überschrieben.",
-        f"Pre-labeling for “{target_category}” finished: {boxes_added} boxes in "
+        f"{skipped_existing} Frame/Klasse-Kombinationen hatten bereits eine Markierung und wurden nicht überschrieben.",
+        f"Pre-labeling for “{category_list}” finished: {boxes_added} boxes in "
         f"{frames_with_detections} of {processed_frames} checked frames. "
-        f"{skipped_existing} frames already contained this class and were not overwritten.",
+        f"{skipped_existing} frame/class combinations already had an annotation and were not overwritten.",
     ))
     if boxes_added == 0:
         emit(localized(
             args.language,
-            f"Keine Treffer für „{target_category}“ oberhalb der Schwelle. Einige Beispiele manuell "
+            f"Keine Treffer für „{category_list}“ oberhalb der Schwelle. Einige Beispiele manuell "
             "markieren und danach trainieren; anschließend erneut automatisch markieren.",
-            f"No “{target_category}” detections above the threshold. Annotate a few examples manually, "
+            f"No “{category_list}” detections above the threshold. Annotate a few examples manually, "
             "train the model, and then run automatic detection again.",
         ))
-    elif target_category in {"ball", "puck"}:
+    elif any(category in CATEGORY_ASPECT_BOUNDS for category in target_categories):
         try:
             refine_boxes(argparse.Namespace(project=str(project_root), language=args.language))
         except SystemExit as error:
@@ -1901,7 +1946,7 @@ def build_parser() -> argparse.ArgumentParser:
     label_parser = commands.add_parser("autolabel")
     label_parser.add_argument("--project", required=True)
     label_parser.add_argument("--model", choices=MODEL_CLASSES, default="nano")
-    label_parser.add_argument("--category", required=True)
+    label_parser.add_argument("--category", nargs="+", required=True)
     label_parser.add_argument("--threshold", type=float, default=0.25)
     label_parser.add_argument("--language", choices=["de", "en", "es", "fr"], default="de")
     label_parser.add_argument("--candidate-only", action="store_true")
