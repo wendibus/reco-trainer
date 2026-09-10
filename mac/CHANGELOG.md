@@ -1,5 +1,10 @@
 # Änderungen
 
+## 0.12.7
+
+- Ein neu geladenes Projekt wählt beim automatischen Markieren jetzt jede aktuell vom Modell unterstützte Klasse vor (beim Basismodell: Ball und Spieler). Da jede Person allgemein als „Spieler“ erkannt wird, muss nur noch der Schiedsrichter einzeln angeklickt und umbenannt werden.
+- Der Modellvergleich zeigt jetzt zusätzlich eine Tabelle mit mAP@.50 je Kategorie und Modell, um z. B. zu erkennen, dass ein Modell besser bei Bällen und ein anderes besser bei Schiedsrichtern ist.
+
 ## 0.12.6
 
 - Nach dem Überspringen eines nicht mehr passenden Fortsetzungsversuchs konnte ein neuer Feinabstimmungslauf trotzdem noch mit der veralteten, kleineren Klassenanzahl des Checkpoints starten und später mit einem Absturz tief in der Trainingslogik enden. Reco Trainer verwendet jetzt immer die aktuelle Klassenanzahl des Projekts für den Modellaufbau.

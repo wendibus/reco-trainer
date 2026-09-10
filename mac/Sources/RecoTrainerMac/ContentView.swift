@@ -2,7 +2,7 @@ import AppKit
 import SwiftUI
 
 struct ContentView: View {
-    private static let currentRelease = "0.12.6"
+    private static let currentRelease = "0.12.7"
 
     @EnvironmentObject private var app: AppState
     @AppStorage("recoWalkthroughCompleteV1") private var walkthroughComplete = false
@@ -1049,8 +1049,12 @@ private struct WhatsNewSheet: View {
     private var changes: [(String, String)] {
         [
             (
-                language.text("Weiterer Trainingsabsturz nach einer neuen Klasse behoben", "Fixed another training crash after a new class was added", "Corregido otro fallo de entrenamiento tras añadir una nueva clase", "Correction d’un autre plantage après l’ajout d’une nouvelle classe"),
-                language.text("Nach dem Überspringen eines nicht mehr passenden Fortsetzungsversuchs konnte ein neuer Feinabstimmungslauf trotzdem noch mit der veralteten, kleineren Klassenanzahl des Checkpoints starten und später abstürzen. Reco Trainer verwendet jetzt immer die aktuelle Klassenanzahl des Projekts.", "After skipping a resume attempt that no longer matched, a new fine-tuning cycle could still start with the checkpoint's stale, smaller class count and crash later. Reco Trainer now always uses the project's current class count.", "Tras omitir un intento de reanudación que ya no coincidía, un nuevo ciclo de ajuste fino aún podía iniciarse con el número de clases obsoleto y menor del checkpoint, fallando más tarde. Reco Trainer ahora usa siempre el número de clases actual del proyecto.", "Après avoir ignoré une reprise qui ne correspondait plus, un nouveau cycle d’ajustement pouvait quand même démarrer avec le nombre de classes obsolète et plus petit du point de contrôle, puis planter plus tard. Reco Trainer utilise désormais toujours le nombre de classes actuel du projet.")
+                language.text("Personen werden automatisch als Spieler markiert", "People are auto-labeled as players by default", "Las personas se marcan automáticamente como jugadores", "Les personnes sont automatiquement marquées comme joueurs"),
+                language.text("Ein neu geladenes Projekt wählt beim automatischen Markieren jetzt jede vom Modell aktuell unterstützte Klasse vor - beim Basismodell also Ball und Spieler. Da das Basismodell jede Person allgemein als „Spieler“ erkennt, muss nur noch der Schiedsrichter einzeln angeklickt und umbenannt werden, statt ihn von Hand zu zeichnen.", "A freshly loaded project now preselects every category the current model actually supports for auto-labeling - with the base model, that's ball and player. Since the base model detects every person generically as \"player\", only the referee needs to be clicked and relabeled individually instead of drawn by hand.", "Un proyecto recién cargado ahora preselecciona cada categoría que el modelo actual admite para el marcado automático; con el modelo base, eso es balón y jugador. Como el modelo base detecta a toda persona genéricamente como «jugador», solo hay que hacer clic en el árbitro y reasignarlo, en lugar de dibujarlo a mano.", "Un projet fraîchement chargé présélectionne désormais chaque catégorie que le modèle actuel prend réellement en charge pour le marquage automatique - avec le modèle de base, cela veut dire ballon et joueur. Comme le modèle de base détecte chaque personne génériquement comme « joueur », il suffit de cliquer sur l’arbitre et de le réattribuer au lieu de le dessiner à la main.")
+            ),
+            (
+                language.text("Modellvergleich zeigt Treffer je Kategorie", "Model comparison shows per-category results", "La comparación de modelos muestra resultados por categoría", "La comparaison des modèles affiche les résultats par catégorie"),
+                language.text("Der Modellvergleich zeigt jetzt zusätzlich zum Gesamtranking eine Tabelle mit mAP@.50 je Kategorie und Modell - so sieht man auf einen Blick, ob z. B. ein Modell besser bei Bällen und ein anderes besser bei Schiedsrichtern ist.", "The model comparison now also shows a table of mAP@.50 broken down by category and model alongside the overall ranking - so it's visible at a glance if e.g. one model is better at balls and another is better at referees.", "La comparación de modelos ahora también muestra una tabla de mAP@.50 desglosada por categoría y modelo junto a la clasificación general, para ver de un vistazo si, por ejemplo, un modelo es mejor con los balones y otro con los árbitros.", "La comparaison des modèles affiche désormais aussi un tableau du mAP@.50 par catégorie et par modèle en plus du classement global - on voit ainsi d’un coup d’œil si un modèle est meilleur pour les ballons et un autre pour les arbitres.")
             )
         ]
     }
