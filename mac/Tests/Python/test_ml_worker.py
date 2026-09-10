@@ -121,9 +121,73 @@ class DatasetTests(unittest.TestCase):
         self.assertEqual(len(splits["test"]), 2)
 
     def test_ball_focus_ignores_all_people(self):
-        mapping = ml_worker.detection_category_map("ball")
+        mapping = ml_worker.detection_category_map(["ball"])
         self.assertEqual(mapping["sports ball"], "ball")
         self.assertNotIn("person", mapping)
+
+    def test_detection_category_map_merges_multiple_selected_categories(self):
+        mapping = ml_worker.detection_category_map(["ball", "player"])
+        self.assertEqual(mapping["sports ball"], "ball")
+        self.assertEqual(mapping["person"], "player")
+        # A category with no base-model alias (e.g. hoop) still maps to itself,
+        # so a custom-trained model's own class name passes through unchanged.
+        mapping_custom = ml_worker.detection_category_map(["hoop"])
+        self.assertEqual(mapping_custom["hoop"], "hoop")
+        self.assertNotIn("sports ball", mapping_custom)
+
+    def test_autolabel_adds_multiple_categories_in_one_run(self):
+        """A single auto_label() call with multiple --category values should add
+        every still-missing selected category from one model pass per frame,
+        without duplicating a category a frame already has."""
+        class FakeDetections:
+            data = {"class_name": ["sports ball", "person"]}
+            xyxy = [[10.0, 20.0, 20.0, 30.0], [40.0, 10.0, 60.0, 70.0]]
+            class_id = [32, 0]
+            confidence = [.9, .8]
+
+        class FakeModel:
+            def __init__(self, **_): pass
+            def predict(self, paths, threshold):
+                return [FakeDetections() for _ in paths]
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "frames").mkdir(parents=True)
+            (root / "frames" / "one.jpg").write_bytes(b"synthetic")
+            (root / "frames" / "two.jpg").write_bytes(b"synthetic")
+            project = {
+                "sport": "basketball",
+                "frames": [
+                    {"id": "one", "relativePath": "frames/one.jpg", "width": 100, "height": 80, "annotations": []},
+                    {"id": "two", "relativePath": "frames/two.jpg", "width": 100, "height": 80, "annotations": [
+                        {"id": "existing", "category": "ball", "x": 1, "y": 1, "width": 5, "height": 5, "source": "manual"},
+                    ]},
+                ],
+            }
+            ml_worker.atomic_json(root / "project.json", project)
+            original_import = ml_worker.import_model_class
+            original_device = ml_worker.detect_device
+            try:
+                ml_worker.import_model_class = lambda *_: FakeModel
+                ml_worker.detect_device = lambda: "cpu"
+                args = type("Args", (), {
+                    "project": str(root), "model": "nano", "category": ["ball", "player"],
+                    "threshold": 0.25, "language": "en", "candidate_only": False,
+                })()
+                ml_worker.auto_label(args)
+            finally:
+                ml_worker.import_model_class = original_import
+                ml_worker.detect_device = original_device
+
+            document = ml_worker.load_json(root / "project.json")
+            frame_one = next(frame for frame in document["frames"] if frame["id"] == "one")
+            frame_two = next(frame for frame in document["frames"] if frame["id"] == "two")
+
+            self.assertEqual({item["category"] for item in frame_one["annotations"]}, {"ball", "player"})
+            self.assertTrue(all(item["source"] == "auto" for item in frame_one["annotations"]))
+            # frame two already had a manual "ball" box, so autolabel should only add "player".
+            self.assertEqual(sorted(item["category"] for item in frame_two["annotations"]), ["ball", "player"])
+            self.assertEqual(sum(item["category"] == "ball" for item in frame_two["annotations"]), 1)
 
     def test_category_specific_skip_preserves_other_classes(self):
         frame = {"annotations": [{"category": "player"}]}

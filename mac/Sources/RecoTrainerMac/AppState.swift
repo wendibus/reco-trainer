@@ -30,6 +30,10 @@ final class AppState: ObservableObject {
     @Published var project: ProjectDocument?
     @Published var selectedFrameID: UUID?
     @Published var selectedCategory = "ball"
+    /// Which classes "Automatisch markieren" should detect in one pass. Separate from
+    /// selectedCategory, which stays single-valued for hand-drawing a new box and for
+    /// the active-learning Ball/No-ball review - both are inherently one category at a time.
+    @Published var autoLabelCategories: Set<String> = ["ball"]
     @Published var modelSize: ModelSize = .nano
     @Published var epochs = 20
     @Published var confidenceThreshold = 0.35
@@ -74,6 +78,18 @@ final class AppState: ObservableObject {
 
     var continuationCheckpointName: String? {
         continuationCheckpoints[modelSize]
+    }
+
+    /// Categories the current model (base or custom-trained) can actually detect
+    /// right now. Mirrors ml_worker.py's auto_label() check: the Apache-2.0 base
+    /// model only knows COCO's "sports ball" (-> ball/puck) and "person" (-> player)
+    /// classes; sport-specific classes like referee/hoop/goal need a custom-trained
+    /// model for the selected model size first. Once one exists, every category is
+    /// assumed available, since a completed local training run covers whatever was
+    /// annotated.
+    var autoLabelSupportedCategories: Set<String> {
+        guard continuationCheckpointName == nil else { return Set(sport.categories) }
+        return Set(sport.categories).intersection(["ball", "puck", "player"])
     }
 
     var benchmarkReportIsCurrent: Bool {
@@ -155,6 +171,7 @@ final class AppState: ObservableObject {
             if let loaded = snapshot.project {
                 self.sport = loaded.sport
                 self.selectedCategory = loaded.sport.categories.first ?? "ball"
+                self.autoLabelCategories = [self.selectedCategory]
                 self.selectedFrameID = loaded.frames.first?.id
                 self.framesPerVideo = loaded.framesPerVideo ?? 240
                 if let activeSize = snapshot.activeModel.flatMap({ ModelSize(rawValue: $0.modelSize) }) {
@@ -172,6 +189,7 @@ final class AppState: ObservableObject {
             } else if let loadError = snapshot.errorMessage {
                 self.errorMessage = loadError
                 self.selectedCategory = self.sport.categories.first ?? "ball"
+                self.autoLabelCategories = [self.selectedCategory]
                 self.status = self.tr(
                     "Trainingsprojekt konnte nicht geladen werden. Die vorhandenen Daten wurden nicht verändert.",
                     "The training project could not be loaded. Existing data was not changed.",
@@ -180,6 +198,7 @@ final class AppState: ObservableObject {
                 )
             } else {
                 self.selectedCategory = self.sport.categories.first ?? "ball"
+                self.autoLabelCategories = [self.selectedCategory]
                 self.status = self.tr(
                     "Ordner gewählt. Jetzt Videos analysieren.",
                     "Folder selected. Analyze the videos next.",
@@ -353,6 +372,7 @@ final class AppState: ObservableObject {
                 project = document
                 selectedFrameID = frames.first?.id
                 selectedCategory = sport.categories.first ?? "ball"
+                autoLabelCategories = [selectedCategory]
                 progress = 1
                 status = tr(
                     "\(frames.count) Frames erstellt. Videos und Bilder bleiben lokal.",
@@ -444,24 +464,29 @@ final class AppState: ObservableObject {
         try await worker.prepareEnvironment(onOutput: output)
     }}
 
-    func autoLabel() { runWorkerAction(
-        tr(
-            "Erkenne nur die Klasse „\(language.category(selectedCategory))“ …",
-            "Detecting only the “\(language.category(selectedCategory))” class …",
-            "Detectando únicamente la clase «\(language.category(selectedCategory))» …",
-            "Détection de la classe « \(language.category(selectedCategory)) » uniquement …"
-        ),
-        reloadProject: true,
-        reloadedCategory: selectedCategory
-    ) { worker, output in
-        try await worker.autoLabel(
-            modelSize: self.modelSize,
-            category: self.selectedCategory,
-            threshold: self.confidenceThreshold,
-            language: self.language,
-            onOutput: output
-        )
-    }}
+    func autoLabel() {
+        guard !autoLabelCategories.isEmpty else { return }
+        let categories = Array(autoLabelCategories)
+        let categoryLabel = categories.map { language.category($0) }.sorted().joined(separator: ", ")
+        runWorkerAction(
+            tr(
+                "Erkenne „\(categoryLabel)“ …",
+                "Detecting “\(categoryLabel)” …",
+                "Detectando «\(categoryLabel)» …",
+                "Détection de « \(categoryLabel) » …"
+            ),
+            reloadProject: true,
+            reloadedCategories: autoLabelCategories
+        ) { worker, output in
+            try await worker.autoLabel(
+                modelSize: self.modelSize,
+                categories: categories,
+                threshold: self.confidenceThreshold,
+                language: self.language,
+                onOutput: output
+            )
+        }
+    }
 
     func refineBoxes() { runWorkerAction(
         tr(
@@ -511,7 +536,7 @@ final class AppState: ObservableObject {
                 project = document
                 status = tr("Lokale Ballerkennung läuft …", "Running local ball detection …", "Ejecutando detección local …", "Détection locale du ballon …")
                 let worker = MLWorker(projectRoot: store.rootURL)
-                try await worker.autoLabel(modelSize: modelSize, category: selectedCategory, threshold: 0.12, candidateOnly: true, language: language) { chunk in
+                try await worker.autoLabel(modelSize: modelSize, categories: [selectedCategory], threshold: 0.12, candidateOnly: true, language: language) { chunk in
                     await MainActor.run { self.log += chunk }
                 }
                 let loaded = try store.load()
@@ -705,7 +730,7 @@ final class AppState: ObservableObject {
     private func runWorkerAction(
         _ initialStatus: String,
         reloadProject: Bool = false,
-        reloadedCategory: String? = nil,
+        reloadedCategories: Set<String>? = nil,
         action: @escaping (MLWorker, @escaping @Sendable (String) async -> Void) async throws -> Void
     ) {
         guard let store else { return }
@@ -727,14 +752,15 @@ final class AppState: ObservableObject {
                     project = loaded
                     let automaticCount = loaded.frames
                         .flatMap(\.annotations)
-                        .filter { $0.source == "auto" && (reloadedCategory == nil || $0.category == reloadedCategory) }
+                        .filter { $0.source == "auto" && (reloadedCategories == nil || reloadedCategories!.contains($0.category)) }
                         .count
+                    let categoryLabel = (reloadedCategories ?? []).map { language.category($0) }.sorted().joined(separator: ", ")
                     status = automaticCount > 0
                         ? tr(
-                            "\(automaticCount) automatische Markierungen für „\(language.category(reloadedCategory ?? ""))“ geladen. Bitte prüfen.",
-                            "Loaded \(automaticCount) automatic “\(language.category(reloadedCategory ?? ""))” annotations. Please review them.",
-                            "Se cargaron \(automaticCount) anotaciones automáticas de «\(language.category(reloadedCategory ?? ""))». Revísalas.",
-                            "\(automaticCount) annotations automatiques « \(language.category(reloadedCategory ?? "")) » chargées. Veuillez les vérifier."
+                            "\(automaticCount) automatische Markierungen für „\(categoryLabel)“ geladen. Bitte prüfen.",
+                            "Loaded \(automaticCount) automatic “\(categoryLabel)” annotations. Please review them.",
+                            "Se cargaron \(automaticCount) anotaciones automáticas de «\(categoryLabel)». Revísalas.",
+                            "\(automaticCount) annotations automatiques « \(categoryLabel) » chargées. Veuillez les vérifier."
                         )
                         : tr(
                             "Keine automatischen Treffer für diese Klasse gefunden. Details stehen im Protokoll.",

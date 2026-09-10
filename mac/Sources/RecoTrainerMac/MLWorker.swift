@@ -78,7 +78,7 @@ struct MLWorker: Sendable {
 
     func autoLabel(
         modelSize: ModelSize,
-        category: String,
+        categories: [String],
         threshold: Double,
         candidateOnly: Bool = false,
         language: AppLanguage,
@@ -86,7 +86,8 @@ struct MLWorker: Sendable {
     ) async throws {
         var arguments = [
                 try workerURL.path, "autolabel", "--project", projectRoot.path,
-                "--model", modelSize.rawValue, "--category", category,
+                "--model", modelSize.rawValue, "--category",
+            ] + categories + [
                 "--threshold", String(threshold), "--language", language.rawValue
             ]
         if candidateOnly { arguments.append("--candidate-only") }
