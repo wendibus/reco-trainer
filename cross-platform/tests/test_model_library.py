@@ -133,6 +133,77 @@ class BenchmarkMetricsTests(unittest.TestCase):
         self.assertEqual(metrics["falseNegatives"], 1)
 
 
+class ResumeCheckpointValidationTests(unittest.TestCase):
+    """Regression coverage for a real crash: a strict Lightning resume
+    (trainer.fit(ckpt_path=...)) hard-crashes with a state_dict size-mismatch
+    RuntimeError when the checkpoint's detection head was trained for a different
+    number of classes than the project currently has - e.g. after a class was added
+    via auto-labeling while a training run sat interrupted. validate_resume_checkpoint
+    is what train() now uses to detect that and fall back to a normal fine-tuning
+    cycle instead of letting the whole run abort.
+    """
+
+    def _dataset_root_with_categories(self, count: int) -> Path:
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        root = Path(temporary.name)
+        ml_worker.atomic_json(root / "train" / "_annotations.coco.json", {
+            "images": [], "annotations": [],
+            "categories": [{"id": i + 1, "name": f"class-{i}"} for i in range(count)],
+        })
+        return root
+
+    def test_returns_none_when_no_checkpoint_was_offered(self):
+        dataset_root = self._dataset_root_with_categories(2)
+        self.assertIsNone(ml_worker.validate_resume_checkpoint(None, dataset_root))
+
+    def test_allows_a_matching_checkpoint_through(self):
+        dataset_root = self._dataset_root_with_categories(2)
+        checkpoint = dataset_root / "last.ckpt"
+        checkpoint.write_bytes(b"synthetic")
+        original = ml_worker.checkpoint_class_count
+        ml_worker.checkpoint_class_count = lambda _: 2
+        try:
+            result = ml_worker.validate_resume_checkpoint(checkpoint, dataset_root)
+        finally:
+            ml_worker.checkpoint_class_count = original
+        self.assertEqual(result, checkpoint)
+
+    def test_rejects_a_checkpoint_trained_for_a_different_class_count(self):
+        # This is the exact scenario from the crash: interrupted at 2 classes,
+        # the project now has 4 after auto-labeling added more categories.
+        dataset_root = self._dataset_root_with_categories(4)
+        checkpoint = dataset_root / "last.ckpt"
+        checkpoint.write_bytes(b"synthetic")
+        original = ml_worker.checkpoint_class_count
+        ml_worker.checkpoint_class_count = lambda _: 2
+        try:
+            result = ml_worker.validate_resume_checkpoint(checkpoint, dataset_root)
+        finally:
+            ml_worker.checkpoint_class_count = original
+        self.assertIsNone(result)
+
+    def test_allows_the_checkpoint_through_when_class_count_cant_be_determined(self):
+        # Conservative default: don't block an otherwise-working resume just because
+        # the checkpoint's internal shape couldn't be read (e.g. no torch installed,
+        # or a future RF-DETR version uses a different state_dict key).
+        dataset_root = self._dataset_root_with_categories(2)
+        checkpoint = dataset_root / "last.ckpt"
+        checkpoint.write_bytes(b"synthetic")
+        original = ml_worker.checkpoint_class_count
+        ml_worker.checkpoint_class_count = lambda _: None
+        try:
+            result = ml_worker.validate_resume_checkpoint(checkpoint, dataset_root)
+        finally:
+            ml_worker.checkpoint_class_count = original
+        self.assertEqual(result, checkpoint)
+
+    def test_dataset_class_count_reads_the_coco_categories_list(self):
+        dataset_root = self._dataset_root_with_categories(3)
+        self.assertEqual(ml_worker.dataset_class_count(dataset_root, "train"), 3)
+        self.assertIsNone(ml_worker.dataset_class_count(dataset_root, "missing-split"))
+
+
 class ModelLibraryTests(unittest.TestCase):
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory()

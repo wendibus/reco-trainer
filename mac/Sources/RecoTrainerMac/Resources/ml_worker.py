@@ -1310,6 +1310,66 @@ def checkpoint_completed_epochs(checkpoint: Path) -> int | None:
         return None
 
 
+def checkpoint_class_count(checkpoint: Path) -> int | None:
+    """Read how many classes a full Lightning checkpoint's detection head was built for.
+
+    Guards against Lightning's strict trainer.fit(ckpt_path=...) resume hard-crashing
+    with a size-mismatch RuntimeError when the project's class set changed since an
+    interrupted run last saved last.ckpt (e.g. a class was added via auto-labeling
+    after training started). Returns None if this can't be determined, in which case
+    the caller should still allow the resume rather than block a previously working path.
+    """
+    try:
+        import torch
+
+        payload = torch.load(checkpoint, map_location="cpu", weights_only=True)
+        weight = payload["state_dict"]["model.class_embed.weight"]
+        return int(weight.shape[0])
+    except (ImportError, OSError, RuntimeError, KeyError, TypeError, ValueError, AttributeError):
+        return None
+
+
+def dataset_class_count(dataset_root: Path, split: str) -> int | None:
+    try:
+        document = load_json(dataset_root / split / "_annotations.coco.json")
+        return len(document.get("categories", []))
+    except (OSError, TypeError, ValueError, json.JSONDecodeError):
+        return None
+
+
+def validate_resume_checkpoint(
+    resume_checkpoint: Path | None, dataset_root: Path, language: str = "de"
+) -> Path | None:
+    """Reject a full-resume checkpoint whose class count no longer matches the project.
+
+    A strict Lightning resume (trainer.fit(ckpt_path=...)) hard-crashes with a
+    RuntimeError if the checkpoint's detection head doesn't match the current class
+    count - e.g. a class was added via auto-labeling after the run was interrupted.
+    Returning None here makes train() fall back to a normal (non-strict) fine-tuning
+    cycle instead of letting the whole run abort on a size mismatch. If either class
+    count can't be determined, the checkpoint is allowed through unchanged rather than
+    blocking an otherwise-working resume.
+    """
+    if resume_checkpoint is None:
+        return None
+    current_classes = dataset_class_count(dataset_root, "train")
+    checkpoint_classes = checkpoint_class_count(resume_checkpoint)
+    if checkpoint_classes is None or current_classes is None or checkpoint_classes == current_classes:
+        return resume_checkpoint
+    emit(localized(
+        language,
+        f"Der abgebrochene Trainingslauf wurde für {checkpoint_classes} Klassen begonnen, das Projekt hat jetzt {current_classes}. "
+        "Vollständige Fortsetzung übersprungen; es wird stattdessen ein neuer Feinabstimmungslauf gestartet.",
+        f"The interrupted run was started with {checkpoint_classes} classes, the project now has {current_classes}. "
+        "Skipping the full resume; starting a new fine-tuning cycle instead.",
+        f"El entrenamiento interrumpido se inició con {checkpoint_classes} clases; el proyecto ahora tiene {current_classes}. "
+        "Se omite la reanudación completa; se inicia un nuevo ciclo de ajuste fino.",
+        f"L’entraînement interrompu avait commencé avec {checkpoint_classes} classes ; le projet en compte désormais {current_classes}. "
+        "Reprise complète ignorée ; un nouveau cycle d’ajustement fin démarre à la place.",
+    ))
+    return None
+
+
 def archive_run_logs(run_dir: Path) -> Path | None:
     """Preserve small text logs before RF-DETR refreshes its mutable run folder."""
     names = ("metrics.csv", "training_config.json")
@@ -1342,7 +1402,9 @@ def train(args: argparse.Namespace) -> None:
     output_dir = project_root / "runs" / args.model
     output_dir.mkdir(parents=True, exist_ok=True)
     continuation_checkpoint = newest_checkpoint(project_root, args.model)
-    resume_checkpoint = interrupted_run_checkpoint(project_root, args.model, document)
+    resume_checkpoint = validate_resume_checkpoint(
+        interrupted_run_checkpoint(project_root, args.model, document), dataset_root, args.language
+    )
     resume_completed_epochs = checkpoint_completed_epochs(resume_checkpoint) if resume_checkpoint else None
     archived_logs = archive_run_logs(output_dir)
 

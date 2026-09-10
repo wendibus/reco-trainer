@@ -338,6 +338,61 @@ class DatasetTests(unittest.TestCase):
                 ml_worker.interrupted_run_checkpoint(root, "small", completed)
             )
 
+    def _dataset_root_with_categories(self, count: int) -> Path:
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        root = Path(temporary.name)
+        ml_worker.atomic_json(root / "train" / "_annotations.coco.json", {
+            "images": [], "annotations": [],
+            "categories": [{"id": i + 1, "name": f"class-{i}"} for i in range(count)],
+        })
+        return root
+
+    # Regression coverage for a real crash: a strict Lightning resume
+    # (trainer.fit(ckpt_path=...)) hard-crashes with a state_dict size-mismatch
+    # RuntimeError when the checkpoint's detection head was trained for a different
+    # number of classes than the project currently has - e.g. after a class was
+    # added via auto-labeling while a training run sat interrupted.
+    def test_validate_resume_checkpoint_allows_a_matching_checkpoint_through(self):
+        dataset_root = self._dataset_root_with_categories(2)
+        checkpoint = dataset_root / "last.ckpt"
+        checkpoint.write_bytes(b"synthetic")
+        original = ml_worker.checkpoint_class_count
+        ml_worker.checkpoint_class_count = lambda _: 2
+        try:
+            result = ml_worker.validate_resume_checkpoint(checkpoint, dataset_root)
+        finally:
+            ml_worker.checkpoint_class_count = original
+        self.assertEqual(result, checkpoint)
+
+    def test_validate_resume_checkpoint_rejects_a_class_count_mismatch(self):
+        # The exact scenario from the crash: interrupted at 2 classes, the project
+        # now has 4 after auto-labeling added more categories.
+        dataset_root = self._dataset_root_with_categories(4)
+        checkpoint = dataset_root / "last.ckpt"
+        checkpoint.write_bytes(b"synthetic")
+        original = ml_worker.checkpoint_class_count
+        ml_worker.checkpoint_class_count = lambda _: 2
+        try:
+            result = ml_worker.validate_resume_checkpoint(checkpoint, dataset_root)
+        finally:
+            ml_worker.checkpoint_class_count = original
+        self.assertIsNone(result)
+
+    def test_validate_resume_checkpoint_allows_through_when_undetermined(self):
+        # Conservative default: don't block an otherwise-working resume just because
+        # the checkpoint's internal shape couldn't be read.
+        dataset_root = self._dataset_root_with_categories(2)
+        checkpoint = dataset_root / "last.ckpt"
+        checkpoint.write_bytes(b"synthetic")
+        original = ml_worker.checkpoint_class_count
+        ml_worker.checkpoint_class_count = lambda _: None
+        try:
+            result = ml_worker.validate_resume_checkpoint(checkpoint, dataset_root)
+        finally:
+            ml_worker.checkpoint_class_count = original
+        self.assertEqual(result, checkpoint)
+
     def test_training_logs_are_preserved_in_unique_history_folder(self):
         with tempfile.TemporaryDirectory() as temporary:
             run_dir = Path(temporary) / "runs" / "small"
