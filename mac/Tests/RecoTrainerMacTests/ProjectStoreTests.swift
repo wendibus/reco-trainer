@@ -126,6 +126,18 @@ import Testing
     #expect(!app.autoLabelSupportedCategories.contains("hoop"))
 }
 
+// Regression coverage: a freshly loaded project used to preselect only the sport's
+// first category (typically "ball"), so getting person detections for free from the
+// base model's generic COCO "person" class required remembering to also tick "player" -
+// referees then had to be drawn by hand from scratch instead of being generically
+// detected as "player" and just relabeled via the annotation editor. Loading a project
+// now preselects every base-model (or custom-model) supported category instead.
+@Test func defaultAutoLabelCategoriesPreselectsEveryCurrentlySupportedCategory() {
+    #expect(AppState.defaultAutoLabelCategories(selectedCategory: "ball", supported: ["ball", "player"]) == ["ball", "player"])
+    // Falls back to just the selected category if nothing is determinable as supported.
+    #expect(AppState.defaultAutoLabelCategories(selectedCategory: "ball", supported: []) == ["ball"])
+}
+
 // annotation(at:among:) backs click-to-select in the annotation editor. Preferring the
 // smallest containing box keeps a small box nested inside a larger one - e.g. a ball
 // box inside a player box - individually selectable instead of always hitting the box
@@ -244,4 +256,36 @@ import Testing
     app.project = ProjectDocument(name: "Test", sport: .basketball, sourceFolder: "/tmp/videos", frames: [unreviewedTrainingFrame])
 
     #expect(app.hasUnreviewedTrainingAnnotations == true)
+}
+
+// Regression coverage: BenchmarkMetrics.perClass is what backs the per-category
+// comparison table (mAP@.50 broken down by class instead of only the overall
+// aggregate, so it's visible when one model is stronger at e.g. ball and another
+// at referee). A report saved by an older Reco Trainer version has no "perClass"
+// key at all - it must still decode instead of losing the whole benchmark report.
+@Test func benchmarkMetricsDecodesPerClassAndFallsBackWhenAbsent() throws {
+    let decoder = JSONDecoder()
+
+    let withPerClass = """
+    {
+        "qualityScore": 88.5, "mAP50": 0.9, "precision": 0.95, "recall": 0.92, "f1": 0.93,
+        "meanIoU": 0.8, "truePositives": 10, "falsePositives": 1, "falseNegatives": 1,
+        "perClass": {
+            "ball": {"groundTruth": 5, "predictions": 5, "truePositives": 5, "falsePositives": 0, "falseNegatives": 0, "precision": 1.0, "recall": 1.0, "f1": 1.0, "ap50": 1.0, "meanIoU": 0.9},
+            "referee": {"groundTruth": 5, "predictions": 6, "truePositives": 5, "falsePositives": 1, "falseNegatives": 0, "precision": 0.83, "recall": 1.0, "f1": 0.91, "ap50": 0.7, "meanIoU": 0.75}
+        }
+    }
+    """.data(using: .utf8)!
+    let decoded = try decoder.decode(BenchmarkMetrics.self, from: withPerClass)
+    #expect(decoded.perClass["ball"]?.ap50 == 1.0)
+    #expect(decoded.perClass["referee"]?.ap50 == 0.7)
+
+    let withoutPerClass = """
+    {
+        "qualityScore": 88.5, "mAP50": 0.9, "precision": 0.95, "recall": 0.92, "f1": 0.93,
+        "meanIoU": 0.8, "truePositives": 10, "falsePositives": 1, "falseNegatives": 1
+    }
+    """.data(using: .utf8)!
+    let decodedWithoutPerClass = try decoder.decode(BenchmarkMetrics.self, from: withoutPerClass)
+    #expect(decodedWithoutPerClass.perClass.isEmpty)
 }

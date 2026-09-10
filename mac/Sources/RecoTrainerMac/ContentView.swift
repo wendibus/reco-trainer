@@ -394,6 +394,7 @@ struct ContentView: View {
                                 }
                             }
                             .font(.caption)
+                            perClassComparison(report: report)
                         } else {
                             ContentUnavailableView(
                                 app.benchmarkReport == nil ? app.tr("Noch kein Vergleich", "No benchmark yet", "Aún no hay comparación", "Aucune comparaison") : app.tr("Referenz geändert", "Ground truth changed", "La referencia ha cambiado", "La référence a changé"),
@@ -413,6 +414,55 @@ struct ContentView: View {
 
     private func percent(_ value: Double?) -> String {
         value.map { String(format: "%.1f%%", $0 * 100) } ?? "–"
+    }
+
+    /// mAP@.50 broken down per category instead of only the overall aggregate, so it's
+    /// visible at a glance when one model is strong at one class (e.g. ball) and another
+    /// is strong at a different one (e.g. referee) rather than just an overall winner.
+    @ViewBuilder
+    private func perClassComparison(report: BenchmarkReport) -> some View {
+        let successfulResults = report.results.filter { $0.status == "completed" }
+        if report.classes.count > 1 && successfulResults.count > 1 {
+            Divider().padding(.vertical, 4)
+            Text(app.tr(
+                "Vergleich je Kategorie (mAP@.50)",
+                "Per-category comparison (mAP@.50)",
+                "Comparación por categoría (mAP@.50)",
+                "Comparaison par catégorie (mAP@.50)"
+            )).font(.caption.bold())
+            Text(app.tr(
+                "Zeigt z. B., ob ein Modell besser bei Bällen und ein anderes besser bei Schiedsrichtern ist. Bestwert je Zeile grün.",
+                "Shows e.g. whether one model is better at balls and another better at referees. Best value per row in green.",
+                "Muestra, por ejemplo, si un modelo es mejor con los balones y otro con los árbitros. El mejor valor de cada fila en verde.",
+                "Montre par exemple si un modèle est meilleur pour les ballons et un autre pour les arbitres. Meilleure valeur de chaque ligne en vert."
+            )).font(.caption2).foregroundStyle(.secondary)
+            ScrollView(.horizontal, showsIndicators: true) {
+                Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 6) {
+                    GridRow {
+                        Text(app.tr("Kategorie", "Category", "Categoría", "Catégorie")).bold().frame(width: 90, alignment: .leading)
+                        ForEach(successfulResults) { result in
+                            Text(result.packageID).bold().lineLimit(1).frame(width: 120, alignment: .leading)
+                        }
+                    }
+                    Divider().gridCellColumns(successfulResults.count + 1)
+                    ForEach(report.classes, id: \.self) { category in
+                        let bestValue = successfulResults.compactMap { $0.metrics?.perClass[category]?.ap50 }.max()
+                        GridRow {
+                            Text(app.language.category(category)).frame(width: 90, alignment: .leading)
+                            ForEach(successfulResults) { result in
+                                let value = result.metrics?.perClass[category]?.ap50
+                                let isBest = value != nil && bestValue != nil && value! == bestValue!
+                                Text(percent(value))
+                                    .foregroundStyle(isBest ? .green : .primary)
+                                    .bold(isBest)
+                                    .frame(width: 120, alignment: .leading)
+                            }
+                        }
+                    }
+                }
+                .font(.caption)
+            }
+        }
     }
 
     private var benchmarkMetricExplanations: [(String, String)] {
@@ -689,6 +739,13 @@ struct ContentView: View {
         }
     }
 
+    /// Categories the generic COCO "person" class covers visually but that a sport
+    /// schema still tracks separately. The base model can't tell these apart from a
+    /// plain player, but selecting "player" already boxes every person as "player" for
+    /// free - the disabled-chip tooltip should point at that shortcut instead of just
+    /// saying "unsupported", since drawing every referee from scratch is unnecessary.
+    private static let personShapedCategories: Set<String> = ["referee", "goalkeeper"]
+
     @ViewBuilder
     private func autoLabelCategoryChip(_ category: String) -> some View {
         let isSelected = app.autoLabelCategories.contains(category)
@@ -710,11 +767,20 @@ struct ContentView: View {
                 .controlSize(.small)
                 .disabled(!isSupported)
                 .opacity(isSupported ? 1 : 0.4)
-                .help(isSupported ? "" : app.tr(
-                    "Das allgemeine Basismodell kennt diese Klasse nicht. Zuerst manuell markieren und ein eigenes Modell trainieren.",
-                    "The generic base model does not know this class. Annotate it manually first and train a custom model.",
-                    "El modelo base general no conoce esta clase. Anótala manualmente primero y entrena un modelo propio.",
-                    "Le modèle de base générique ne connaît pas cette classe. Annotez-la d’abord manuellement puis entraînez un modèle personnalisé."
+                .help(isSupported ? "" : (
+                    Self.personShapedCategories.contains(category)
+                        ? app.tr(
+                            "Das Basismodell erkennt diese Klasse nicht einzeln, aber jede Person allgemein als „Spieler“. Markiere mit „Spieler“ automatisch, klicke dann einzelne \(app.language.category(category))-Boxen an und ordne sie per Klick um.",
+                            "The base model can't tell this class apart on its own, but it does detect every person generically as \"player\". Auto-label with \"player\", then click individual \(app.language.category(category)) boxes to relabel them.",
+                            "El modelo base no distingue esta clase por sí solo, pero detecta a toda persona genéricamente como \"jugador\". Marca automáticamente con \"jugador\" y luego haz clic en los cuadros de \(app.language.category(category)) para reasignarlos.",
+                            "Le modèle de base ne distingue pas cette classe à lui seul, mais détecte chaque personne génériquement comme « joueur ». Marquez automatiquement avec « joueur », puis cliquez sur les boîtes de \(app.language.category(category)) pour les réattribuer."
+                        )
+                        : app.tr(
+                            "Das allgemeine Basismodell kennt diese Klasse nicht. Zuerst manuell markieren und ein eigenes Modell trainieren.",
+                            "The generic base model does not know this class. Annotate it manually first and train a custom model.",
+                            "El modelo base general no conoce esta clase. Anótala manualmente primero y entrena un modelo propio.",
+                            "Le modèle de base générique ne connaît pas cette classe. Annotez-la d’abord manuellement puis entraînez un modèle personnalisé."
+                        )
                 ))
         }
     }

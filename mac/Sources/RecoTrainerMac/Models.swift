@@ -228,6 +228,19 @@ struct BenchmarkGroundTruthRecord: Codable, Sendable {
     var classes: [String] { Array(Set(frames.flatMap(\.annotations).map(\.category))).sorted() }
 }
 
+struct PerClassBenchmarkMetrics: Codable, Sendable {
+    var groundTruth: Int
+    var predictions: Int
+    var truePositives: Int
+    var falsePositives: Int
+    var falseNegatives: Int
+    var precision: Double
+    var recall: Double
+    var f1: Double
+    var ap50: Double
+    var meanIoU: Double
+}
+
 struct BenchmarkMetrics: Codable, Sendable {
     var qualityScore: Double
     var mAP50: Double
@@ -238,6 +251,28 @@ struct BenchmarkMetrics: Codable, Sendable {
     var truePositives: Int
     var falsePositives: Int
     var falseNegatives: Int
+    /// Absent from a benchmark report saved by an older Reco Trainer version - decoded
+    /// as an empty dictionary rather than failing the whole report, so previously saved
+    /// comparisons keep loading until the user reruns the benchmark.
+    var perClass: [String: PerClassBenchmarkMetrics]
+
+    enum CodingKeys: String, CodingKey {
+        case qualityScore, mAP50, precision, recall, f1, meanIoU, truePositives, falsePositives, falseNegatives, perClass
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        qualityScore = try container.decode(Double.self, forKey: .qualityScore)
+        mAP50 = try container.decode(Double.self, forKey: .mAP50)
+        precision = try container.decode(Double.self, forKey: .precision)
+        recall = try container.decode(Double.self, forKey: .recall)
+        f1 = try container.decode(Double.self, forKey: .f1)
+        meanIoU = try container.decode(Double.self, forKey: .meanIoU)
+        truePositives = try container.decode(Int.self, forKey: .truePositives)
+        falsePositives = try container.decode(Int.self, forKey: .falsePositives)
+        falseNegatives = try container.decode(Int.self, forKey: .falseNegatives)
+        perClass = try container.decodeIfPresent([String: PerClassBenchmarkMetrics].self, forKey: .perClass) ?? [:]
+    }
 }
 
 struct BenchmarkResult: Codable, Identifiable, Sendable {
@@ -264,5 +299,6 @@ struct BenchmarkReport: Codable, Sendable {
     var threshold: Double
     var device: String
     var rankingMethod: String
+    var classes: [String]
     var results: [BenchmarkResult]
 }

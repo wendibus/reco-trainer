@@ -96,6 +96,19 @@ final class AppState: ObservableObject {
         benchmarkReport?.datasetID == benchmarkGroundTruth?.datasetID
     }
 
+    /// Auto-label chips a freshly loaded project should start with pre-checked.
+    ///
+    /// Previously this defaulted to just the sport's first category (typically "ball"),
+    /// so getting person detections for free from the base model's generic COCO "person"
+    /// class required remembering to also tick "player" - referees then had to be drawn
+    /// by hand from scratch instead of being generically detected as "player" and just
+    /// relabeled via the annotation editor's click-to-relabel. Preselecting every
+    /// currently-supported category makes that free detection the default instead of an
+    /// easy-to-miss opt-in.
+    nonisolated static func defaultAutoLabelCategories(selectedCategory: String, supported: Set<String>) -> Set<String> {
+        supported.isEmpty ? [selectedCategory] : supported
+    }
+
     func tr(_ german: String, _ english: String, _ spanish: String? = nil, _ french: String? = nil) -> String {
         language.text(german, english, spanish, french)
     }
@@ -171,7 +184,6 @@ final class AppState: ObservableObject {
             if let loaded = snapshot.project {
                 self.sport = loaded.sport
                 self.selectedCategory = loaded.sport.categories.first ?? "ball"
-                self.autoLabelCategories = [self.selectedCategory]
                 self.selectedFrameID = loaded.frames.first?.id
                 self.framesPerVideo = loaded.framesPerVideo ?? 240
                 if let activeSize = snapshot.activeModel.flatMap({ ModelSize(rawValue: $0.modelSize) }) {
@@ -180,6 +192,10 @@ final class AppState: ObservableObject {
                           let lastModelSize = ModelSize(rawValue: lastModel) {
                     self.modelSize = lastModelSize
                 }
+                self.autoLabelCategories = Self.defaultAutoLabelCategories(
+                    selectedCategory: self.selectedCategory,
+                    supported: self.autoLabelSupportedCategories
+                )
                 self.status = self.tr(
                     "Projekt geladen: \(loaded.frames.count) Frames.",
                     "Project loaded: \(loaded.frames.count) frames.",
@@ -189,7 +205,10 @@ final class AppState: ObservableObject {
             } else if let loadError = snapshot.errorMessage {
                 self.errorMessage = loadError
                 self.selectedCategory = self.sport.categories.first ?? "ball"
-                self.autoLabelCategories = [self.selectedCategory]
+                self.autoLabelCategories = Self.defaultAutoLabelCategories(
+                    selectedCategory: self.selectedCategory,
+                    supported: self.autoLabelSupportedCategories
+                )
                 self.status = self.tr(
                     "Trainingsprojekt konnte nicht geladen werden. Die vorhandenen Daten wurden nicht verändert.",
                     "The training project could not be loaded. Existing data was not changed.",
@@ -198,7 +217,10 @@ final class AppState: ObservableObject {
                 )
             } else {
                 self.selectedCategory = self.sport.categories.first ?? "ball"
-                self.autoLabelCategories = [self.selectedCategory]
+                self.autoLabelCategories = Self.defaultAutoLabelCategories(
+                    selectedCategory: self.selectedCategory,
+                    supported: self.autoLabelSupportedCategories
+                )
                 self.status = self.tr(
                     "Ordner gewählt. Jetzt Videos analysieren.",
                     "Folder selected. Analyze the videos next.",
