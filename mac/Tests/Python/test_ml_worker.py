@@ -21,6 +21,12 @@ assert SPEC and SPEC.loader
 ml_worker = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(ml_worker)
 
+try:
+    import cv2  # noqa: F401
+    HAS_OPENCV = True
+except ImportError:
+    HAS_OPENCV = False
+
 
 class DatasetTests(unittest.TestCase):
     def make_frame(self, video_id: str, number: int, root: Path, annotated: bool = True):
@@ -357,6 +363,7 @@ class DatasetTests(unittest.TestCase):
             "realWidth": 0.0, "realLength": 20.0,  # zero real width
         }))
 
+    @unittest.skipUnless(HAS_OPENCV, "OpenCV is not installed in this environment")
     def test_field_membership_checker_accepts_inside_and_rejects_outside(self):
         is_on_field = ml_worker.field_membership_checker(self._square_field_geometry())
         self.assertIsNotNone(is_on_field)
@@ -366,6 +373,7 @@ class DatasetTests(unittest.TestCase):
         # square (which starts at pixel 100,100) -> negative field coordinates.
         self.assertFalse(is_on_field("player", 30.0, 20.0, 70.0, 50.0, 1000.0, 1000.0))
 
+    @unittest.skipUnless(HAS_OPENCV, "OpenCV is not installed in this environment")
     def test_field_membership_checker_only_filters_person_shaped_categories(self):
         is_on_field = ml_worker.field_membership_checker(self._square_field_geometry())
         self.assertIsNotNone(is_on_field)
@@ -373,6 +381,7 @@ class DatasetTests(unittest.TestCase):
         # field boundary only applies to people (see PERSON_SHAPED_CATEGORIES).
         self.assertTrue(is_on_field("ball", 30.0, 20.0, 70.0, 50.0, 1000.0, 1000.0))
 
+    @unittest.skipUnless(HAS_OPENCV, "OpenCV is not installed in this environment")
     def test_auto_label_skips_off_field_people_and_keeps_on_field_ones(self):
         class FakeDetections:
             data = {"class_name": ["person", "person"]}

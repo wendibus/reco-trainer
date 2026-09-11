@@ -22,6 +22,12 @@ def load_module(name: str, path: Path):
 local_worker = load_module("model_library_local_worker", ROOT / "local_worker.py")
 ml_worker = load_module("model_library_ml_worker", ROOT / "ml_worker.py")
 
+try:
+    import cv2  # noqa: F401
+    HAS_OPENCV = True
+except ImportError:
+    HAS_OPENCV = False
+
 
 class BenchmarkMetricsTests(unittest.TestCase):
     """Regression coverage for the box_iou/box_iou_xywh name collision.
@@ -400,6 +406,7 @@ class FieldGeometryTests(unittest.TestCase):
             "realWidth": 0.0, "realLength": 20.0,  # zero real width
         }))
 
+    @unittest.skipUnless(HAS_OPENCV, "OpenCV is not installed in this environment")
     def test_accepts_a_point_inside_the_marked_field_and_rejects_outside(self):
         is_on_field = ml_worker.field_membership_checker(self._square_field_geometry())
         self.assertIsNotNone(is_on_field)
@@ -409,6 +416,7 @@ class FieldGeometryTests(unittest.TestCase):
         # square (which starts at pixel 100,100) -> negative field coordinates.
         self.assertFalse(is_on_field("player", 30.0, 20.0, 70.0, 50.0, 1000.0, 1000.0))
 
+    @unittest.skipUnless(HAS_OPENCV, "OpenCV is not installed in this environment")
     def test_only_filters_person_shaped_categories(self):
         is_on_field = ml_worker.field_membership_checker(self._square_field_geometry())
         self.assertIsNotNone(is_on_field)
@@ -416,6 +424,7 @@ class FieldGeometryTests(unittest.TestCase):
         # field boundary only applies to people (see PERSON_SHAPED_CATEGORIES).
         self.assertTrue(is_on_field("ball", 30.0, 20.0, 70.0, 50.0, 1000.0, 1000.0))
 
+    @unittest.skipUnless(HAS_OPENCV, "OpenCV is not installed in this environment")
     def test_auto_label_skips_off_field_people_and_keeps_on_field_ones(self):
         class FakeDetections:
             data = {"class_name": ["person", "person"]}
