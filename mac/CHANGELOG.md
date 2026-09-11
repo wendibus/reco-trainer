@@ -1,5 +1,11 @@
 # Änderungen
 
+## 0.12.9
+
+- Reco Trainer prüft jetzt beim Start einmal, ob auf GitHub eine neuere Version veröffentlicht wurde, und zeigt bei Bedarf einen Hinweis mit Download-Link (nur die öffentliche GitHub-Releases-API wird dafür abgefragt, keine Projektdaten).
+- „Boxen mit OpenCV verfeinern“ (vormals „Ball-Boxen mit OpenCV prüfen“) zieht jetzt auf Wunsch auch von Hand gezeichnete Boxen nach, nicht mehr nur automatische Vorschläge.
+- „Spieler“ bleibt bei „Automatisch markieren“ auswählbar, auch wenn das aktive Modell nur andere Klassen (z. B. „Ball“) gelernt hat - Reco Trainer nutzt dafür zusätzlich das allgemeine Basismodell.
+
 ## 0.12.8
 
 - Ein aktiviertes Modell, das z. B. nur mit „Ball“ trainiert wurde, ließ „Automatisch markieren“ trotzdem eine volle Erkennung für „Schiedsrichter“ oder „Spieler“ durchlaufen und meldete am Ende nur ein pauschales „0 Boxen“. Reco Trainer prüft jetzt die tatsächlichen Klassen des aktivierten Modells und überspringt automatisch, was es nachweislich nicht kennt - mit einer klaren Erklärung je Klasse.
