@@ -24,6 +24,7 @@ ml_worker = load_module("model_library_ml_worker", ROOT / "ml_worker.py")
 
 try:
     import cv2  # noqa: F401
+    import numpy as np
     HAS_OPENCV = True
 except ImportError:
     HAS_OPENCV = False
@@ -480,6 +481,130 @@ class FieldGeometryTests(unittest.TestCase):
             annotations = document["frames"][0]["annotations"]
             self.assertEqual(len(annotations), 1)
             self.assertAlmostEqual(annotations[0]["x"], 480.0)
+
+
+class RefereeClothingTests(unittest.TestCase):
+    """Coverage for the clothing-based referee heuristic: by request, a generic
+    "player" detection whose crop matches the sport's typical referee attire
+    (see REFEREE_CLOTHING_PROFILES) gets reclassified to "referee" - still
+    source="auto", so it goes through the same manual review as any other
+    automatic suggestion rather than being trusted blindly.
+    """
+
+    def test_referee_clothing_checker_returns_none_for_an_unknown_sport(self):
+        self.assertIsNone(ml_worker.referee_clothing_checker("curling"))
+
+    @unittest.skipUnless(HAS_OPENCV, "OpenCV is not installed in this environment")
+    def test_basketball_matches_grey_top_black_bottom(self):
+        matches = ml_worker.referee_clothing_checker("basketball")
+        self.assertIsNotNone(matches)
+        image = np.zeros((200, 100, 3), dtype=np.uint8)
+        image[:110] = (128, 128, 128)  # grey torso (BGR)
+        image[110:] = (10, 10, 10)  # black legs
+        self.assertTrue(matches(image, (0.0, 0.0, 100.0, 200.0)))
+
+        # A solid red kit is not a basketball referee.
+        red_image = np.zeros((200, 100, 3), dtype=np.uint8)
+        red_image[:] = (0, 0, 220)
+        self.assertFalse(matches(red_image, (0.0, 0.0, 100.0, 200.0)))
+
+    @unittest.skipUnless(HAS_OPENCV, "OpenCV is not installed in this environment")
+    def test_hockey_matches_black_and_white_stripes(self):
+        matches = ml_worker.referee_clothing_checker("hockey")
+        self.assertIsNotNone(matches)
+        image = np.zeros((200, 100, 3), dtype=np.uint8)
+        image[:55] = (10, 10, 10)  # black band, upper torso
+        image[55:110] = (250, 250, 250)  # white band, lower torso
+        image[110:] = (10, 10, 10)  # black legs (irrelevant to the stripe check)
+        self.assertTrue(matches(image, (0.0, 0.0, 100.0, 200.0)))
+
+        solid_image = np.zeros((200, 100, 3), dtype=np.uint8)
+        solid_image[:] = (0, 0, 220)
+        self.assertFalse(matches(solid_image, (0.0, 0.0, 100.0, 200.0)))
+
+    @unittest.skipUnless(HAS_OPENCV, "OpenCV is not installed in this environment")
+    def test_auto_label_reclassifies_a_matching_player_to_referee(self):
+        class FakeDetections:
+            data = {"class_name": ["person"]}
+            xyxy = [[0.0, 0.0, 100.0, 200.0]]
+            class_id = [0]
+            confidence = [.9]
+
+        class FakeModel:
+            def __init__(self, **_): pass
+            def predict(self, paths, threshold):
+                return [FakeDetections() for _ in paths]
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "frames").mkdir(parents=True)
+            image = np.zeros((200, 100, 3), dtype=np.uint8)
+            image[:110] = (128, 128, 128)
+            image[110:] = (10, 10, 10)
+            cv2.imwrite(str(root / "frames" / "one.jpg"), image)
+            ml_worker.atomic_json(root / "project.json", {
+                "sport": "basketball",
+                "frames": [
+                    {
+                        "id": "one", "relativePath": "frames/one.jpg",
+                        "width": 100, "height": 200, "annotations": [],
+                    },
+                ],
+            })
+
+            original_import = ml_worker.import_model_class
+            original_device = ml_worker.detect_device
+            original_emit = ml_worker.emit
+            messages: list[str] = []
+            try:
+                ml_worker.import_model_class = lambda *_: FakeModel
+                ml_worker.detect_device = lambda: "cpu"
+                ml_worker.emit = lambda message: messages.append(message)
+                args = type("Args", (), {
+                    "project": str(root), "model": "nano", "category": ["player", "referee"],
+                    "threshold": 0.25, "language": "en", "candidate_only": False,
+                })()
+                ml_worker.auto_label(args)
+            finally:
+                ml_worker.import_model_class = original_import
+                ml_worker.detect_device = original_device
+                ml_worker.emit = original_emit
+
+            self.assertTrue(any("Clothing heuristic active" in message for message in messages))
+            document = ml_worker.load_json(root / "project.json")
+            annotations = document["frames"][0]["annotations"]
+            self.assertEqual(len(annotations), 1)
+            self.assertEqual(annotations[0]["category"], "referee")
+            self.assertEqual(annotations[0]["source"], "auto")
+
+    def test_referee_alone_without_player_is_reported_as_unsupported(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "frames").mkdir(parents=True)
+            (root / "frames" / "one.jpg").write_bytes(b"synthetic")
+            ml_worker.atomic_json(root / "project.json", {
+                "sport": "basketball",
+                "frames": [
+                    {"id": "one", "relativePath": "frames/one.jpg", "width": 100, "height": 200, "annotations": []},
+                ],
+            })
+            messages: list[str] = []
+            original_emit = ml_worker.emit
+            try:
+                ml_worker.emit = lambda message: messages.append(message)
+                args = type("Args", (), {
+                    "project": str(root), "model": "nano", "category": ["referee"],
+                    "threshold": 0.25, "language": "en", "candidate_only": False,
+                })()
+                ml_worker.auto_label(args)
+            finally:
+                ml_worker.emit = original_emit
+
+            self.assertTrue(any("does not know" in message for message in messages))
+            if HAS_OPENCV:
+                self.assertTrue(any("also requires" in message for message in messages))
+            document = ml_worker.load_json(root / "project.json")
+            self.assertEqual(document["frames"][0]["annotations"], [])
 
 
 class CallWithSupportedKwargsModelConstructionTests(unittest.TestCase):

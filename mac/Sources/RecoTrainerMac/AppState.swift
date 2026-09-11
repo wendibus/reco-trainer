@@ -105,16 +105,23 @@ final class AppState: ObservableObject {
     /// "player" is always included when the sport has it, even if the active custom
     /// model's own manifest doesn't: auto_label() runs a second pass with the
     /// generic base model for it in that case (see base_fallback_categories there),
-    /// since unlike e.g. "referee" it has a COCO equivalent ("person") that doesn't
-    /// require custom training at all. No other category has that fallback.
+    /// since unlike most sport-specific categories it has a COCO equivalent
+    /// ("person") that doesn't require custom training at all.
+    ///
+    /// "referee" is likewise always included: auto_label()'s clothing heuristic
+    /// (REFEREE_CLOTHING_PROFILES, one profile per sport this app supports)
+    /// reclassifies a matching generic "player" detection to "referee" - still
+    /// flagged source="auto" for the same manual review as any other suggestion,
+    /// not a guarantee. It only has something to check once "player" is also
+    /// selected, same as the base-model fallback above.
     var autoLabelSupportedCategories: Set<String> {
         if let activeID = activeModelPackageID,
            let active = managedModels.first(where: { $0.packageID == activeID }),
            active.modelSize == modelSize.rawValue {
-            return Set(sport.categories).intersection(Set(active.classes).union(["player"]))
+            return Set(sport.categories).intersection(Set(active.classes).union(["player", "referee"]))
         }
         guard continuationCheckpointName == nil else { return Set(sport.categories) }
-        return Set(sport.categories).intersection(["ball", "puck", "player"])
+        return Set(sport.categories).intersection(["ball", "puck", "player", "referee"])
     }
 
     var benchmarkReportIsCurrent: Bool {

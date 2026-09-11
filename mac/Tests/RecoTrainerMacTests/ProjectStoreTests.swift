@@ -113,16 +113,18 @@ import Testing
     #expect(app.selectedCategory == "ball")
 }
 
-// Regression coverage for a real point of confusion: selecting "referee" or "hoop" in
-// the auto-label chips silently did nothing (base model only knows COCO's "sports ball"
-// and "person"), with the explanation buried in the log instead of visible at the chip.
-// autoLabelSupportedCategories is what the chip UI now uses to grey those out up front.
+// Regression coverage for a real point of confusion: selecting "hoop" in the
+// auto-label chips silently did nothing (base model only knows COCO's "sports
+// ball" and "person"), with the explanation buried in the log instead of visible
+// at the chip. autoLabelSupportedCategories is what the chip UI now uses to grey
+// those out up front. "referee" is included even without a custom model: the
+// clothing heuristic (ml_worker.py's REFEREE_CLOTHING_PROFILES) can reclassify a
+// generic "player" detection to "referee" for every sport this app supports.
 @Test @MainActor func autoLabelSupportedCategoriesExcludesUnknownClassesWithoutACustomModel() {
     let app = AppState()
     app.sport = .basketball
 
-    #expect(app.autoLabelSupportedCategories == ["ball", "player"])
-    #expect(!app.autoLabelSupportedCategories.contains("referee"))
+    #expect(app.autoLabelSupportedCategories == ["ball", "player", "referee"])
     #expect(!app.autoLabelSupportedCategories.contains("hoop"))
 }
 
@@ -132,10 +134,9 @@ import Testing
 // inference for "referee"/"player" too and reported a single misleading "0 boxes"
 // instead of explaining that this specific model never learned those classes.
 // autoLabelSupportedCategories must defer to the activated model's own class list -
-// except "player", which stays available via the base model's generic "person"
-// fallback (see auto_label()'s base_fallback_categories) even when the active
-// model itself was never trained on it, since unlike "referee" it doesn't need
-// custom training to be detected at all.
+// except "player" (base-model "person" fallback) and "referee" (clothing
+// heuristic), which stay available regardless of what the active model itself
+// was trained on, since neither needs custom training to be detected at all.
 @Test @MainActor func autoLabelSupportedCategoriesUsesTheActiveModelsOwnClassListWhenOneExists() {
     let app = AppState()
     app.sport = .basketball
@@ -150,8 +151,7 @@ import Testing
         )
     ]
 
-    #expect(app.autoLabelSupportedCategories == ["ball", "player"])
-    #expect(!app.autoLabelSupportedCategories.contains("referee"))
+    #expect(app.autoLabelSupportedCategories == ["ball", "player", "referee"])
 }
 
 // Regression coverage: a freshly loaded project used to preselect only the sport's

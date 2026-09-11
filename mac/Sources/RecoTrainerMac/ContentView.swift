@@ -848,11 +848,11 @@ struct ContentView: View {
     }
 
     /// Categories the generic COCO "person" class covers visually but that a sport
-    /// schema still tracks separately. The base model can't tell these apart from a
-    /// plain player, but selecting "player" already boxes every person as "player" for
-    /// free - the disabled-chip tooltip should point at that shortcut instead of just
-    /// saying "unsupported", since drawing every referee from scratch is unnecessary.
-    private static let personShapedCategories: Set<String> = ["referee", "goalkeeper"]
+    /// schema still tracks separately, and that have no fallback of their own
+    /// (unlike "player", generic base-model detection, and "referee", the clothing
+    /// heuristic) - the disabled-chip tooltip points at the "select player, then
+    /// relabel by hand" shortcut instead of just saying "unsupported".
+    private static let personShapedCategories: Set<String> = ["goalkeeper"]
 
     @ViewBuilder
     private func autoLabelCategoryChip(_ category: String) -> some View {
@@ -865,17 +865,24 @@ struct ContentView: View {
                 app.autoLabelCategories.insert(category)
             }
         }
+        let refereeHelp = category == "referee" ? app.tr(
+            "Personen mit typischer Schiedsrichter-Kleidung für diese Sportart werden automatisch als „Schiedsrichter“ vorgeschlagen (weiterhin zur Prüfung markiert, keine Garantie). Dafür muss „Spieler“ ebenfalls ausgewählt sein.",
+            "People wearing attire typical for this sport's referees are suggested automatically as \"referee\" (still flagged for review, not a guarantee). This requires \"player\" to be selected too.",
+            "Las personas con ropa típica de árbitro para este deporte se sugieren automáticamente como «árbitro» (siguen marcadas para revisión, no es una garantía). Para ello, «jugador» también debe estar seleccionado.",
+            "Les personnes portant une tenue typique d’arbitre pour ce sport sont suggérées automatiquement comme « arbitre » (toujours signalées pour vérification, ce n’est pas une garantie). Cela nécessite que « joueur » soit également sélectionné."
+        ) : nil
         if isSelected {
             Button(app.language.category(category), action: toggle)
                 .buttonStyle(.borderedProminent)
                 .controlSize(.small)
+                .help(refereeHelp ?? "")
         } else {
             Button(app.language.category(category), action: toggle)
                 .buttonStyle(.bordered)
                 .controlSize(.small)
                 .disabled(!isSupported)
                 .opacity(isSupported ? 1 : 0.4)
-                .help(isSupported ? "" : (
+                .help(isSupported ? (refereeHelp ?? "") : (
                     Self.personShapedCategories.contains(category)
                         ? app.tr(
                             "Das Basismodell erkennt diese Klasse nicht einzeln, aber jede Person allgemein als „Spieler“. Markiere mit „Spieler“ automatisch, klicke dann einzelne \(app.language.category(category))-Boxen an und ordne sie per Klick um.",

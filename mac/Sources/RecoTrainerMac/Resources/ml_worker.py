@@ -708,6 +708,105 @@ def field_membership_checker(
     return is_on_field
 
 
+# Typical referee attire per supported sport, used only as a best-effort hint (see
+# referee_clothing_checker) - actual colors vary by league/level and this is not a
+# substitute for a custom-trained model. "solid": one flat color, top and bottom
+# alike. "solid_two_tone": a distinct top color and bottom color (basketball's
+# grey shirt / black pants is very consistent). "stripes_black_white": the
+# classic "zebra" officiating shirt used across several sports.
+REFEREE_CLOTHING_PROFILES: dict[str, dict[str, Any]] = {
+    "football": {"style": "solid", "colors": ["black"]},
+    "futsal": {"style": "solid", "colors": ["black"]},
+    "basketball": {"style": "solid_two_tone", "top": "grey", "bottom": "black"},
+    "handball": {"style": "solid", "colors": ["black"]},
+    "hockey": {"style": "stripes_black_white"},
+    "rugby": {"style": "solid", "colors": ["black", "yellow", "orange", "red"]},
+    "american_football": {"style": "stripes_black_white"},
+    "lacrosse": {"style": "stripes_black_white"},
+}
+
+
+def _clothing_color_fraction(hsv_region: Any, color: str) -> float:
+    """Fraction of pixels in an HSV image region within a named clothing-color band."""
+    if hsv_region.size == 0:
+        return 0.0
+    hue, saturation, value = hsv_region[..., 0], hsv_region[..., 1], hsv_region[..., 2]
+    if color == "black":
+        mask = value < 70
+    elif color == "white":
+        mask = (saturation < 40) & (value > 190)
+    elif color == "grey":
+        mask = (saturation < 45) & (value >= 70) & (value <= 190)
+    elif color == "yellow":
+        mask = (hue >= 20) & (hue <= 34) & (saturation > 90) & (value > 90)
+    elif color == "orange":
+        mask = (hue >= 8) & (hue < 20) & (saturation > 90) & (value > 90)
+    elif color == "red":
+        mask = ((hue < 8) | (hue > 172)) & (saturation > 90) & (value > 90)
+    else:
+        return 0.0
+    return float(mask.mean())
+
+
+def referee_clothing_checker(
+    sport: str,
+) -> Callable[[Any, tuple[float, float, float, float]], bool] | None:
+    """Best-effort clothing heuristic: does a detected person's crop match this
+    sport's typical referee uniform (see REFEREE_CLOTHING_PROFILES)?
+
+    This is a hint, not a verdict - a matching box still carries source="auto"
+    and needs the same manual review as any other automatic suggestion, since
+    team colors, lighting, and camera quality can all produce a false match.
+    Returns None when OpenCV isn't installed or the sport has no documented
+    profile - callers should then skip the heuristic entirely.
+    """
+    profile = REFEREE_CLOTHING_PROFILES.get(sport)
+    if profile is None:
+        return None
+    try:
+        import cv2
+    except ImportError:
+        return None
+
+    style = profile.get("style")
+    solid_threshold = 0.45
+    stripe_threshold = 0.20
+
+    def matches(image: Any, box: tuple[float, float, float, float]) -> bool:
+        x1, y1, x2, y2 = box
+        height, width = image.shape[:2]
+        left, top = max(0, int(x1)), max(0, int(y1))
+        right, bottom = min(width, int(x2)), min(height, int(y2))
+        if right - left < 6 or bottom - top < 10:
+            return False
+        crop = image[top:bottom, left:right]
+        hsv = cv2.cvtColor(crop, cv2.COLOR_BGR2HSV)
+        # A crude standing-person proxy (no pose estimation): the top ~55% of the
+        # box is torso/arms, the rest legs - close enough to tell a grey shirt
+        # from black pants, or check the torso for zebra stripes.
+        split = int(hsv.shape[0] * 0.55)
+        torso, legs = hsv[:split], hsv[split:]
+
+        if style == "stripes_black_white":
+            black = _clothing_color_fraction(torso, "black")
+            white = _clothing_color_fraction(torso, "white")
+            return black >= stripe_threshold and white >= stripe_threshold and (black + white) >= 0.5
+        if style == "solid_two_tone":
+            return (
+                _clothing_color_fraction(torso, profile["top"]) >= solid_threshold
+                and _clothing_color_fraction(legs, profile["bottom"]) >= solid_threshold
+            )
+        if style == "solid":
+            colors = profile.get("colors", [])
+            return (
+                any(_clothing_color_fraction(torso, color) >= solid_threshold for color in colors)
+                and any(_clothing_color_fraction(legs, color) >= solid_threshold for color in colors)
+            )
+        return False
+
+    return matches
+
+
 CATEGORY_ASPECT_BOUNDS: dict[str, tuple[float, float]] = {
     # (min width/height, max width/height). ball/puck are the original,
     # empirically-tuned values. The rest are a first documented estimate,
@@ -907,6 +1006,7 @@ def run_autolabel_pass(
     document: dict[str, Any],
     language: str,
     is_on_field: Callable[[str, float, float, float, float, float, float], bool] | None = None,
+    referee_clothing_match: Callable[[Any, tuple[float, float, float, float]], bool] | None = None,
 ) -> tuple[int, int, int]:
     """Run one model's detection pass over frames for target_categories, adding
     boxes in place and persisting after every batch. Returns (processed_frames,
@@ -917,6 +1017,13 @@ def run_autolabel_pass(
     is_on_field, when given, additionally requires a person-shaped detection's
     feet to fall inside the project's marked field boundaries (see
     field_membership_checker) - other categories (ball, hoop, ...) are unaffected.
+
+    referee_clothing_match, when given, is checked against every newly added
+    "player" box on a frame that doesn't already have a "referee" annotation - a
+    match reclassifies that specific box to "referee" before it's saved, still
+    with source="auto" so it goes through the same manual review as any other
+    automatic suggestion. The caller is responsible for only passing this when
+    "referee" was actually requested for the overall run.
     """
     processed_frames = frames_with_detections = boxes_added = 0
     for start in range(0, len(frames), batch_size):
@@ -968,6 +1075,22 @@ def run_autolabel_pass(
                         "source": "auto",
                     }
                 )
+            if (
+                referee_clothing_match is not None
+                and not frame_has_category(frame, "referee")
+                and any(item["category"] == "player" for item in new_annotations)
+            ):
+                # cv2 is guaranteed importable here - referee_clothing_checker()
+                # only ever returns a non-None matcher once it has confirmed that.
+                import cv2
+                image = cv2.imread(str(project_root / frame["relativePath"]), cv2.IMREAD_COLOR)
+                if image is not None:
+                    for item in new_annotations:
+                        if item["category"] != "player":
+                            continue
+                        box = (item["x"], item["y"], item["x"] + item["width"], item["y"] + item["height"])
+                        if referee_clothing_match(image, box):
+                            item["category"] = "referee"
             frame["annotations"] = [*frame.get("annotations", []), *new_annotations]
             processed_frames += 1
             boxes_added += len(new_annotations)
@@ -1009,27 +1132,35 @@ def auto_label(args: argparse.Namespace) -> None:
     # time and reporting a single misleading "0 boxes" that didn't distinguish "the model
     # doesn't know this class yet" from "the model just didn't find anything this time".
     known_classes = active_model_classes(project_root, args.model)
+    sport = str(document.get("sport", ""))
+    # Whether "referee" can be satisfied via the clothing heuristic instead of a
+    # dedicated trained class - it only has something to check once "player" is
+    # also being detected in this same run (the heuristic reclassifies generic
+    # person detections, it doesn't run its own detection pass).
+    clothing_checker = referee_clothing_checker(sport)
+    clothing_possible = clothing_checker is not None and "player" in target_categories
+
+    def category_is_supported(category: str) -> bool:
+        if known_classes is not None:
+            return category in known_classes
+        return has_checkpoint or category in {"ball", "puck", "player"}
 
     unsupported: list[str] = []
     base_fallback_categories: list[str] = []
-    if known_classes is not None:
-        for category in target_categories:
-            if category in known_classes:
-                continue
-            if category == "player":
-                # The active model has no dedicated "player" class, but the generic
-                # Apache-2.0 base model can still find people via COCO's "person"
-                # class - run a second pass with the base model for just this
-                # category instead of skipping it outright. No other category has a
-                # base-model equivalent (COCO has no concept of e.g. "referee").
-                base_fallback_categories.append(category)
-            else:
-                unsupported.append(category)
-    else:
-        unsupported = [
-            category for category in target_categories
-            if not has_checkpoint and category not in {"ball", "puck", "player"}
-        ]
+    clothing_fallback_categories: list[str] = []
+    for category in target_categories:
+        if category_is_supported(category):
+            continue
+        if category == "player":
+            # No trained "player" class (base model or a custom model missing it),
+            # but the generic Apache-2.0 base model can still find people via
+            # COCO's "person" class - run a second pass with the base model for
+            # just this category instead of skipping it outright.
+            base_fallback_categories.append(category)
+        elif category == "referee" and clothing_possible:
+            clothing_fallback_categories.append(category)
+        else:
+            unsupported.append(category)
     for category in unsupported:
         emit(localized(
             args.language,
@@ -1038,10 +1169,20 @@ def auto_label(args: argparse.Namespace) -> None:
             f"The currently active model does not know the “{category}” class yet. "
             "Annotate this class manually first and train a custom model.",
         ))
+    if "referee" in target_categories and not clothing_possible and clothing_checker is not None and "player" not in target_categories:
+        emit(localized(
+            args.language,
+            "Für die Kleidungs-Erkennung von Schiedsrichtern muss „Spieler“ ebenfalls ausgewählt sein "
+            "(die Personenerkennung läuft darüber).",
+            "Detecting referees by clothing also requires “player” to be selected (person detection runs through it).",
+        ))
     target_categories = [category for category in target_categories if category not in unsupported]
     if not target_categories:
         return
-    custom_categories = [category for category in target_categories if category not in base_fallback_categories]
+    custom_categories = [
+        category for category in target_categories
+        if category not in base_fallback_categories and category not in clothing_fallback_categories
+    ]
 
     if base_fallback_categories:
         fallback_list = ", ".join(base_fallback_categories)
@@ -1078,6 +1219,16 @@ def auto_label(args: argparse.Namespace) -> None:
             "Field boundaries could not be applied (OpenCV is missing or the marking is incomplete).",
         ))
 
+    referee_clothing_match = clothing_checker if clothing_fallback_categories else None
+    if referee_clothing_match is not None:
+        emit(localized(
+            args.language,
+            "Kleidungs-Heuristik aktiv: Personen mit typischer Schiedsrichter-Kleidung werden als "
+            "„Schiedsrichter“ vorgeschlagen (weiterhin zur Prüfung markiert, keine Garantie).",
+            "Clothing heuristic active: people wearing typical referee attire are suggested as "
+            "“referee” (still flagged for review, not a guarantee).",
+        ))
+
     already_present = {
         category: sum(1 for frame in frames if frame_has_category(frame, category))
         for category in target_categories
@@ -1098,7 +1249,7 @@ def auto_label(args: argparse.Namespace) -> None:
         model = model_instance(project_root, args.model, trained=True, language=args.language)
         pass_processed, pass_with_detections, pass_boxes = run_autolabel_pass(
             model, frames, custom_categories, category_map, args.threshold, batch_size,
-            project_root, document, args.language, is_on_field,
+            project_root, document, args.language, is_on_field, referee_clothing_match,
         )
         processed_frames += pass_processed
         frames_with_detections += pass_with_detections
@@ -1109,7 +1260,7 @@ def auto_label(args: argparse.Namespace) -> None:
         base_model = model_instance(project_root, args.model, trained=False, language=args.language)
         pass_processed, pass_with_detections, pass_boxes = run_autolabel_pass(
             base_model, frames, base_fallback_categories, category_map, args.threshold, batch_size,
-            project_root, document, args.language, is_on_field,
+            project_root, document, args.language, is_on_field, referee_clothing_match,
         )
         processed_frames += pass_processed
         frames_with_detections += pass_with_detections
