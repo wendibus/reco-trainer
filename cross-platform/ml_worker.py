@@ -24,6 +24,7 @@ import time
 import uuid
 import zipfile
 from collections import defaultdict
+from collections.abc import Callable
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -633,6 +634,80 @@ def box_iou_xywh(first: tuple[float, float, float, float], second: tuple[float, 
     return intersection / union if union > 0 else 0.0
 
 
+PERSON_SHAPED_CATEGORIES: frozenset[str] = frozenset({"player", "referee", "goalkeeper"})
+
+
+def field_membership_checker(
+    field_geometry: dict[str, Any] | None,
+) -> Callable[[str, float, float, float, float, float, float], bool] | None:
+    """Builds a per-run function deciding whether a detected person-shaped box's
+    feet fall inside the project's marked field boundaries - by request, so
+    auto-label only adds "player"/"referee"/"goalkeeper" boxes for people
+    actually standing on the field, not spectators, bench, or staff nearby.
+
+    field_geometry is the project's optional "fieldGeometry": four image corners
+    in TL/TR/BR/BL order as fractional (0..1) coordinates (so they apply however
+    a given frame was extracted/scaled) plus the field's real width/length in
+    meters. Returns None - "don't filter anything" - whenever geometry is absent,
+    incomplete, or OpenCV isn't installed, so a project without field boundaries
+    marked behaves exactly as before.
+    """
+    if not field_geometry:
+        return None
+    corners = field_geometry.get("corners")
+    try:
+        real_width = float(field_geometry.get("realWidth", 0) or 0)
+        real_length = float(field_geometry.get("realLength", 0) or 0)
+    except (TypeError, ValueError):
+        return None
+    if not corners or len(corners) != 4 or real_width <= 0 or real_length <= 0:
+        return None
+    try:
+        import cv2
+        import numpy as np
+    except ImportError:
+        return None
+
+    destination = np.array(
+        [[0, 0], [real_width, 0], [real_width, real_length], [0, real_length]], dtype=np.float32
+    )
+    homography_cache: dict[tuple[float, float], Any] = {}
+
+    def homography_for(frame_width: float, frame_height: float) -> Any | None:
+        key = (frame_width, frame_height)
+        if key not in homography_cache:
+            try:
+                source = np.array(
+                    [[float(fx) * frame_width, float(fy) * frame_height] for fx, fy in corners], dtype=np.float32
+                )
+                homography_cache[key] = cv2.getPerspectiveTransform(source, destination)
+            except (cv2.error, TypeError, ValueError):
+                homography_cache[key] = None
+        return homography_cache[key]
+
+    # A margin in meters, not pixels - forgives a foot right on the boundary
+    # line or a slightly imprecise corner click, without letting in anyone
+    # clearly off the field (a bench several meters away, spectators).
+    margin = 0.3
+
+    def is_on_field(
+        category: str, x1: float, y1: float, x2: float, y2: float, frame_width: float, frame_height: float
+    ) -> bool:
+        if category not in PERSON_SHAPED_CATEGORIES:
+            return True
+        homography = homography_for(frame_width, frame_height)
+        if homography is None:
+            return True
+        foot_point = np.array([[[(x1 + x2) / 2.0, y2]]], dtype=np.float32)
+        transformed = cv2.perspectiveTransform(foot_point, homography)[0][0]
+        return (
+            -margin <= transformed[0] <= real_width + margin
+            and -margin <= transformed[1] <= real_length + margin
+        )
+
+    return is_on_field
+
+
 CATEGORY_ASPECT_BOUNDS: dict[str, tuple[float, float]] = {
     # (min width/height, max width/height). ball/puck are the original,
     # empirically-tuned values. The rest are a first documented estimate,
@@ -831,12 +906,17 @@ def run_autolabel_pass(
     project_root: Path,
     document: dict[str, Any],
     language: str,
+    is_on_field: Callable[[str, float, float, float, float, float, float], bool] | None = None,
 ) -> tuple[int, int, int]:
     """Run one model's detection pass over frames for target_categories, adding
     boxes in place and persisting after every batch. Returns (processed_frames,
     frames_with_detections, boxes_added) for this pass alone - auto_label() may
     call this twice (once per model) when a category needs the base model as a
     fallback for a class the active custom model doesn't know.
+
+    is_on_field, when given, additionally requires a person-shaped detection's
+    feet to fall inside the project's marked field boundaries (see
+    field_membership_checker) - other categories (ball, hoop, ...) are unaffected.
     """
     processed_frames = frames_with_detections = boxes_added = 0
     for start in range(0, len(frames), batch_size):
@@ -871,6 +951,10 @@ def run_autolabel_pass(
                 if not category or category not in wanted:
                     continue
                 x1, y1, x2, y2 = [float(value) for value in box]
+                if is_on_field is not None and not is_on_field(
+                    category, x1, y1, x2, y2, float(frame.get("width", 0)), float(frame.get("height", 0))
+                ):
+                    continue
                 confidence = float(detections.confidence[index])
                 new_annotations.append(
                     {
@@ -979,6 +1063,21 @@ def auto_label(args: argparse.Namespace) -> None:
             "therefore be incorrectly labeled as players.",
         ))
 
+    field_geometry = document.get("fieldGeometry")
+    is_on_field = field_membership_checker(field_geometry)
+    if field_geometry and is_on_field is not None:
+        emit(localized(
+            args.language,
+            "Spielfeldgrenzen aktiv: Nur Personen, die mit den Füßen auf dem markierten Feld stehen, werden berücksichtigt.",
+            "Field boundaries active: only people standing with their feet on the marked field are considered.",
+        ))
+    elif field_geometry and is_on_field is None:
+        emit(localized(
+            args.language,
+            "Spielfeldgrenzen konnten nicht angewendet werden (OpenCV fehlt oder die Markierung ist unvollständig).",
+            "Field boundaries could not be applied (OpenCV is missing or the marking is incomplete).",
+        ))
+
     already_present = {
         category: sum(1 for frame in frames if frame_has_category(frame, category))
         for category in target_categories
@@ -999,7 +1098,7 @@ def auto_label(args: argparse.Namespace) -> None:
         model = model_instance(project_root, args.model, trained=True, language=args.language)
         pass_processed, pass_with_detections, pass_boxes = run_autolabel_pass(
             model, frames, custom_categories, category_map, args.threshold, batch_size,
-            project_root, document, args.language,
+            project_root, document, args.language, is_on_field,
         )
         processed_frames += pass_processed
         frames_with_detections += pass_with_detections
@@ -1010,7 +1109,7 @@ def auto_label(args: argparse.Namespace) -> None:
         base_model = model_instance(project_root, args.model, trained=False, language=args.language)
         pass_processed, pass_with_detections, pass_boxes = run_autolabel_pass(
             base_model, frames, base_fallback_categories, category_map, args.threshold, batch_size,
-            project_root, document, args.language,
+            project_root, document, args.language, is_on_field,
         )
         processed_frames += pass_processed
         frames_with_detections += pass_with_detections

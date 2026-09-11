@@ -327,6 +327,108 @@ class DatasetTests(unittest.TestCase):
             categories = {item["category"] for item in document["frames"][0]["annotations"]}
             self.assertEqual(categories, {"ball", "player"})
 
+    # Coverage for the field-boundary filter: by request, auto-label should only
+    # add "player"/"referee"/"goalkeeper" boxes for people whose feet fall inside
+    # the project's marked field (four image corners + real dimensions), so a
+    # spectator or bench player standing nearby doesn't silently become "player".
+    #
+    # The test geometry is deliberately axis-aligned (corners form a square, not a
+    # perspective-distorted quad) so the expected real-world coordinates can be
+    # worked out by hand: frame pixels (100,100)-(900,900) map to field meters
+    # (0,0)-(20,20), a uniform scale of 0.025 m/px with a (-100,-100)px offset.
+    def _square_field_geometry(self) -> dict:
+        return {
+            "corners": [[0.1, 0.1], [0.9, 0.1], [0.9, 0.9], [0.1, 0.9]],
+            "realWidth": 20.0,
+            "realLength": 20.0,
+        }
+
+    def test_field_membership_checker_returns_none_without_geometry(self):
+        self.assertIsNone(ml_worker.field_membership_checker(None))
+        self.assertIsNone(ml_worker.field_membership_checker({}))
+
+    def test_field_membership_checker_returns_none_for_incomplete_or_invalid_geometry(self):
+        self.assertIsNone(ml_worker.field_membership_checker({
+            "corners": [[0.1, 0.1], [0.9, 0.1], [0.9, 0.9]],  # only 3 corners
+            "realWidth": 20.0, "realLength": 20.0,
+        }))
+        self.assertIsNone(ml_worker.field_membership_checker({
+            "corners": [[0.1, 0.1], [0.9, 0.1], [0.9, 0.9], [0.1, 0.9]],
+            "realWidth": 0.0, "realLength": 20.0,  # zero real width
+        }))
+
+    def test_field_membership_checker_accepts_inside_and_rejects_outside(self):
+        is_on_field = ml_worker.field_membership_checker(self._square_field_geometry())
+        self.assertIsNotNone(is_on_field)
+        # Frame center (500, 500) -> field (10, 10): well inside the 20x20 field.
+        self.assertTrue(is_on_field("player", 480.0, 400.0, 520.0, 500.0, 1000.0, 1000.0))
+        # Near the frame's top-left corner (50, 50), well outside the marked
+        # square (which starts at pixel 100,100) -> negative field coordinates.
+        self.assertFalse(is_on_field("player", 30.0, 20.0, 70.0, 50.0, 1000.0, 1000.0))
+
+    def test_field_membership_checker_only_filters_person_shaped_categories(self):
+        is_on_field = ml_worker.field_membership_checker(self._square_field_geometry())
+        self.assertIsNotNone(is_on_field)
+        # A "ball" detection far outside the marked field is not filtered - the
+        # field boundary only applies to people (see PERSON_SHAPED_CATEGORIES).
+        self.assertTrue(is_on_field("ball", 30.0, 20.0, 70.0, 50.0, 1000.0, 1000.0))
+
+    def test_auto_label_skips_off_field_people_and_keeps_on_field_ones(self):
+        class FakeDetections:
+            data = {"class_name": ["person", "person"]}
+            # Box 1: feet (bottom-center) at pixel (500, 500) -> inside the field.
+            # Box 2: feet at pixel (50, 50) -> outside the marked field.
+            xyxy = [[480.0, 400.0, 520.0, 500.0], [30.0, 20.0, 70.0, 50.0]]
+            class_id = [0, 0]
+            confidence = [.9, .8]
+
+        class FakeModel:
+            def __init__(self, **_): pass
+            def predict(self, paths, threshold):
+                return [FakeDetections() for _ in paths]
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "frames").mkdir(parents=True)
+            (root / "frames" / "one.jpg").write_bytes(b"synthetic")
+            ml_worker.atomic_json(root / "project.json", {
+                "sport": "basketball",
+                "fieldGeometry": {
+                    "corners": [[0.1, 0.1], [0.9, 0.1], [0.9, 0.9], [0.1, 0.9]],
+                    "realWidth": 20.0, "realLength": 20.0,
+                },
+                "frames": [
+                    {
+                        "id": "one", "relativePath": "frames/one.jpg",
+                        "width": 1000, "height": 1000, "annotations": [],
+                    },
+                ],
+            })
+
+            original_import = ml_worker.import_model_class
+            original_device = ml_worker.detect_device
+            original_emit = ml_worker.emit
+            messages: list[str] = []
+            try:
+                ml_worker.import_model_class = lambda *_: FakeModel
+                ml_worker.detect_device = lambda: "cpu"
+                ml_worker.emit = lambda message: messages.append(message)
+                args = type("Args", (), {
+                    "project": str(root), "model": "nano", "category": ["player"],
+                    "threshold": 0.25, "language": "en", "candidate_only": False,
+                })()
+                ml_worker.auto_label(args)
+            finally:
+                ml_worker.import_model_class = original_import
+                ml_worker.detect_device = original_device
+                ml_worker.emit = original_emit
+
+            self.assertTrue(any("Field boundaries active" in message for message in messages))
+            document = ml_worker.load_json(root / "project.json")
+            annotations = document["frames"][0]["annotations"]
+            self.assertEqual(len(annotations), 1)
+            self.assertAlmostEqual(annotations[0]["x"], 480.0)
+
     def test_category_specific_skip_preserves_other_classes(self):
         frame = {"annotations": [{"category": "player"}]}
         self.assertFalse(ml_worker.frame_has_category(frame, "ball"))

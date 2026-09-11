@@ -338,3 +338,42 @@ import Testing
     #expect(parseVersionComponents("0.12.8") == [0, 12, 8])
     #expect(parseVersionComponents("V1.2") == [1, 2])
 }
+
+// FieldCorner must encode as a plain [x, y] array, not CGPoint's native
+// {"x":...,"y":...} Codable form, because ml_worker.py's field_membership_checker
+// reads each corner with `for fx, fy in corners` - a keyed object there would
+// silently break unpacking instead of raising a clear error.
+@Test func fieldCornerEncodesAsAPlainArrayPair() throws {
+    let corner = FieldCorner(x: 0.1, y: 0.25)
+    let data = try JSONEncoder().encode(corner)
+    let json = try JSONSerialization.jsonObject(with: data) as? [Double]
+    #expect(json == [0.1, 0.25])
+
+    let decoded = try JSONDecoder().decode(FieldCorner.self, from: data)
+    #expect(decoded == corner)
+}
+
+// Regression coverage: fieldGeometry must round-trip through the same
+// save/load path as the rest of the project document (mirrors projectRoundTrip).
+@Test func projectRoundTripPreservesFieldGeometry() throws {
+    let root = FileManager.default.temporaryDirectory
+        .appending(path: "reco-trainer-field-geometry-test-\(UUID().uuidString)", directoryHint: .isDirectory)
+    let store = ProjectStore(rootURL: root)
+    var project = ProjectDocument(name: "Test", sport: .basketball, sourceFolder: "/tmp/videos")
+    project.fieldGeometry = FieldGeometry(
+        corners: [
+            FieldCorner(x: 0.1, y: 0.1), FieldCorner(x: 0.9, y: 0.1),
+            FieldCorner(x: 0.9, y: 0.9), FieldCorner(x: 0.1, y: 0.9),
+        ],
+        realWidth: 15.0,
+        realLength: 28.0
+    )
+
+    try store.save(project)
+    let loaded = try store.load()
+
+    #expect(loaded.fieldGeometry?.corners.count == 4)
+    #expect(loaded.fieldGeometry?.corners.first == FieldCorner(x: 0.1, y: 0.1))
+    #expect(loaded.fieldGeometry?.realWidth == 15.0)
+    #expect(loaded.fieldGeometry?.realLength == 28.0)
+}

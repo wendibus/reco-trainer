@@ -471,6 +471,17 @@ final class AppState: ObservableObject {
         }
     }
 
+    func updateFieldGeometry(_ geometry: FieldGeometry?) {
+        guard var document = project, let store else { return }
+        document.fieldGeometry = geometry
+        project = document
+        do {
+            try store.save(document)
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
     func removeSelectedFrame() {
         guard var document = project,
               let frameID = selectedFrameID,

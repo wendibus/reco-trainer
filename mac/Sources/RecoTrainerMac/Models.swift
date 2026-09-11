@@ -83,6 +83,43 @@ struct ProjectDocument: Codable, Equatable, Sendable {
     var frames: [FrameRecord] = []
     var lastTraining: TrainingResult?
     var trainingHistory: [TrainingResult]?
+    var fieldGeometry: FieldGeometry?
+}
+
+/// A single marked field corner, stored as a plain [x, y] pair (not CGPoint's
+/// native {"x":...,"y":...} Codable form) so it matches what ml_worker.py's
+/// field_membership_checker() expects to read directly with `for fx, fy in corners`.
+struct FieldCorner: Codable, Equatable, Sendable {
+    var x: Double
+    var y: Double
+
+    init(x: Double, y: Double) {
+        self.x = x
+        self.y = y
+    }
+
+    init(from decoder: Decoder) throws {
+        var container = try decoder.unkeyedContainer()
+        x = try container.decode(Double.self)
+        y = try container.decode(Double.self)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.unkeyedContainer()
+        try container.encode(x)
+        try container.encode(y)
+    }
+}
+
+/// The project's marked field boundaries: four image corners in TL, TR, BR, BL
+/// order, as fractional (0...1) coordinates of whichever reference frame they
+/// were marked on (so they keep applying if frames are re-extracted at a
+/// different resolution), plus the field's real width/length in meters.
+/// auto_label() uses this to only consider people standing on the field.
+struct FieldGeometry: Codable, Equatable, Sendable {
+    var corners: [FieldCorner]
+    var realWidth: Double
+    var realLength: Double
 }
 
 struct TrainingResult: Codable, Equatable, Sendable {

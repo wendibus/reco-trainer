@@ -20,6 +20,8 @@ struct ContentView: View {
     @State private var showModelLibrary = false
     @State private var showPackageNamePrompt = false
     @State private var packageNameDraft = ""
+    @State private var showFieldGeometryEditor = false
+    @AppStorage("recoDismissedFieldGeometryNudgeV1") private var dismissedFieldGeometryNudge = false
 
     var body: some View {
         NavigationSplitView {
@@ -28,7 +30,12 @@ struct ContentView: View {
             detail
         }
         .frame(minWidth: 1120, minHeight: 720)
-        .safeAreaInset(edge: .top, spacing: 0) { updateBanner }
+        .safeAreaInset(edge: .top, spacing: 0) {
+            VStack(spacing: 0) {
+                updateBanner
+                fieldGeometryNudge
+            }
+        }
         .alert(app.tr("Hinweis", "Notice"), isPresented: Binding(
             get: { app.errorMessage != nil },
             set: { if !$0 { app.errorMessage = nil } }
@@ -149,6 +156,22 @@ struct ContentView: View {
                 showReleaseNotes = false
             }
         }
+        .sheet(isPresented: $showFieldGeometryEditor) {
+            if let frame = app.selectedFrame ?? app.project?.frames.first, let store = app.store {
+                FieldGeometryEditor(
+                    imageURL: store.frameURL(for: frame),
+                    frameWidth: frame.width,
+                    frameHeight: frame.height,
+                    language: app.language,
+                    existing: app.project?.fieldGeometry,
+                    onSave: { geometry in
+                        app.updateFieldGeometry(geometry)
+                        showFieldGeometryEditor = false
+                    },
+                    onCancel: { showFieldGeometryEditor = false }
+                )
+            }
+        }
     }
 
     private var onboardingPresented: Binding<Bool> {
@@ -190,6 +213,40 @@ struct ContentView: View {
             .padding(.horizontal, 16)
             .padding(.vertical, 8)
             .background(.blue.opacity(0.12))
+        }
+    }
+
+    /// Nudges toward marking field boundaries as soon as there's something to
+    /// mark them on, matching the request to ask for this early rather than
+    /// leaving it to be discovered. Purely a suggestion - "Spielfeld festlegen"
+    /// stays available in the toolbar at any time either way.
+    @ViewBuilder
+    private var fieldGeometryNudge: some View {
+        if let project = app.project, !project.frames.isEmpty, project.fieldGeometry == nil, !dismissedFieldGeometryNudge {
+            HStack(spacing: 10) {
+                Image(systemName: "sportscourt").foregroundStyle(.green)
+                Text(app.tr(
+                    "Spielfeld markieren, damit automatisches Markieren nur Personen auf dem Feld berücksichtigt.",
+                    "Mark the field boundaries so auto-label only considers people standing on the field.",
+                    "Marca los límites del campo para que el marcado automático solo considere a personas dentro del campo.",
+                    "Marquez les limites du terrain pour que le marquage automatique ne prenne en compte que les personnes sur le terrain."
+                ))
+                Spacer()
+                Button(app.tr("Spielfeld festlegen", "Set field boundaries", "Definir el campo", "Définir le terrain")) {
+                    showFieldGeometryEditor = true
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.small)
+                Button(app.tr("Nicht jetzt", "Not now", "Ahora no", "Pas maintenant")) {
+                    dismissedFieldGeometryNudge = true
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.secondary)
+                .font(.caption)
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 8)
+            .background(.green.opacity(0.12))
         }
     }
 
@@ -585,6 +642,18 @@ struct ContentView: View {
             HStack {
                 Button(app.tr("Hardware prüfen", "Check hardware"), action: app.checkHardware)
                 Button(app.tr("ML einrichten", "Set up ML"), action: app.prepareEnvironment)
+                Button(
+                    app.project?.fieldGeometry == nil
+                        ? app.tr("Spielfeld festlegen", "Set field boundaries", "Definir el campo", "Définir le terrain")
+                        : app.tr("Spielfeld bearbeiten", "Edit field boundaries", "Editar el campo", "Modifier le terrain")
+                ) { showFieldGeometryEditor = true }
+                    .disabled(app.project == nil || (app.selectedFrame ?? app.project?.frames.first) == nil)
+                    .help(app.tr(
+                        "Markiere die vier Eckpunkte des Spielfelds, damit „Automatisch markieren“ nur Personen berücksichtigt, die mit den Füßen auf dem Feld stehen.",
+                        "Mark the field's four corners so \"Auto-label\" only considers people whose feet are standing on the field.",
+                        "Marca las cuatro esquinas del campo para que «Marcado automático» solo considere a personas con los pies sobre el campo.",
+                        "Marquez les quatre coins du terrain pour que « Marquage automatique » ne prenne en compte que les personnes ayant les pieds sur le terrain."
+                    ))
                 Button(
                     app.tr("Automatisch markieren", "Auto-label"),
                     action: app.autoLabel
