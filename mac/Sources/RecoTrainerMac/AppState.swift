@@ -51,7 +51,7 @@ final class AppState: ObservableObject {
     @Published var errorMessage: String?
     @Published var localPickerPurpose: LocalPickerPurpose?
     @Published private(set) var installedModelCount = 0
-    @Published private(set) var managedModels: [ManagedModelRecord] = []
+    @Published var managedModels: [ManagedModelRecord] = []
     @Published private var continuationCheckpoints: [ModelSize: String] = [:]
 
     var store: ProjectStore? {
@@ -81,13 +81,25 @@ final class AppState: ObservableObject {
     }
 
     /// Categories the current model (base or custom-trained) can actually detect
-    /// right now. Mirrors ml_worker.py's auto_label() check: the Apache-2.0 base
-    /// model only knows COCO's "sports ball" (-> ball/puck) and "person" (-> player)
-    /// classes; sport-specific classes like referee/hoop/goal need a custom-trained
-    /// model for the selected model size first. Once one exists, every category is
-    /// assumed available, since a completed local training run covers whatever was
-    /// annotated.
+    /// right now. Mirrors ml_worker.py's auto_label()/active_model_classes() check:
+    /// the Apache-2.0 base model only knows COCO's "sports ball" (-> ball/puck) and
+    /// "person" (-> player) classes.
+    ///
+    /// If a library model is activated for the selected size, its own manifest is
+    /// authoritative - it may have been trained back when the project only had
+    /// "ball" annotated, so it can't just be assumed to cover every category the
+    /// sport schema lists now. Previously that wrong assumption ("any checkpoint at
+    /// all -> every category is fair game") made a fresh project preselect e.g.
+    /// "referee" for auto-label even though the active model had never seen it,
+    /// wasting a full inference pass and reporting a single misleading "0 boxes".
+    /// Only a raw, not-yet-packaged runs/<size> checkpoint (no manifest to consult)
+    /// still falls back to that optimistic assumption.
     var autoLabelSupportedCategories: Set<String> {
+        if let activeID = activeModelPackageID,
+           let active = managedModels.first(where: { $0.packageID == activeID }),
+           active.modelSize == modelSize.rawValue {
+            return Set(sport.categories).intersection(active.classes)
+        }
         guard continuationCheckpointName == nil else { return Set(sport.categories) }
         return Set(sport.categories).intersection(["ball", "puck", "player"])
     }

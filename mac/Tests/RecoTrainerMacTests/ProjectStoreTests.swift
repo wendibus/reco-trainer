@@ -126,6 +126,31 @@ import Testing
     #expect(!app.autoLabelSupportedCategories.contains("hoop"))
 }
 
+// Regression coverage for a real report: a model activated back when the project
+// only had "ball" annotated used to have "every sport category" assumed supported
+// just because SOME custom checkpoint existed, so auto-label wastefully ran
+// inference for "referee"/"player" too and reported a single misleading "0 boxes"
+// instead of explaining that this specific model never learned those classes.
+// autoLabelSupportedCategories must defer to the activated model's own class list.
+@Test @MainActor func autoLabelSupportedCategoriesUsesTheActiveModelsOwnClassListWhenOneExists() {
+    let app = AppState()
+    app.sport = .basketball
+    app.modelSize = .nano
+    app.activeModelPackageID = "pkg-1"
+    app.managedModels = [
+        ManagedModelRecord(
+            packageID: "pkg-1", displayName: nil, createdAt: nil, sport: "basketball",
+            modelSize: "nano", classes: ["ball"], source: nil, description: nil,
+            validationMetrics: nil, testMetrics: nil, trainingSummary: nil,
+            statistics: nil, isActive: true, isBest: nil
+        )
+    ]
+
+    #expect(app.autoLabelSupportedCategories == ["ball"])
+    #expect(!app.autoLabelSupportedCategories.contains("referee"))
+    #expect(!app.autoLabelSupportedCategories.contains("player"))
+}
+
 // Regression coverage: a freshly loaded project used to preselect only the sport's
 // first category (typically "ball"), so getting person detections for free from the
 // base model's generic COCO "person" class required remembering to also tick "player" -

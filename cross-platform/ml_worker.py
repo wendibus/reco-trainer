@@ -288,6 +288,28 @@ def newest_checkpoint(project_root: Path, size: str) -> Path | None:
     return preferred_run_checkpoint(project_root / "runs" / size)
 
 
+def active_model_classes(project_root: Path, size: str) -> set[str] | None:
+    """Classes the currently activated library model for this size was actually trained on.
+
+    None means "unknown" rather than "supports nothing" - either there is no activated
+    library model for this size (e.g. only a raw, not-yet-packaged runs/<size> checkpoint
+    exists), or its manifest could not be read. Callers should fall back to their own
+    default assumption in that case instead of treating every category as unsupported.
+    """
+    try:
+        active = load_json(project_root / "models" / "active.json")
+        if active.get("modelSize") != size:
+            return None
+        library_root = (project_root / "models" / "library").resolve()
+        manifest_path = (library_root / str(active["packageID"]) / "manifest.json").resolve()
+        if library_root not in manifest_path.parents or not manifest_path.is_file():
+            return None
+        manifest = load_json(manifest_path)
+        return {str(item) for item in manifest.get("classes", [])}
+    except (OSError, ValueError, TypeError, KeyError, json.JSONDecodeError):
+        return None
+
+
 def model_instance(project_root: Path, size: str, trained: bool, language: str = "de"):
     model_class = import_model_class(size, language)
     checkpoint = newest_checkpoint(project_root, size) if trained else None
@@ -805,17 +827,28 @@ def auto_label(args: argparse.Namespace) -> None:
     target_categories = list(dict.fromkeys(args.category))  # de-duplicate, keep order
     category_map = detection_category_map(target_categories)
     has_checkpoint = newest_checkpoint(project_root, args.model) is not None
+    # An activated library model's own manifest is authoritative about which classes it
+    # can actually detect (e.g. a model trained back when only "ball" was annotated still
+    # has just one class, even though the project has since grown "referee"/"player" too).
+    # Falling back to "any checkpoint => every category is fair game" here used to run a
+    # full inference pass for classes the active model provably cannot produce, wasting
+    # time and reporting a single misleading "0 boxes" that didn't distinguish "the model
+    # doesn't know this class yet" from "the model just didn't find anything this time".
+    known_classes = active_model_classes(project_root, args.model)
 
-    unsupported = [
-        category for category in target_categories
-        if not has_checkpoint and category not in {"ball", "puck", "player"}
-    ]
+    if known_classes is not None:
+        unsupported = [category for category in target_categories if category not in known_classes]
+    else:
+        unsupported = [
+            category for category in target_categories
+            if not has_checkpoint and category not in {"ball", "puck", "player"}
+        ]
     for category in unsupported:
         emit(localized(
             args.language,
-            f"Das allgemeine Basismodell kennt die Klasse „{category}“ nicht. "
+            f"Das aktuell aktive Modell kennt die Klasse „{category}“ noch nicht. "
             "Diese Klasse zunächst manuell markieren und ein eigenes Modell trainieren.",
-            f"The generic base model does not know the “{category}” class. "
+            f"The currently active model does not know the “{category}” class yet. "
             "Annotate this class manually first and train a custom model.",
         ))
     target_categories = [category for category in target_categories if category not in unsupported]

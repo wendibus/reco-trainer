@@ -189,6 +189,73 @@ class DatasetTests(unittest.TestCase):
             self.assertEqual(sorted(item["category"] for item in frame_two["annotations"]), ["ball", "player"])
             self.assertEqual(sum(item["category"] == "ball" for item in frame_two["annotations"]), 1)
 
+    def test_active_model_classes_reads_the_activated_manifest(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            ml_worker.atomic_json(root / "models" / "active.json", {"packageID": "pkg-1", "modelSize": "nano"})
+            ml_worker.atomic_json(root / "models" / "library" / "pkg-1" / "manifest.json", {"classes": ["ball"]})
+
+            self.assertEqual(ml_worker.active_model_classes(root, "nano"), {"ball"})
+            # A different, non-activated model size is "unknown", not "unsupported".
+            self.assertIsNone(ml_worker.active_model_classes(root, "small"))
+            # No active.json at all (e.g. no model ever installed/trained).
+            self.assertIsNone(ml_worker.active_model_classes(root / "missing", "nano"))
+
+    def test_auto_label_skips_categories_the_active_model_was_not_trained_on(self):
+        """Regression test: an activated model that was only ever trained on "ball"
+        (e.g. before "referee" was added to the project) used to still have a full
+        inference pass run for "referee" too, since the old check only asked "does
+        any checkpoint exist" rather than "does this specific model's own manifest
+        cover this class" - wasting time and reporting a single misleading "0 boxes"
+        instead of a clear per-category explanation.
+        """
+        class FakeDetections:
+            data = {"class_name": ["ball", "referee"]}
+            xyxy = [[10.0, 20.0, 20.0, 30.0], [40.0, 10.0, 60.0, 70.0]]
+            class_id = [0, 1]
+            confidence = [.9, .8]
+
+        class FakeModel:
+            def __init__(self, **_): pass
+            def predict(self, paths, threshold):
+                return [FakeDetections() for _ in paths]
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "frames").mkdir(parents=True)
+            (root / "frames" / "one.jpg").write_bytes(b"synthetic")
+            ml_worker.atomic_json(root / "project.json", {
+                "sport": "basketball",
+                "frames": [
+                    {"id": "one", "relativePath": "frames/one.jpg", "width": 100, "height": 80, "annotations": []},
+                ],
+            })
+            ml_worker.atomic_json(root / "models" / "active.json", {"packageID": "pkg-1", "modelSize": "nano"})
+            ml_worker.atomic_json(root / "models" / "library" / "pkg-1" / "manifest.json", {"classes": ["ball"]})
+
+            original_import = ml_worker.import_model_class
+            original_device = ml_worker.detect_device
+            original_emit = ml_worker.emit
+            messages: list[str] = []
+            try:
+                ml_worker.import_model_class = lambda *_: FakeModel
+                ml_worker.detect_device = lambda: "cpu"
+                ml_worker.emit = lambda message: messages.append(message)
+                args = type("Args", (), {
+                    "project": str(root), "model": "nano", "category": ["ball", "referee"],
+                    "threshold": 0.25, "language": "en", "candidate_only": False,
+                })()
+                ml_worker.auto_label(args)
+            finally:
+                ml_worker.import_model_class = original_import
+                ml_worker.detect_device = original_device
+                ml_worker.emit = original_emit
+
+            self.assertTrue(any("referee" in message and "does not know" in message for message in messages))
+            document = ml_worker.load_json(root / "project.json")
+            categories = {item["category"] for item in document["frames"][0]["annotations"]}
+            self.assertEqual(categories, {"ball"})
+
     def test_category_specific_skip_preserves_other_classes(self):
         frame = {"annotations": [{"category": "player"}]}
         self.assertFalse(ml_worker.frame_has_category(frame, "ball"))
