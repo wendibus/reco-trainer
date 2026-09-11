@@ -1,5 +1,9 @@
 # Änderungen
 
+## 0.12.11
+
+- Der „Schiedsrichter“-Chip bei „Automatisch markieren“ ist jetzt für jede Sportart nutzbar, auch ohne eigens trainiertes Modell: Personen mit typischer Schiedsrichter-Kleidung (z. B. komplett Schwarz im Fußball, Grau/Schwarz im Basketball, Schwarz-Weiß gestreift im Eishockey) werden automatisch als „Schiedsrichter“ vorgeschlagen - weiterhin zur Prüfung markiert, keine Garantie. Setzt voraus, dass „Spieler“ ebenfalls ausgewählt ist.
+
 ## 0.12.10
 
 - Neuer Button „Spielfeld festlegen“: Feldmaße eintragen und die vier Eckpunkte im Bild anklicken. „Automatisch markieren“ berücksichtigt danach bei Spieler/Schiedsrichter/Torwart nur noch Personen, die mit den Füßen tatsächlich auf dem markierten Feld stehen - Zuschauer, Bank und Betreuer werden ignoriert. Bestehende Projekte ohne Markierung funktionieren unverändert weiter.
