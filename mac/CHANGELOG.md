@@ -1,5 +1,9 @@
 # Änderungen
 
+## 0.12.10
+
+- Neuer Button „Spielfeld festlegen“: Feldmaße eintragen und die vier Eckpunkte im Bild anklicken. „Automatisch markieren“ berücksichtigt danach bei Spieler/Schiedsrichter/Torwart nur noch Personen, die mit den Füßen tatsächlich auf dem markierten Feld stehen - Zuschauer, Bank und Betreuer werden ignoriert. Bestehende Projekte ohne Markierung funktionieren unverändert weiter.
+
 ## 0.12.9
 
 - Reco Trainer prüft jetzt beim Start einmal, ob auf GitHub eine neuere Version veröffentlicht wurde, und zeigt bei Bedarf einen Hinweis mit Download-Link (nur die öffentliche GitHub-Releases-API wird dafür abgefragt, keine Projektdaten).
