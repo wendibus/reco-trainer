@@ -1,5 +1,9 @@
 # Änderungen
 
+## 0.12.8
+
+- Ein aktiviertes Modell, das z. B. nur mit „Ball“ trainiert wurde, ließ „Automatisch markieren“ trotzdem eine volle Erkennung für „Schiedsrichter“ oder „Spieler“ durchlaufen und meldete am Ende nur ein pauschales „0 Boxen“. Reco Trainer prüft jetzt die tatsächlichen Klassen des aktivierten Modells und überspringt automatisch, was es nachweislich nicht kennt - mit einer klaren Erklärung je Klasse.
+
 ## 0.12.7
 
 - Ein neu geladenes Projekt wählt beim automatischen Markieren jetzt jede aktuell vom Modell unterstützte Klasse vor (beim Basismodell: Ball und Spieler). Da jede Person allgemein als „Spieler“ erkannt wird, muss nur noch der Schiedsrichter einzeln angeklickt und umbenannt werden.

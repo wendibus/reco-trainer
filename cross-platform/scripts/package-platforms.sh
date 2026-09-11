@@ -4,7 +4,7 @@ set -euo pipefail
 PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 OUTPUT_DIR="${1:-$(cd "$PROJECT_DIR/.." && pwd)}"
 ML_WORKER="$PROJECT_DIR/ml_worker.py"
-VERSION="0.12.7"
+VERSION="0.12.8"
 STAGE_DIR="$(mktemp -d)"
 
 cleanup() {
