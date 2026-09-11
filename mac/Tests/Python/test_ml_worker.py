@@ -256,10 +256,102 @@ class DatasetTests(unittest.TestCase):
             categories = {item["category"] for item in document["frames"][0]["annotations"]}
             self.assertEqual(categories, {"ball"})
 
+    def test_auto_label_falls_back_to_base_model_for_player_when_active_model_lacks_it(self):
+        """Feature test: unlike "referee" (no COCO equivalent), "player" can still be
+        detected generically via the base model's "person" class even while a
+        specialized "ball"-only model is active. auto_label() should run a second
+        pass with the base model for "player" instead of skipping it, so the user
+        doesn't have to draw every player by hand just because their model was
+        trained on ball alone so far.
+        """
+        class CustomDetections:
+            data = {"class_name": ["ball"]}
+            xyxy = [[10.0, 20.0, 20.0, 30.0]]
+            class_id = [0]
+            confidence = [.9]
+
+        class BaseDetections:
+            data = {"class_name": ["person"]}
+            xyxy = [[40.0, 10.0, 60.0, 70.0]]
+            class_id = [0]
+            confidence = [.8]
+
+        class DualFakeModel:
+            def __init__(self, **kwargs):
+                self.is_custom = "pretrain_weights" in kwargs
+
+            def predict(self, paths, threshold):
+                detections = CustomDetections() if self.is_custom else BaseDetections()
+                return [detections for _ in paths]
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "frames").mkdir(parents=True)
+            (root / "frames" / "one.jpg").write_bytes(b"synthetic")
+            ml_worker.atomic_json(root / "project.json", {
+                "sport": "basketball",
+                "frames": [
+                    {"id": "one", "relativePath": "frames/one.jpg", "width": 100, "height": 80, "annotations": []},
+                ],
+            })
+            weights_dir = root / "models" / "library" / "pkg-1" / "weights"
+            weights_dir.mkdir(parents=True)
+            weights_file = weights_dir / "checkpoint_best_total.pth"
+            weights_file.write_bytes(b"synthetic")
+            ml_worker.atomic_json(root / "models" / "active.json", {
+                "packageID": "pkg-1", "modelSize": "nano",
+                "weights": str(weights_file.relative_to(root)),
+            })
+            ml_worker.atomic_json(root / "models" / "library" / "pkg-1" / "manifest.json", {"classes": ["ball"]})
+
+            original_import = ml_worker.import_model_class
+            original_device = ml_worker.detect_device
+            original_emit = ml_worker.emit
+            messages: list[str] = []
+            try:
+                ml_worker.import_model_class = lambda *_: DualFakeModel
+                ml_worker.detect_device = lambda: "cpu"
+                ml_worker.emit = lambda message: messages.append(message)
+                args = type("Args", (), {
+                    "project": str(root), "model": "nano", "category": ["ball", "player"],
+                    "threshold": 0.25, "language": "en", "candidate_only": False,
+                })()
+                ml_worker.auto_label(args)
+            finally:
+                ml_worker.import_model_class = original_import
+                ml_worker.detect_device = original_device
+                ml_worker.emit = original_emit
+
+            self.assertTrue(any("player" in message and "generic base model is used in addition" in message for message in messages))
+            document = ml_worker.load_json(root / "project.json")
+            categories = {item["category"] for item in document["frames"][0]["annotations"]}
+            self.assertEqual(categories, {"ball", "player"})
+
     def test_category_specific_skip_preserves_other_classes(self):
         frame = {"annotations": [{"category": "player"}]}
         self.assertFalse(ml_worker.frame_has_category(frame, "ball"))
         self.assertTrue(ml_worker.frame_has_category(frame, "player"))
+
+    def test_refinable_annotations_includes_manual_boxes_by_request(self):
+        # By explicit user request, OpenCV refinement now also considers manually
+        # drawn boxes eligible (previously only source == "auto" boxes were, on the
+        # principle that a manual box is already human-confirmed ground truth).
+        # plausible_refined_box's own checks are what keeps a bad refinement from
+        # being applied, regardless of source.
+        frame = {
+            "annotations": [
+                {"category": "ball", "source": "manual"},
+                {"category": "player", "source": "auto"},
+                {"category": "ball", "source": "auto", "opencvRefinement": {"method": "grabcut-contour-v1"}},
+                {"category": "spectator", "source": "manual"},  # not a category CATEGORY_ASPECT_BOUNDS covers
+            ]
+        }
+        eligible = ml_worker.refinable_annotations(frame)
+        self.assertEqual(len(eligible), 2)
+        self.assertTrue(any(item["source"] == "manual" and item["category"] == "ball" for item in eligible))
+        self.assertTrue(any(item["source"] == "auto" and item["category"] == "player" for item in eligible))
+        self.assertFalse(any(item.get("opencvRefinement") for item in eligible))
+        self.assertFalse(any(item["category"] == "spectator" for item in eligible))
 
     def test_extended_sports_use_specialized_categories(self):
         self.assertEqual(ml_worker.sport_categories("rugby"), ["ball", "player", "referee", "goalpost"])

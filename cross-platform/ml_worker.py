@@ -757,16 +757,26 @@ def opencv_refined_box(image: Any, annotation: dict[str, Any], cv2: Any, np: Any
 
 
 def refinable_annotations(frame: dict[str, Any]) -> list[dict[str, Any]]:
+    """Boxes eligible for a one-time OpenCV tightening pass.
+
+    Applies to both automatic and manually-drawn boxes of a category
+    plausible_refined_box knows how to judge (see CATEGORY_ASPECT_BOUNDS) - by
+    explicit user request, since manual boxes were previously always left
+    untouched on principle. Each refined box keeps its original coordinates
+    under "opencvRefinement" and its own plausibility checks (area ratio, IoU,
+    center shift, aspect ratio) still apply regardless of source, so this
+    can't silently drift a box onto the wrong object. Already-refined boxes
+    are skipped so a repeated run doesn't keep nudging the same box.
+    """
     return [
         item for item in frame.get("annotations", [])
-        if item.get("source") == "auto"
-        and item.get("category") in CATEGORY_ASPECT_BOUNDS
+        if item.get("category") in CATEGORY_ASPECT_BOUNDS
         and not item.get("opencvRefinement")
     ]
 
 
 def refine_boxes(args: argparse.Namespace) -> None:
-    """Refine only unreviewed automatic boxes of a refinable category; manual labels are immutable."""
+    """Refine boxes of a refinable category (automatic and manual); see refinable_annotations()."""
     try:
         import cv2
         import numpy as np
@@ -804,84 +814,31 @@ def refine_boxes(args: argparse.Namespace) -> None:
     atomic_json(project_file(project_root), document)
     emit(localized(
         args.language,
-        f"OpenCV-Prüfung abgeschlossen: {refined} von {checked} automatischen Boxen plausibel verfeinert; {unchanged} sicherheitshalber unverändert, {unreadable} Bilder nicht lesbar. Manuelle Boxen wurden nicht verändert.",
-        f"OpenCV review completed: plausibly refined {refined} of {checked} automatic boxes; kept {unchanged} unchanged for safety, {unreadable} images unreadable. Manual boxes were not changed.",
-        f"Revisión OpenCV finalizada: {refined} de {checked} cuadros automáticos se refinaron; {unchanged} quedaron sin cambios por seguridad y {unreadable} imágenes no se pudieron leer. Los cuadros manuales no cambiaron.",
-        f"Vérification OpenCV terminée : {refined} boîtes automatiques affinées sur {checked} ; {unchanged} conservées par sécurité et {unreadable} images illisibles. Les boîtes manuelles n’ont pas été modifiées.",
+        f"OpenCV-Prüfung abgeschlossen: {refined} von {checked} Boxen (automatisch und manuell) plausibel verfeinert; {unchanged} sicherheitshalber unverändert, {unreadable} Bilder nicht lesbar. Die ursprünglichen Koordinaten jeder verfeinerten Box bleiben gespeichert.",
+        f"OpenCV review completed: plausibly refined {refined} of {checked} boxes (automatic and manual); kept {unchanged} unchanged for safety, {unreadable} images unreadable. Each refined box's original coordinates remain stored.",
+        f"Revisión OpenCV finalizada: {refined} de {checked} cuadros (automáticos y manuales) se refinaron; {unchanged} quedaron sin cambios por seguridad y {unreadable} imágenes no se pudieron leer. Las coordenadas originales de cada cuadro refinado permanecen guardadas.",
+        f"Vérification OpenCV terminée : {refined} boîtes (automatiques et manuelles) affinées sur {checked} ; {unchanged} conservées par sécurité et {unreadable} images illisibles. Les coordonnées d’origine de chaque boîte affinée restent enregistrées.",
     ))
 
 
-def auto_label(args: argparse.Namespace) -> None:
-    project_root = Path(args.project).resolve()
-    document = require_project(project_root, args.language)
-    frames = document.get("frames", [])
-    if getattr(args, "candidate_only", False):
-        frames = [frame for frame in frames if frame.get("reviewStatus") == "candidate"]
-    if not frames:
-        raise SystemExit(localized(
-            args.language,
-            "Das Projekt enthält noch keine Frames.",
-            "The project does not contain any frames yet.",
-        ))
-
-    target_categories = list(dict.fromkeys(args.category))  # de-duplicate, keep order
-    category_map = detection_category_map(target_categories)
-    has_checkpoint = newest_checkpoint(project_root, args.model) is not None
-    # An activated library model's own manifest is authoritative about which classes it
-    # can actually detect (e.g. a model trained back when only "ball" was annotated still
-    # has just one class, even though the project has since grown "referee"/"player" too).
-    # Falling back to "any checkpoint => every category is fair game" here used to run a
-    # full inference pass for classes the active model provably cannot produce, wasting
-    # time and reporting a single misleading "0 boxes" that didn't distinguish "the model
-    # doesn't know this class yet" from "the model just didn't find anything this time".
-    known_classes = active_model_classes(project_root, args.model)
-
-    if known_classes is not None:
-        unsupported = [category for category in target_categories if category not in known_classes]
-    else:
-        unsupported = [
-            category for category in target_categories
-            if not has_checkpoint and category not in {"ball", "puck", "player"}
-        ]
-    for category in unsupported:
-        emit(localized(
-            args.language,
-            f"Das aktuell aktive Modell kennt die Klasse „{category}“ noch nicht. "
-            "Diese Klasse zunächst manuell markieren und ein eigenes Modell trainieren.",
-            f"The currently active model does not know the “{category}” class yet. "
-            "Annotate this class manually first and train a custom model.",
-        ))
-    target_categories = [category for category in target_categories if category not in unsupported]
-    if not target_categories:
-        return
-
-    if "player" in target_categories and not has_checkpoint:
-        emit(localized(
-            args.language,
-            "Hinweis: Das Basismodell liefert nur die Klasse „Person“. Zuschauer und Schiedsrichter "
-            "können deshalb fälschlich als Spieler erscheinen.",
-            "Note: The base model only provides the “person” class. Spectators and referees may "
-            "therefore be incorrectly labeled as players.",
-        ))
-
-    model = model_instance(project_root, args.model, trained=True, language=args.language)
-    processed_frames = 0
-    frames_with_detections = 0
-    boxes_added = 0
-    already_present = {
-        category: sum(1 for frame in frames if frame_has_category(frame, category))
-        for category in target_categories
-    }
-    device = detect_device()
-    profile = training_profile(args.model, device)
-    batch_size = profile["batch_size"] if device != "cpu" else 1
-    category_list = ", ".join(target_categories)
-    emit(localized(
-        args.language,
-        f"Vorbeschriftung für „{category_list}“ nutzt {device.upper()} mit Batch {batch_size}.",
-        f"Pre-labeling for “{category_list}” uses {device.upper()} with batch {batch_size}.",
-    ))
-
+def run_autolabel_pass(
+    model: Any,
+    frames: list[dict[str, Any]],
+    target_categories: list[str],
+    category_map: dict[str, str],
+    threshold: float,
+    batch_size: int,
+    project_root: Path,
+    document: dict[str, Any],
+    language: str,
+) -> tuple[int, int, int]:
+    """Run one model's detection pass over frames for target_categories, adding
+    boxes in place and persisting after every batch. Returns (processed_frames,
+    frames_with_detections, boxes_added) for this pass alone - auto_label() may
+    call this twice (once per model) when a category needs the base model as a
+    fallback for a class the active custom model doesn't know.
+    """
+    processed_frames = frames_with_detections = boxes_added = 0
     for start in range(0, len(frames), batch_size):
         batch_frames = frames[start : start + batch_size]
         # Each frame may already have some of the selected categories (e.g. from
@@ -897,7 +854,7 @@ def auto_label(args: argparse.Namespace) -> None:
             continue
         paths = [str(project_root / frame["relativePath"]) for frame in pending]
         detections_batch = normalize_detection_batch(
-            model.predict(paths, threshold=args.threshold), len(pending)
+            model.predict(paths, threshold=threshold), len(pending)
         )
 
         for frame, detections in zip(pending, detections_batch):
@@ -937,10 +894,128 @@ def auto_label(args: argparse.Namespace) -> None:
         document["updatedAt"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
         atomic_json(project_file(project_root), document)
         emit(localized(
-            args.language,
+            language,
             f"Automatisch geprüft: {min(start + batch_size, len(frames))}/{len(frames)}",
             f"Automatically checked: {min(start + batch_size, len(frames))}/{len(frames)}",
         ))
+    return processed_frames, frames_with_detections, boxes_added
+
+
+def auto_label(args: argparse.Namespace) -> None:
+    project_root = Path(args.project).resolve()
+    document = require_project(project_root, args.language)
+    frames = document.get("frames", [])
+    if getattr(args, "candidate_only", False):
+        frames = [frame for frame in frames if frame.get("reviewStatus") == "candidate"]
+    if not frames:
+        raise SystemExit(localized(
+            args.language,
+            "Das Projekt enthält noch keine Frames.",
+            "The project does not contain any frames yet.",
+        ))
+
+    target_categories = list(dict.fromkeys(args.category))  # de-duplicate, keep order
+    category_map = detection_category_map(target_categories)
+    has_checkpoint = newest_checkpoint(project_root, args.model) is not None
+    # An activated library model's own manifest is authoritative about which classes it
+    # can actually detect (e.g. a model trained back when only "ball" was annotated still
+    # has just one class, even though the project has since grown "referee"/"player" too).
+    # Falling back to "any checkpoint => every category is fair game" here used to run a
+    # full inference pass for classes the active model provably cannot produce, wasting
+    # time and reporting a single misleading "0 boxes" that didn't distinguish "the model
+    # doesn't know this class yet" from "the model just didn't find anything this time".
+    known_classes = active_model_classes(project_root, args.model)
+
+    unsupported: list[str] = []
+    base_fallback_categories: list[str] = []
+    if known_classes is not None:
+        for category in target_categories:
+            if category in known_classes:
+                continue
+            if category == "player":
+                # The active model has no dedicated "player" class, but the generic
+                # Apache-2.0 base model can still find people via COCO's "person"
+                # class - run a second pass with the base model for just this
+                # category instead of skipping it outright. No other category has a
+                # base-model equivalent (COCO has no concept of e.g. "referee").
+                base_fallback_categories.append(category)
+            else:
+                unsupported.append(category)
+    else:
+        unsupported = [
+            category for category in target_categories
+            if not has_checkpoint and category not in {"ball", "puck", "player"}
+        ]
+    for category in unsupported:
+        emit(localized(
+            args.language,
+            f"Das aktuell aktive Modell kennt die Klasse „{category}“ noch nicht. "
+            "Diese Klasse zunächst manuell markieren und ein eigenes Modell trainieren.",
+            f"The currently active model does not know the “{category}” class yet. "
+            "Annotate this class manually first and train a custom model.",
+        ))
+    target_categories = [category for category in target_categories if category not in unsupported]
+    if not target_categories:
+        return
+    custom_categories = [category for category in target_categories if category not in base_fallback_categories]
+
+    if base_fallback_categories:
+        fallback_list = ", ".join(base_fallback_categories)
+        emit(localized(
+            args.language,
+            f"Für „{fallback_list}“ kennt das aktive Modell keine eigene Klasse; das allgemeine "
+            "Basismodell wird zusätzlich genutzt. Es erkennt Personen nur allgemein, nicht speziell "
+            "als Spieler - Zuschauer und Schiedsrichter können deshalb fälschlich als Spieler erscheinen.",
+            f"The active model has no dedicated class for “{fallback_list}”; the generic base model is "
+            "used in addition for it. It only detects people generically, not specifically as players - "
+            "spectators and referees may therefore be incorrectly labeled as players.",
+        ))
+    elif "player" in target_categories and not has_checkpoint:
+        emit(localized(
+            args.language,
+            "Hinweis: Das Basismodell liefert nur die Klasse „Person“. Zuschauer und Schiedsrichter "
+            "können deshalb fälschlich als Spieler erscheinen.",
+            "Note: The base model only provides the “person” class. Spectators and referees may "
+            "therefore be incorrectly labeled as players.",
+        ))
+
+    already_present = {
+        category: sum(1 for frame in frames if frame_has_category(frame, category))
+        for category in target_categories
+    }
+    device = detect_device()
+    profile = training_profile(args.model, device)
+    batch_size = profile["batch_size"] if device != "cpu" else 1
+    category_list = ", ".join(target_categories)
+    emit(localized(
+        args.language,
+        f"Vorbeschriftung für „{category_list}“ nutzt {device.upper()} mit Batch {batch_size}.",
+        f"Pre-labeling for “{category_list}” uses {device.upper()} with batch {batch_size}.",
+    ))
+
+    processed_frames = frames_with_detections = boxes_added = 0
+
+    if custom_categories:
+        model = model_instance(project_root, args.model, trained=True, language=args.language)
+        pass_processed, pass_with_detections, pass_boxes = run_autolabel_pass(
+            model, frames, custom_categories, category_map, args.threshold, batch_size,
+            project_root, document, args.language,
+        )
+        processed_frames += pass_processed
+        frames_with_detections += pass_with_detections
+        boxes_added += pass_boxes
+        del model
+
+    if base_fallback_categories:
+        base_model = model_instance(project_root, args.model, trained=False, language=args.language)
+        pass_processed, pass_with_detections, pass_boxes = run_autolabel_pass(
+            base_model, frames, base_fallback_categories, category_map, args.threshold, batch_size,
+            project_root, document, args.language,
+        )
+        processed_frames += pass_processed
+        frames_with_detections += pass_with_detections
+        boxes_added += pass_boxes
+        del base_model
 
     document["updatedAt"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     atomic_json(project_file(project_root), document)

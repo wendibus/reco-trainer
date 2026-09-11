@@ -2,12 +2,13 @@ import AppKit
 import SwiftUI
 
 struct ContentView: View {
-    private static let currentRelease = "0.12.8"
+    private static var currentRelease: String { AppState.appVersion }
 
     @EnvironmentObject private var app: AppState
     @AppStorage("recoWalkthroughCompleteV1") private var walkthroughComplete = false
     @AppStorage("recoPreferredLanguageV1") private var preferredLanguage = ""
     @AppStorage("recoLastSeenReleaseV1") private var lastSeenRelease = ""
+    @AppStorage("recoDismissedUpdateVersionV1") private var dismissedUpdateVersion = ""
     @State private var showWalkthrough = false
     @State private var showLanguagePicker = false
     @State private var walkthroughIndex = 0
@@ -27,6 +28,7 @@ struct ContentView: View {
             detail
         }
         .frame(minWidth: 1120, minHeight: 720)
+        .safeAreaInset(edge: .top, spacing: 0) { updateBanner }
         .alert(app.tr("Hinweis", "Notice"), isPresented: Binding(
             get: { app.errorMessage != nil },
             set: { if !$0 { app.errorMessage = nil } }
@@ -106,6 +108,7 @@ struct ContentView: View {
             }
         }
         .onAppear {
+            app.checkForUpdates()
             if let saved = AppLanguage(rawValue: preferredLanguage) {
                 app.language = saved
                 if !walkthroughComplete {
@@ -158,6 +161,36 @@ struct ContentView: View {
                 }
             }
         )
+    }
+
+    @ViewBuilder
+    private var updateBanner: some View {
+        if let update = app.availableUpdate, update.version != dismissedUpdateVersion {
+            HStack(spacing: 10) {
+                Image(systemName: "arrow.down.circle.fill").foregroundStyle(.blue)
+                Text(app.tr(
+                    "Neue Version \(update.version) verfügbar.",
+                    "New version \(update.version) available.",
+                    "Nueva versión \(update.version) disponible.",
+                    "Nouvelle version \(update.version) disponible."
+                ))
+                Spacer()
+                Button(app.tr("Herunterladen", "Download", "Descargar", "Télécharger")) {
+                    if let url = URL(string: update.url) { NSWorkspace.shared.open(url) }
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.small)
+                Button(app.tr("Nicht jetzt", "Not now", "Ahora no", "Pas maintenant")) {
+                    dismissedUpdateVersion = update.version
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.secondary)
+                .font(.caption)
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 8)
+            .background(.blue.opacity(0.12))
+        }
     }
 
     private var sidebar: some View {
@@ -559,14 +592,20 @@ struct ContentView: View {
                     .disabled(app.project == nil || app.autoLabelCategories.isEmpty)
                 Button(
                     app.tr(
-                        "Ball-Boxen mit OpenCV prüfen",
-                        "Review ball boxes with OpenCV",
-                        "Revisar cuadros de balón con OpenCV",
-                        "Vérifier les boîtes de ballon avec OpenCV"
+                        "Boxen mit OpenCV verfeinern",
+                        "Refine boxes with OpenCV",
+                        "Refinar cuadros con OpenCV",
+                        "Affiner les boîtes avec OpenCV"
                     ),
                     action: app.refineBoxes
                 )
                     .disabled(app.project == nil)
+                    .help(app.tr(
+                        "Zieht Ball-, Spieler-, Schiedsrichter- und weitere unterstützte Boxen lokal nach, auch von Hand gezeichnete. Nur plausible, eng anliegende Anpassungen werden übernommen; die ursprünglichen Koordinaten bleiben je Box gespeichert.",
+                        "Locally tightens ball, player, referee, and other supported boxes, including hand-drawn ones. Only plausible, closely-matching adjustments are applied; each box's original coordinates remain stored.",
+                        "Ajusta localmente cuadros de balón, jugador, árbitro y otras clases compatibles, incluidos los dibujados a mano. Solo se aplican ajustes plausibles y cercanos; las coordenadas originales de cada cuadro permanecen guardadas.",
+                        "Resserre localement les boîtes ballon, joueur, arbitre et autres classes prises en charge, y compris dessinées à la main. Seuls les ajustements plausibles et proches sont appliqués ; les coordonnées d’origine de chaque boîte restent enregistrées."
+                    ))
                 Button(
                     app.continuationCheckpointName == nil
                         ? app.tr("Lokal trainieren", "Train locally", "Entrenar localmente", "Entraîner localement")

@@ -24,6 +24,12 @@ private struct FolderLoadSnapshot: Sendable {
 
 @MainActor
 final class AppState: ObservableObject {
+    /// The single source of truth for the app's own version - bump this alongside
+    /// CFBundleShortVersionString (Info.plist) and VERSION (package-platforms.sh)
+    /// at every release. Used both for the "what's new" sheet and for deciding
+    /// whether a fetched GitHub release is actually newer than what's running.
+    static let appVersion = "0.12.8"
+
     @Published var language: AppLanguage = .de
     @Published var sport: Sport = .football
     @Published var selectedFolder: URL?
@@ -53,6 +59,7 @@ final class AppState: ObservableObject {
     @Published private(set) var installedModelCount = 0
     @Published var managedModels: [ManagedModelRecord] = []
     @Published private var continuationCheckpoints: [ModelSize: String] = [:]
+    @Published var availableUpdate: AvailableUpdate?
 
     var store: ProjectStore? {
         selectedFolder.map(ProjectStore.forSourceFolder)
@@ -94,11 +101,17 @@ final class AppState: ObservableObject {
     /// wasting a full inference pass and reporting a single misleading "0 boxes".
     /// Only a raw, not-yet-packaged runs/<size> checkpoint (no manifest to consult)
     /// still falls back to that optimistic assumption.
+    ///
+    /// "player" is always included when the sport has it, even if the active custom
+    /// model's own manifest doesn't: auto_label() runs a second pass with the
+    /// generic base model for it in that case (see base_fallback_categories there),
+    /// since unlike e.g. "referee" it has a COCO equivalent ("person") that doesn't
+    /// require custom training at all. No other category has that fallback.
     var autoLabelSupportedCategories: Set<String> {
         if let activeID = activeModelPackageID,
            let active = managedModels.first(where: { $0.packageID == activeID }),
            active.modelSize == modelSize.rawValue {
-            return Set(sport.categories).intersection(active.classes)
+            return Set(sport.categories).intersection(Set(active.classes).union(["player"]))
         }
         guard continuationCheckpointName == nil else { return Set(sport.categories) }
         return Set(sport.categories).intersection(["ball", "puck", "player"])
@@ -494,6 +507,21 @@ final class AppState: ObservableObject {
         ))
     }}
 
+    /// Best-effort, once-per-launch check against GitHub's public releases API.
+    /// Failures (offline, rate-limited, unexpected response) are silently ignored -
+    /// this must never interrupt the user or surface as an error. Only the releases
+    /// endpoint is contacted; no project data leaves the computer.
+    func checkForUpdates() {
+        Task {
+            guard let release = try? await fetchLatestRelease() else { return }
+            let remoteVersion = release.tagName.hasPrefix("v") || release.tagName.hasPrefix("V")
+                ? String(release.tagName.dropFirst())
+                : release.tagName
+            guard isNewerVersion(remoteVersion, than: Self.appVersion) else { return }
+            self.availableUpdate = AvailableUpdate(version: remoteVersion, url: release.htmlURL)
+        }
+    }
+
     func prepareEnvironment() { runWorkerAction(tr("Richte lokale ML-Umgebung ein …", "Setting up local ML environment …")) { worker, output in
         try await worker.prepareEnvironment(onOutput: output)
     }}
@@ -524,10 +552,10 @@ final class AppState: ObservableObject {
 
     func refineBoxes() { runWorkerAction(
         tr(
-            "Prüfe automatische Ball- und Puck-Boxen lokal mit OpenCV …",
-            "Reviewing automatic ball and puck boxes locally with OpenCV …",
-            "Revisando localmente con OpenCV los cuadros automáticos de balón y disco …",
-            "Vérification locale avec OpenCV des boîtes automatiques ballon et palet …"
+            "Prüfe Boxen (automatisch und manuell) lokal mit OpenCV …",
+            "Reviewing boxes (automatic and manual) locally with OpenCV …",
+            "Revisando localmente con OpenCV los cuadros (automáticos y manuales) …",
+            "Vérification locale avec OpenCV des boîtes (automatiques et manuelles) …"
         ),
         reloadProject: true
     ) { worker, output in

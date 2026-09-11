@@ -131,7 +131,11 @@ import Testing
 // just because SOME custom checkpoint existed, so auto-label wastefully ran
 // inference for "referee"/"player" too and reported a single misleading "0 boxes"
 // instead of explaining that this specific model never learned those classes.
-// autoLabelSupportedCategories must defer to the activated model's own class list.
+// autoLabelSupportedCategories must defer to the activated model's own class list -
+// except "player", which stays available via the base model's generic "person"
+// fallback (see auto_label()'s base_fallback_categories) even when the active
+// model itself was never trained on it, since unlike "referee" it doesn't need
+// custom training to be detected at all.
 @Test @MainActor func autoLabelSupportedCategoriesUsesTheActiveModelsOwnClassListWhenOneExists() {
     let app = AppState()
     app.sport = .basketball
@@ -146,9 +150,8 @@ import Testing
         )
     ]
 
-    #expect(app.autoLabelSupportedCategories == ["ball"])
+    #expect(app.autoLabelSupportedCategories == ["ball", "player"])
     #expect(!app.autoLabelSupportedCategories.contains("referee"))
-    #expect(!app.autoLabelSupportedCategories.contains("player"))
 }
 
 // Regression coverage: a freshly loaded project used to preselect only the sport's
@@ -313,4 +316,25 @@ import Testing
     """.data(using: .utf8)!
     let decodedWithoutPerClass = try decoder.decode(BenchmarkMetrics.self, from: withoutPerClass)
     #expect(decodedWithoutPerClass.perClass.isEmpty)
+}
+
+// isNewerVersion() backs the GitHub-releases update check: comparing tag_name
+// (e.g. "v0.12.9") against AppState.appVersion (e.g. "0.12.8") decides whether the
+// update banner shows. A wrong comparison here means either nagging the user about
+// a version they already have, or silently missing a real update.
+@Test func isNewerVersionComparesSemanticVersionsCorrectly() {
+    #expect(isNewerVersion("0.12.9", than: "0.12.8"))
+    #expect(isNewerVersion("v0.13.0", than: "0.12.8"))
+    #expect(isNewerVersion("1.0.0", than: "0.12.8"))
+    #expect(!isNewerVersion("0.12.8", than: "0.12.8"))
+    #expect(!isNewerVersion("0.12.7", than: "0.12.8"))
+    // A missing trailing component is treated as 0, not ignored.
+    #expect(isNewerVersion("0.13", than: "0.12.9"))
+    #expect(!isNewerVersion("0.12", than: "0.12.1"))
+}
+
+@Test func parseVersionComponentsStripsALeadingVPrefix() {
+    #expect(parseVersionComponents("v0.12.8") == [0, 12, 8])
+    #expect(parseVersionComponents("0.12.8") == [0, 12, 8])
+    #expect(parseVersionComponents("V1.2") == [1, 2])
 }
