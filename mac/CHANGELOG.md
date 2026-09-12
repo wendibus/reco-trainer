@@ -1,5 +1,12 @@
 # Änderungen
 
+## 0.12.12
+
+- Das „Modell“-Dropdown bei „4 · Modell verbessern“ zeigte den vollen Wert nicht an (zu schmal). Behoben.
+- Die Trainingsbilder-Liste unterstützt jetzt ⌘-Klick/Umschalt-Klick für Mehrfachauswahl, mit einem eigenen „Entfernen“-Knopf für die Auswahl.
+- Die Bestätigung beim Entfernen eines Trainingsbilds hat einen „Nicht mehr fragen“-Haken bekommen.
+- Neue Klassen-Chips bei „4 · Modell verbessern“ lassen Dich einzelne Klassen von einem Trainingslauf ausschließen (z. B. nur Ball und Schiedsrichter trainieren).
+
 ## 0.12.11
 
 - Der „Schiedsrichter“-Chip bei „Automatisch markieren“ ist jetzt für jede Sportart nutzbar, auch ohne eigens trainiertes Modell: Personen mit typischer Schiedsrichter-Kleidung (z. B. komplett Schwarz im Fußball, Grau/Schwarz im Basketball, Schwarz-Weiß gestreift im Eishockey) werden automatisch als „Schiedsrichter“ vorgeschlagen - weiterhin zur Prüfung markiert, keine Garantie. Setzt voraus, dass „Spieler“ ebenfalls ausgewählt ist.
