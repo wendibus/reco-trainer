@@ -112,6 +112,42 @@ class DatasetTests(unittest.TestCase):
             self.assertIn(Path(reviewed["relativePath"]).name, names)
             self.assertNotIn(Path(candidate["relativePath"]).name, names)
 
+    def test_build_dataset_restricts_to_the_given_categories(self):
+        # Regression/feature coverage: by request, a training run can be
+        # restricted to a subset of already-annotated categories (e.g. "only
+        # ball and referee this time"). build_dataset() must drop both the
+        # excluded category from the dataset's category list AND every
+        # individual box of that category - not just hide it from the list.
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            frame = self.make_frame("one", 1, root)
+            frame["annotations"].append({
+                "id": str(uuid.uuid4()), "category": "referee",
+                "x": 30.0, "y": 40.0, "width": 6.0, "height": 6.0, "source": "manual",
+            })
+            ml_worker.atomic_json(root / "project.json", {
+                "schemaVersion": 2, "name": "Test", "sport": "basketball",
+                "sourceFolder": str(root), "frames": [frame],
+            })
+
+            dataset = ml_worker.build_dataset(root, categories=["ball"])
+
+            coco = json.loads((dataset / "train" / "_annotations.coco.json").read_text())
+            self.assertEqual([category["name"] for category in coco["categories"]], ["ball"])
+            self.assertEqual(len(coco["annotations"]), 1)
+
+    def test_build_dataset_rejects_a_category_subset_with_no_matching_annotations(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            frame = self.make_frame("one", 1, root)  # only annotated with "ball"
+            ml_worker.atomic_json(root / "project.json", {
+                "schemaVersion": 2, "name": "Test", "sport": "basketball",
+                "sourceFolder": str(root), "frames": [frame],
+            })
+
+            with self.assertRaises(SystemExit):
+                ml_worker.build_dataset(root, categories=["referee"])
+
     def test_single_video_temporal_split(self):
         frames = [
             {

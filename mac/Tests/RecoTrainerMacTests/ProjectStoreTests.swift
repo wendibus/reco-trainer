@@ -377,3 +377,74 @@ import Testing
     #expect(loaded.fieldGeometry?.realWidth == 15.0)
     #expect(loaded.fieldGeometry?.realLength == 28.0)
 }
+
+// selectedFrameID is a computed convenience view onto selectedFrameIDs (the
+// sidebar List's real, Set-based selection, needed for native macOS Cmd/Shift-
+// click multi-select). Every other call site (annotation editor, active-learning
+// review) only cares about "the one currently displayed frame", so it must stay
+// nil - not "the first of several" - whenever zero or multiple frames are selected.
+@Test @MainActor func selectedFrameIDBridgesToTheUnderlyingSelectionSet() {
+    let app = AppState()
+    let first = UUID()
+    let second = UUID()
+
+    #expect(app.selectedFrameID == nil)
+
+    app.selectedFrameID = first
+    #expect(app.selectedFrameIDs == [first])
+    #expect(app.selectedFrameID == first)
+
+    app.selectedFrameIDs = [first, second]
+    #expect(app.selectedFrameID == nil)
+
+    app.selectedFrameID = nil
+    #expect(app.selectedFrameIDs.isEmpty)
+}
+
+// Regression coverage for multi-select frame deletion: removeFrames() must
+// remove every given frame in one batch, save once, and clear the selection.
+@Test @MainActor func removeFramesDeletesEveryGivenFrameInOneBatch() throws {
+    let folder = FileManager.default.temporaryDirectory
+        .appending(path: "reco-trainer-remove-frames-test-\(UUID().uuidString)", directoryHint: .isDirectory)
+    let app = AppState()
+    app.selectedFolder = folder
+    let frameA = FrameRecord(relativePath: "frames/a.jpg", videoID: "v1", videoName: "clip.mov", timestamp: 0, width: 10, height: 10)
+    let frameB = FrameRecord(relativePath: "frames/b.jpg", videoID: "v1", videoName: "clip.mov", timestamp: 1, width: 10, height: 10)
+    let frameC = FrameRecord(relativePath: "frames/c.jpg", videoID: "v1", videoName: "clip.mov", timestamp: 2, width: 10, height: 10)
+    app.project = ProjectDocument(name: "Test", sport: .basketball, sourceFolder: folder.path, frames: [frameA, frameB, frameC])
+    app.selectedFrameIDs = [frameA.id, frameB.id]
+
+    app.removeFrames([frameA.id, frameB.id])
+
+    #expect(app.project?.frames.map(\.id) == [frameC.id])
+    #expect(app.selectedFrameIDs.isEmpty)
+}
+
+// trainingCategories tracks an *exclusion* set rather than the selection itself,
+// so a newly-annotated category (e.g. after auto-labeling referee mid-session)
+// joins local training by default instead of needing to be ticked - only an
+// explicit exclusion (e.g. "leave ball as it already is") sticks.
+@Test @MainActor func trainingCategoriesExcludesOnlyWhatWasExplicitlyDeselected() {
+    let app = AppState()
+    let frame = FrameRecord(
+        relativePath: "frames/one.jpg", videoID: "v1", videoName: "clip.mov", timestamp: 0,
+        width: 10, height: 10,
+        annotations: [
+            BoxAnnotation(category: "ball", x: 1, y: 1, width: 2, height: 2),
+            BoxAnnotation(category: "referee", x: 4, y: 4, width: 2, height: 2),
+        ]
+    )
+    app.project = ProjectDocument(name: "Test", sport: .basketball, sourceFolder: "/tmp/videos", frames: [frame])
+
+    #expect(app.trainingCategories == ["ball", "referee"])
+
+    app.trainingExcludedCategories.insert("ball")
+    #expect(app.trainingCategories == ["referee"])
+
+    // A newly-annotated category joins training automatically, without
+    // resetting the earlier exclusion.
+    var updatedFrame = frame
+    updatedFrame.annotations.append(BoxAnnotation(category: "hoop", x: 6, y: 6, width: 2, height: 2))
+    app.project?.frames = [updatedFrame]
+    #expect(app.trainingCategories == ["referee", "hoop"])
+}

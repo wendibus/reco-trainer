@@ -84,6 +84,8 @@ struct ProjectDocument: Codable, Equatable, Sendable {
     var lastTraining: TrainingResult?
     var trainingHistory: [TrainingResult]?
     var fieldGeometry: FieldGeometry?
+
+    var classes: [String] { Array(Set(frames.flatMap(\.annotations).map(\.category))).sorted() }
 }
 
 /// A single marked field corner, stored as a plain [x, y] pair (not CGPoint's

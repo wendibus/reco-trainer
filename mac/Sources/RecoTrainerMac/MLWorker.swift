@@ -101,14 +101,20 @@ struct MLWorker: Sendable {
     func train(
         modelSize: ModelSize,
         epochs: Int,
+        categories: [String]? = nil,
         language: AppLanguage,
         onOutput: @escaping @Sendable (String) async -> Void
     ) async throws {
+        var arguments = [
+            try workerURL.path, "train", "--project", projectRoot.path,
+            "--model", modelSize.rawValue, "--epochs", String(epochs),
+        ]
+        if let categories, !categories.isEmpty {
+            arguments += ["--category"] + categories
+        }
+        arguments += ["--language", language.rawValue]
         _ = try await runPython(
-            arguments: [
-                try workerURL.path, "train", "--project", projectRoot.path,
-                "--model", modelSize.rawValue, "--epochs", String(epochs), "--language", language.rawValue
-            ],
+            arguments: arguments,
             preferVenv: true,
             onOutput: onOutput
         )

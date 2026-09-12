@@ -607,6 +607,56 @@ class RefereeClothingTests(unittest.TestCase):
             self.assertEqual(document["frames"][0]["annotations"], [])
 
 
+class BuildDatasetCategoryFilterTests(unittest.TestCase):
+    """Coverage for training-on-a-subset: by request, a local training run can
+    be restricted to a chosen subset of already-annotated categories (e.g.
+    "only ball and referee this time"). build_dataset()'s categories parameter
+    must drop both the excluded category from the dataset's category list AND
+    every individual box of that category - not just hide it from the list.
+    """
+
+    def _frame_with_annotations(self, root: Path, categories: list[str]) -> dict:
+        relative = "frames/one.jpg"
+        path = root / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"fake-jpeg")
+        return {
+            "id": "frame-one", "relativePath": relative, "videoID": "v1", "videoName": "clip.mov",
+            "timestamp": 0.0, "width": 1920, "height": 1080,
+            "annotations": [
+                {"id": f"ann-{index}", "category": category, "x": 1.0, "y": 1.0, "width": 8.0, "height": 8.0, "source": "manual"}
+                for index, category in enumerate(categories)
+            ],
+        }
+
+    def test_restricts_to_the_given_categories(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            frame = self._frame_with_annotations(root, ["ball", "referee"])
+            ml_worker.atomic_json(root / "project.json", {
+                "schemaVersion": 2, "name": "Test", "sport": "basketball",
+                "sourceFolder": str(root), "frames": [frame],
+            })
+
+            dataset = ml_worker.build_dataset(root, categories=["ball"])
+
+            coco = json.loads((dataset / "train" / "_annotations.coco.json").read_text())
+            self.assertEqual([category["name"] for category in coco["categories"]], ["ball"])
+            self.assertEqual(len(coco["annotations"]), 1)
+
+    def test_rejects_a_category_subset_with_no_matching_annotations(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            frame = self._frame_with_annotations(root, ["ball"])
+            ml_worker.atomic_json(root / "project.json", {
+                "schemaVersion": 2, "name": "Test", "sport": "basketball",
+                "sourceFolder": str(root), "frames": [frame],
+            })
+
+            with self.assertRaises(SystemExit):
+                ml_worker.build_dataset(root, categories=["referee"])
+
+
 class CallWithSupportedKwargsModelConstructionTests(unittest.TestCase):
     """Regression coverage for a second, related crash: RF-DETR's model_class(...)
     infers num_classes from whatever pretrain_weights checkpoint it's given (or

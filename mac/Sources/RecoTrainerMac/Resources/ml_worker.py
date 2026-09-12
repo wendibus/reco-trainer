@@ -1353,7 +1353,15 @@ def link_or_copy(source: Path, destination: Path) -> None:
         shutil.copy2(source, destination)
 
 
-def build_dataset(project_root: Path, language: str = "de") -> Path:
+def build_dataset(project_root: Path, language: str = "de", categories: list[str] | None = None) -> Path:
+    """Builds the local COCO-format train/valid/test dataset.
+
+    categories, when given, restricts the dataset to that subset of already-
+    annotated categories (e.g. train only "ball" and "referee", leaving "player"
+    out of this run entirely) - both the dataset's category list and every box
+    of an excluded category are dropped, not just hidden. None (the default)
+    keeps the existing behavior: every category that has at least one annotation.
+    """
     document = require_project(project_root, language)
     frames = [
         frame for frame in document.get("frames", [])
@@ -1372,6 +1380,14 @@ def build_dataset(project_root: Path, language: str = "de") -> Path:
             "Noch keine Objekte markiert. Zuerst automatisch oder manuell markieren.",
             "No objects have been annotated yet. Add automatic or manual annotations first.",
         ))
+    if categories is not None:
+        category_names &= set(categories)
+        if not category_names:
+            raise SystemExit(localized(
+                language,
+                "Keine der ausgewählten Klassen ist im Projekt markiert.",
+                "None of the selected classes are annotated in this project.",
+            ))
 
     ordered_categories = [
         name for name in sport_categories(document["sport"]) if name in category_names
@@ -1753,7 +1769,16 @@ def dataset_annotation_count(dataset_root: Path, split: str) -> int:
 def train(args: argparse.Namespace) -> None:
     project_root = Path(args.project).resolve()
     document = require_project(project_root, args.language)
-    dataset_root = build_dataset(project_root, args.language)
+    training_categories = list(dict.fromkeys(args.category)) if getattr(args, "category", None) else None
+    dataset_root = build_dataset(project_root, args.language, categories=training_categories)
+    if training_categories is not None:
+        emit(localized(
+            args.language,
+            f"Training beschränkt auf: {', '.join(training_categories)}.",
+            f"Training restricted to: {', '.join(training_categories)}.",
+            f"Entrenamiento restringido a: {', '.join(training_categories)}.",
+            f"Entraînement limité à : {', '.join(training_categories)}.",
+        ))
     model_class = import_model_class(args.model, args.language)
     device = detect_device()
     profile = training_profile(args.model, device)
@@ -2398,6 +2423,7 @@ def build_parser() -> argparse.ArgumentParser:
     train_parser.add_argument("--project", required=True)
     train_parser.add_argument("--model", choices=MODEL_CLASSES, default="nano")
     train_parser.add_argument("--epochs", type=int, default=20)
+    train_parser.add_argument("--category", nargs="+")
     train_parser.add_argument("--language", choices=["de", "en", "es", "fr"], default="de")
     train_parser.set_defaults(func=train)
 

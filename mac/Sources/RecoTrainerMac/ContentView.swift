@@ -9,11 +9,13 @@ struct ContentView: View {
     @AppStorage("recoPreferredLanguageV1") private var preferredLanguage = ""
     @AppStorage("recoLastSeenReleaseV1") private var lastSeenRelease = ""
     @AppStorage("recoDismissedUpdateVersionV1") private var dismissedUpdateVersion = ""
+    @AppStorage("recoSkipFrameRemovalConfirmationV1") private var skipFrameRemovalConfirmation = false
     @State private var showWalkthrough = false
     @State private var showLanguagePicker = false
     @State private var walkthroughIndex = 0
     @State private var showBenchmark = false
     @State private var confirmFrameRemoval = false
+    @State private var frameIDsPendingRemoval: Set<UUID> = []
     @State private var showReleaseNotes = false
     @State private var modelNameDrafts: [String: String] = [:]
     @State private var modelPendingDeletion: ManagedModelRecord?
@@ -62,15 +64,21 @@ struct ContentView: View {
                 "Ce nom apparaît dans la bibliothèque et le fichier. Le paquet ne contient ni vidéos ni images."
             ))
         }
-        .confirmationDialog(
-            app.tr("Trainingsbild entfernen?", "Remove training image?", "¿Quitar imagen de entrenamiento?", "Retirer l’image d’entraînement ?"),
-            isPresented: $confirmFrameRemoval,
-            titleVisibility: .visible
-        ) {
-            Button(app.tr("Bild entfernen", "Remove image", "Quitar imagen", "Retirer l’image"), role: .destructive) { app.removeSelectedFrame() }
-            Button(app.tr("Abbrechen", "Cancel", "Cancelar", "Annuler"), role: .cancel) {}
-        } message: {
-            Text(app.tr("Nur der extrahierte Trainingsframe wird entfernt. Das Quellvideo bleibt unverändert.", "Only the extracted training frame is removed. The source video remains unchanged.", "Solo se quita el fotograma extraído. El vídeo original no se modifica.", "Seule l’image extraite est retirée. La vidéo source reste inchangée."))
+        .sheet(isPresented: $confirmFrameRemoval) {
+            FrameRemovalConfirmationSheet(
+                count: frameIDsPendingRemoval.count,
+                language: app.language,
+                onConfirm: { dontAskAgain in
+                    if dontAskAgain { skipFrameRemovalConfirmation = true }
+                    app.removeFrames(frameIDsPendingRemoval)
+                    confirmFrameRemoval = false
+                    frameIDsPendingRemoval = []
+                },
+                onCancel: {
+                    confirmFrameRemoval = false
+                    frameIDsPendingRemoval = []
+                }
+            )
         }
         .confirmationDialog(
             app.tr("Modell dauerhaft löschen?", "Delete model permanently?", "¿Eliminar el modelo permanentemente?", "Supprimer définitivement le modèle ?"),
@@ -305,8 +313,20 @@ struct ContentView: View {
 
             if let project = app.project {
                 Divider()
-                Text(app.tr("3 · Trainingsbilder", "3 · Training images")).font(.headline)
-                List(project.frames, selection: $app.selectedFrameID) { frame in
+                HStack {
+                    Text(app.tr("3 · Trainingsbilder", "3 · Training images")).font(.headline)
+                    Spacer()
+                    if app.selectedFrameIDs.count > 1 {
+                        Text("\(app.selectedFrameIDs.count) \(app.tr("ausgewählt", "selected", "seleccionadas", "sélectionnées"))")
+                            .font(.caption).foregroundStyle(.secondary)
+                        Button(role: .destructive) { requestFrameRemoval(app.selectedFrameIDs) } label: {
+                            Image(systemName: "trash")
+                        }
+                        .disabled(app.isWorking)
+                        .help(app.tr("Ausgewählte Trainingsbilder entfernen", "Remove selected training images", "Quitar imágenes de entrenamiento seleccionadas", "Retirer les images d’entraînement sélectionnées"))
+                    }
+                }
+                List(project.frames, selection: $app.selectedFrameIDs) { frame in
                     HStack(spacing: 8) {
                         if let store = app.store, let image = NSImage(contentsOf: store.frameURL(for: frame)) {
                             Image(nsImage: image)
@@ -355,6 +375,8 @@ struct ContentView: View {
             )
         } else if showBenchmark {
             benchmarkPanel
+        } else if app.selectedFrameIDs.count > 1 {
+            multiFrameSelectionPanel
         } else if let frame = app.selectedFrame, let store = app.store {
             VStack(spacing: 14) {
                 annotationToolbar
@@ -376,6 +398,35 @@ struct ContentView: View {
         } else {
             welcome
         }
+    }
+
+    private var multiFrameSelectionPanel: some View {
+        VStack(spacing: 16) {
+            Spacer()
+            Label(
+                "\(app.selectedFrameIDs.count) \(app.tr("Trainingsbilder ausgewählt", "training images selected", "imágenes de entrenamiento seleccionadas", "images d’entraînement sélectionnées"))",
+                systemImage: "checklist"
+            ).font(.title3.bold())
+            Text(app.tr(
+                "Wähle mit ⌘-Klick oder Umschalt-Klick weitere Bilder aus, oder klicke ein einzelnes Bild an, um es zu bearbeiten.",
+                "Use Cmd-click or Shift-click to select more images, or click a single image to edit it.",
+                "Usa Cmd+clic o Mayús+clic para seleccionar más imágenes, o haz clic en una sola para editarla.",
+                "Utilisez Cmd-clic ou Maj-clic pour sélectionner d’autres images, ou cliquez sur une seule pour la modifier."
+            ))
+                .font(.callout).foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: 420)
+            Button(role: .destructive) { requestFrameRemoval(app.selectedFrameIDs) } label: {
+                Label(
+                    "\(app.tr("Auswahl entfernen", "Remove selection", "Quitar selección", "Retirer la sélection")) (\(app.selectedFrameIDs.count))",
+                    systemImage: "trash"
+                )
+            }
+            .disabled(app.isWorking)
+            Spacer()
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding(18)
     }
 
     private var benchmarkPanel: some View {
@@ -502,6 +553,16 @@ struct ContentView: View {
         }
     }
 
+    private func requestFrameRemoval(_ ids: Set<UUID>) {
+        guard !ids.isEmpty else { return }
+        if skipFrameRemovalConfirmation {
+            app.removeFrames(ids)
+        } else {
+            frameIDsPendingRemoval = ids
+            confirmFrameRemoval = true
+        }
+    }
+
     private func percent(_ value: Double?) -> String {
         value.map { String(format: "%.1f%%", $0 * 100) } ?? "–"
     }
@@ -587,7 +648,7 @@ struct ContentView: View {
             if let frame = app.selectedFrame {
                 Text("\(frame.width) × \(frame.height) · \(frame.videoName)")
                     .foregroundStyle(.secondary)
-                Button(role: .destructive) { confirmFrameRemoval = true } label: {
+                Button(role: .destructive) { requestFrameRemoval([frame.id]) } label: {
                     Label(app.tr("Bild aus Training entfernen", "Remove image from training", "Quitar imagen del entrenamiento", "Retirer l’image de l’entraînement"), systemImage: "trash")
                 }
                 .disabled(app.isWorking)
@@ -617,7 +678,7 @@ struct ContentView: View {
                 Picker(app.tr("Modell", "Model"), selection: $app.modelSize) {
                     ForEach(ModelSize.allCases) { Text($0.title(language: app.language)).tag($0) }
                 }
-                .frame(width: 110)
+                .fixedSize()
                 Stepper(app.tr("\(app.epochs) Epochen", "\(app.epochs) epochs"), value: $app.epochs, in: 1...200)
                     .frame(width: 150)
                 Spacer()
@@ -637,6 +698,22 @@ struct ContentView: View {
                 ForEach(app.sport.categories, id: \.self) { category in
                     autoLabelCategoryChip(category)
                 }
+            }
+
+            if let classes = app.project?.classes, classes.count > 1 {
+                HStack(spacing: 6) {
+                    Text(app.tr("Training beschränken auf:", "Restrict training to:", "Restringir entrenamiento a:", "Limiter l’entraînement à :"))
+                        .font(.subheadline).foregroundStyle(.secondary)
+                    ForEach(classes, id: \.self) { category in
+                        trainingCategoryChip(category)
+                    }
+                }
+                .help(app.tr(
+                    "Abgewählte Klassen werden bei diesem Trainingslauf komplett ausgeschlossen - keine Garantie, dass ihre bisherige Erkennungsqualität dadurch unverändert bleibt.",
+                    "Deselected classes are entirely excluded from this training run - no guarantee that their existing detection quality stays unchanged as a result.",
+                    "Las clases no seleccionadas quedan totalmente excluidas de este entrenamiento - no hay garantía de que su calidad de detección actual permanezca igual.",
+                    "Les classes désélectionnées sont entièrement exclues de cet entraînement - aucune garantie que leur qualité de détection actuelle reste inchangée."
+                ))
             }
 
             HStack {
@@ -900,6 +977,28 @@ struct ContentView: View {
         }
     }
 
+    @ViewBuilder
+    private func trainingCategoryChip(_ category: String) -> some View {
+        let isIncluded = !app.trainingExcludedCategories.contains(category)
+        let toggle = {
+            if isIncluded {
+                app.trainingExcludedCategories.insert(category)
+            } else {
+                app.trainingExcludedCategories.remove(category)
+            }
+        }
+        if isIncluded {
+            Button(app.language.category(category), action: toggle)
+                .buttonStyle(.borderedProminent)
+                .controlSize(.small)
+        } else {
+            Button(app.language.category(category), action: toggle)
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .opacity(0.5)
+        }
+    }
+
     private func hardwareSummary(_ hardware: HardwareStatus) -> String {
         var parts = [hardware.recommendedDevice.uppercased()]
         if let memory = hardware.memoryGB { parts.append("\(memory) GB") }
@@ -1154,6 +1253,60 @@ private struct LocalFilePicker: View {
         } catch {
             return LocalDirectorySnapshot(entries: [], error: error.localizedDescription)
         }
+    }
+}
+
+private struct FrameRemovalConfirmationSheet: View {
+    let count: Int
+    let language: AppLanguage
+    let onConfirm: (Bool) -> Void
+    let onCancel: () -> Void
+
+    @State private var dontAskAgain = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text(count == 1
+                ? language.text("Trainingsbild entfernen?", "Remove training image?", "¿Quitar imagen de entrenamiento?", "Retirer l’image d’entraînement ?")
+                : language.text(
+                    "\(count) Trainingsbilder entfernen?", "Remove \(count) training images?",
+                    "¿Quitar \(count) imágenes de entrenamiento?", "Retirer \(count) images d’entraînement ?"
+                )
+            ).font(.headline)
+            Text(count == 1
+                ? language.text(
+                    "Nur der extrahierte Trainingsframe wird entfernt. Das Quellvideo bleibt unverändert.",
+                    "Only the extracted training frame is removed. The source video remains unchanged.",
+                    "Solo se quita el fotograma extraído. El vídeo original no se modifica.",
+                    "Seule l’image extraite est retirée. La vidéo source reste inchangée."
+                )
+                : language.text(
+                    "Nur die extrahierten Trainingsframes werden entfernt. Die Quellvideos bleiben unverändert.",
+                    "Only the extracted training frames are removed. The source videos remain unchanged.",
+                    "Solo se quitan los fotogramas extraídos. Los vídeos originales no se modifican.",
+                    "Seules les images extraites sont retirées. Les vidéos sources restent inchangées."
+                )
+            ).font(.callout).foregroundStyle(.secondary)
+            Toggle(
+                language.text("Nicht mehr fragen", "Don't ask again", "No volver a preguntar", "Ne plus demander"),
+                isOn: $dontAskAgain
+            )
+            HStack {
+                Spacer()
+                Button(language.text("Abbrechen", "Cancel", "Cancelar", "Annuler"), action: onCancel)
+                Button(role: .destructive) {
+                    onConfirm(dontAskAgain)
+                } label: {
+                    Text(count == 1
+                        ? language.text("Bild entfernen", "Remove image", "Quitar imagen", "Retirer l’image")
+                        : language.text("Entfernen", "Remove", "Quitar", "Retirer")
+                    )
+                }
+                .buttonStyle(.borderedProminent)
+            }
+        }
+        .padding(24)
+        .frame(width: 420)
     }
 }
 

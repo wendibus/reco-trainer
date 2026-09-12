@@ -34,12 +34,42 @@ final class AppState: ObservableObject {
     @Published var sport: Sport = .football
     @Published var selectedFolder: URL?
     @Published var project: ProjectDocument?
-    @Published var selectedFrameID: UUID?
+    /// Backing storage for the training-image list's selection. Set-based so the
+    /// sidebar List supports native macOS Cmd/Shift-click multi-select for bulk
+    /// deletion; selectedFrameID below is a single-ID convenience view onto it
+    /// for every other call site (the annotation editor, active-learning review,
+    /// etc.), which only ever care about "the one currently displayed frame".
+    @Published var selectedFrameIDs: Set<UUID> = []
+
+    /// Convenience accessor: nil whenever zero or several frames are selected
+    /// (multi-select shows a bulk-action panel instead of the single-frame
+    /// editor - see ContentView.detail), the one ID when exactly one is.
+    var selectedFrameID: UUID? {
+        get { selectedFrameIDs.count == 1 ? selectedFrameIDs.first : nil }
+        set { selectedFrameIDs = newValue.map { [$0] } ?? [] }
+    }
     @Published var selectedCategory = "ball"
     /// Which classes "Automatisch markieren" should detect in one pass. Separate from
     /// selectedCategory, which stays single-valued for hand-drawing a new box and for
     /// the active-learning Ball/No-ball review - both are inherently one category at a time.
     @Published var autoLabelCategories: Set<String> = ["ball"]
+    /// Categories the user has explicitly excluded from local training (e.g. "keep
+    /// ball as it already is, only improve referee this run"). Tracked as an
+    /// exclusion set rather than the selection itself so a newly-annotated
+    /// category (e.g. after auto-labeling referee mid-session) joins training by
+    /// default instead of needing to be ticked - see trainingCategories below.
+    @Published var trainingExcludedCategories: Set<String> = []
+
+    /// The categories that will actually go into the next local training run:
+    /// every currently-annotated category, minus whatever the user explicitly
+    /// excluded. Training on this exact subset (rather than "every annotated
+    /// category", the previous unconditional behavior) does not freeze or
+    /// otherwise guarantee an excluded category's existing detection quality -
+    /// it simply narrows what this run's dataset (and therefore the model) covers.
+    var trainingCategories: Set<String> {
+        Set(project?.classes ?? []).subtracting(trainingExcludedCategories)
+    }
+
     @Published var modelSize: ModelSize = .nano
     @Published var epochs = 20
     @Published var confidenceThreshold = 0.35
@@ -191,6 +221,7 @@ final class AppState: ObservableObject {
         installedModelCount = 0
         managedModels = []
         continuationCheckpoints = [:]
+        trainingExcludedCategories = []
         status = tr(
             "Lade vorhandenes Trainingsprojekt …",
             "Loading existing training project …",
@@ -516,6 +547,49 @@ final class AppState: ObservableObject {
         }
     }
 
+    /// Batched version of removeSelectedFrame() for multi-select deletion: removes
+    /// every given frame's derived files in one pass and saves the project once at
+    /// the end, instead of once per frame.
+    func removeFrames(_ ids: Set<UUID>) {
+        guard var document = project, let store, !ids.isEmpty else { return }
+        var benchmarkInvalidated = false
+        for id in ids {
+            guard let index = document.frames.firstIndex(where: { $0.id == id }) else { continue }
+            let frame = document.frames[index]
+            do {
+                if try store.removeDerivedFrame(frame) { benchmarkInvalidated = true }
+                document.frames.remove(at: index)
+            } catch {
+                errorMessage = error.localizedDescription
+                return
+            }
+        }
+        do {
+            try store.save(document)
+            project = document
+            selectedFrameIDs = []
+            if benchmarkInvalidated {
+                benchmarkGroundTruth = nil
+                benchmarkReport = nil
+            }
+            status = ids.count == 1
+                ? tr(
+                    "Trainingsbild entfernt. Das Quellvideo bleibt unverändert.",
+                    "Training image removed. The source video remains unchanged.",
+                    "Imagen de entrenamiento eliminada. El vídeo original no se modifica.",
+                    "Image d’entraînement retirée. La vidéo source reste inchangée."
+                )
+                : tr(
+                    "\(ids.count) Trainingsbilder entfernt. Die Quellvideos bleiben unverändert.",
+                    "\(ids.count) training images removed. The source videos remain unchanged.",
+                    "\(ids.count) imágenes de entrenamiento eliminadas. Los vídeos originales no se modifican.",
+                    "\(ids.count) images d’entraînement retirées. Les vidéos sources restent inchangées."
+                )
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
     func checkHardware() { runWorkerAction(tr("Prüfe Mac-Hardware …", "Checking Mac hardware …")) { worker, output in
         let status = try await worker.doctor()
         await MainActor.run { self.hardware = status }
@@ -660,7 +734,16 @@ final class AppState: ObservableObject {
     }
 
     func train() { runWorkerAction(tr("Trainiere lokal …", "Training locally …")) { worker, output in
-        try await worker.train(modelSize: self.modelSize, epochs: self.epochs, language: self.language, onOutput: output)
+        let allAnnotatedCategories = Set(self.project?.classes ?? [])
+        let selected = self.trainingCategories
+        let isRestricted = !selected.isEmpty && selected != allAnnotatedCategories
+        try await worker.train(
+            modelSize: self.modelSize,
+            epochs: self.epochs,
+            categories: isRestricted ? Array(selected) : nil,
+            language: self.language,
+            onOutput: output
+        )
     }}
 
     func exportCPU() { runWorkerAction(tr("Exportiere universelles CPU-Modell …", "Exporting universal CPU model …")) { worker, output in
