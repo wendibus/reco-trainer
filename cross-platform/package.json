@@ -1,6 +1,6 @@
 {
   "name": "reco-local-trainer",
-  "version": "0.12.0",
+  "version": "0.12.14",
   "private": true,
   "engines": {
     "node": ">=22.13.0"

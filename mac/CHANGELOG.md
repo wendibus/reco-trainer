@@ -1,5 +1,10 @@
 # Änderungen
 
+## 0.12.14
+
+- Windows: „Lokal trainieren“ stürzte während der ersten Epoche mit einem Kodierungsfehler ab, weil die Konsolenausgabe dort standardmäßig nicht auf UTF-8 steht. Behoben.
+- Die Windows/Linux/Docker-Weboberfläche prüft jetzt beim Start ebenfalls, ob eine neuere Version veröffentlicht wurde (wie die Mac-App bereits seit 0.12.9).
+
 ## 0.12.13
 
 - Jeder Modelleintrag in der Modellverwaltung zeigt jetzt direkt, welche Klassen das Modell tatsächlich kann.
