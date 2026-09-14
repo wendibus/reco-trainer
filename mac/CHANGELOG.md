@@ -1,5 +1,10 @@
 # Änderungen
 
+## 0.12.13
+
+- Jeder Modelleintrag in der Modellverwaltung zeigt jetzt direkt, welche Klassen das Modell tatsächlich kann.
+- Windows: „ML einrichten“ (und jeder folgende lokale ML-Schritt) scheiterte mit „Die angegebene Datei wurde nicht gefunden“, weil die App intern einen reinen macOS/Linux-Dateipfad für die virtuelle Python-Umgebung erwartet hat. Behoben.
+
 ## 0.12.12
 
 - Das „Modell“-Dropdown bei „4 · Modell verbessern“ zeigte den vollen Wert nicht an (zu schmal). Behoben.
