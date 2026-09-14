@@ -33,6 +33,36 @@ type Gesture =
   | { type: 'pan'; pointerId: number; startClientX: number; startClientY: number; startPanX: number; startPanY: number };
 
 const DEFAULT_API = 'http://127.0.0.1:8766';
+// Single source of truth for this web UI's own version - bump alongside
+// VERSION in cross-platform/scripts/package-platforms.sh at every release.
+// Compared against GitHub's latest release tag to power the update banner.
+const CURRENT_VERSION = '0.12.13';
+const LATEST_RELEASE_API = 'https://api.github.com/repos/wendibus/reco-trainer/releases/latest';
+const LATEST_RELEASE_PAGE = 'https://github.com/wendibus/reco-trainer/releases/latest';
+const DISMISSED_UPDATE_KEY = 'reco-dismissed-update-version-v1';
+
+// Splits a version string like "v0.12.13" or "0.12.13" into [0, 12, 13]. A
+// non-numeric component falls back to 0 rather than throwing.
+function parseVersionComponents(raw: string): number[] {
+  const withoutPrefix = raw.replace(/^v/i, '');
+  return withoutPrefix.split('.').map((part) => Number.parseInt(part, 10) || 0);
+}
+
+// True when `remote` denotes a strictly newer version than `local`, comparing
+// major/minor/patch (and beyond) component by component. A missing trailing
+// component is treated as 0, so "0.13" counts as newer than "0.12.9".
+function isNewerVersion(remote: string, local: string): boolean {
+  const remoteParts = parseVersionComponents(remote);
+  const localParts = parseVersionComponents(local);
+  const length = Math.max(remoteParts.length, localParts.length);
+  for (let index = 0; index < length; index += 1) {
+    const remoteValue = remoteParts[index] ?? 0;
+    const localValue = localParts[index] ?? 0;
+    if (remoteValue !== localValue) return remoteValue > localValue;
+  }
+  return false;
+}
+
 const cloneAnnotations = (items: LocalAnnotation[]) => items.map((item) => ({ ...item }));
 const clamp = (value: number, minimum: number, maximum: number) => Math.min(maximum, Math.max(minimum, value));
 const frameCopy = {
@@ -50,7 +80,7 @@ const activeCopy = {
 
 const copy = {
   de: {
-    preview: 'Lokales Training auf diesem Rechner', note: 'Videos, Frames und Modelle bleiben auf diesem Rechner', sport: 'Sportart', videos: 'Videos', choose: 'Videoordner auswählen', analyze: 'Videos lokal vorbereiten', refresh: 'Frames sicher aktualisieren', analyzing: 'Extrahiere echte Frames …', images: 'Trainingsbilder', annotate: 'Klasse', ball: 'Ball', puck: 'Puck', player: 'Spieler', goalkeeper: 'Torwart', referee: 'Schiedsrichter', goal: 'Tor', goalpost: 'Torpfosten', hoop: 'Korb', football: 'Fußball', americanFootball: 'American Football', select: 'Auswählen', draw: 'Neue Box', pan: 'Verschieben', undo: 'Rückgängig', redo: 'Wiederholen', remove: 'Löschen', accept: 'Auto übernehmen', reject: 'Auto verwerfen', reset: 'Ansicht zurücksetzen', drag: 'Boxen anklicken, verschieben oder an den Ecken ändern · Pinch/Mausrad zoomt', improve: 'Modell verbessern', setup: 'ML einrichten', auto: 'Automatisch markieren', train: 'Lokal trainieren', export: 'Apple-Modell', share: 'Paket erstellen', importModel: 'Modell importieren', activeModel: 'Aktives Austauschmodell', noModel: 'Kein Austauschmodell aktiv', trustWarning: 'Nur Modellpakete aus einer vertrauenswürdigen Quelle importieren.', privacy: 'Lokal und privat', noFolder: 'Noch kein Ordner gewählt', folderReady: 'Ordner verbunden. Markierungen werden lokal gespeichert und vor Änderungen gesichert.', emptyFrames: 'Ordner wählen und Videos lokal vorbereiten.', localReady: 'lokal vorbereitet', offline: 'Lokaler Worker nicht erreichbar. Reco Trainer mit dem Starter neu öffnen.', confidence: 'Mindest-Sicherheit', marked: 'markierte Frames', boxes: 'Boxen', pending: 'Auto offen', noTraining: 'Noch kein abgeschlossenes Training', testGood: 'Unabhängiger Testsatz vorhanden', testWeak: 'Für einen unabhängigen Test werden mindestens drei Videos benötigt.', previewOnly: 'Oberflächenvorschau', validation: 'Validierung', help: 'Ablauf erklären', walkthroughTitle: 'So verbesserst du dein Reco-Modell', back: 'Zurück', next: 'Weiter', done: 'Loslegen', close: 'Schließen', step: 'Schritt',
+    preview: 'Lokales Training auf diesem Rechner', note: 'Videos, Frames und Modelle bleiben auf diesem Rechner', sport: 'Sportart', videos: 'Videos', choose: 'Videoordner auswählen', analyze: 'Videos lokal vorbereiten', refresh: 'Frames sicher aktualisieren', analyzing: 'Extrahiere echte Frames …', images: 'Trainingsbilder', annotate: 'Klasse', ball: 'Ball', puck: 'Puck', player: 'Spieler', goalkeeper: 'Torwart', referee: 'Schiedsrichter', goal: 'Tor', goalpost: 'Torpfosten', hoop: 'Korb', football: 'Fußball', americanFootball: 'American Football', select: 'Auswählen', draw: 'Neue Box', pan: 'Verschieben', undo: 'Rückgängig', redo: 'Wiederholen', remove: 'Löschen', accept: 'Auto übernehmen', reject: 'Auto verwerfen', reset: 'Ansicht zurücksetzen', drag: 'Boxen anklicken, verschieben oder an den Ecken ändern · Pinch/Mausrad zoomt', improve: 'Modell verbessern', setup: 'ML einrichten', auto: 'Automatisch markieren', train: 'Lokal trainieren', export: 'Apple-Modell', share: 'Paket erstellen', importModel: 'Modell importieren', activeModel: 'Aktives Austauschmodell', noModel: 'Kein Austauschmodell aktiv', trustWarning: 'Nur Modellpakete aus einer vertrauenswürdigen Quelle importieren.', privacy: 'Lokal und privat', noFolder: 'Noch kein Ordner gewählt', folderReady: 'Ordner verbunden. Markierungen werden lokal gespeichert und vor Änderungen gesichert.', emptyFrames: 'Ordner wählen und Videos lokal vorbereiten.', localReady: 'lokal vorbereitet', offline: 'Lokaler Worker nicht erreichbar. Reco Trainer mit dem Starter neu öffnen.', confidence: 'Mindest-Sicherheit', marked: 'markierte Frames', boxes: 'Boxen', pending: 'Auto offen', noTraining: 'Noch kein abgeschlossenes Training', testGood: 'Unabhängiger Testsatz vorhanden', testWeak: 'Für einen unabhängigen Test werden mindestens drei Videos benötigt.', previewOnly: 'Oberflächenvorschau', validation: 'Validierung', help: 'Ablauf erklären', walkthroughTitle: 'So verbesserst du dein Reco-Modell', back: 'Zurück', next: 'Weiter', done: 'Loslegen', close: 'Schließen', step: 'Schritt', updateAvailable: (version: string) => `Neue Version ${version} verfügbar.`, updateDownload: 'Herunterladen', updateDismiss: 'Nicht jetzt',
     walkthrough: [
       ['Sportart wählen', 'Wähle zuerst die Sportart. Jede Sportart besitzt passende Objektklassen und eine getrennte Modellbibliothek.'],
       ['Lokalen Videoordner verbinden', 'Wähle den Ordner mit deinen Videos. Die Aufnahmen bleiben auf diesem Rechner und werden nicht hochgeladen.'],
@@ -63,7 +93,7 @@ const copy = {
     ],
   },
   en: {
-    preview: 'Local training on this computer', note: 'Videos, frames, and models remain on this computer', sport: 'Sport', videos: 'Videos', choose: 'Select video folder', analyze: 'Prepare videos locally', refresh: 'Safely refresh frames', analyzing: 'Extracting real frames …', images: 'Training images', annotate: 'Class', ball: 'Ball', puck: 'Puck', player: 'Player', goalkeeper: 'Goalkeeper', referee: 'Referee', goal: 'Goal', goalpost: 'Goalpost', hoop: 'Hoop', football: 'Football', americanFootball: 'American Football', select: 'Select', draw: 'New box', pan: 'Pan', undo: 'Undo', redo: 'Redo', remove: 'Delete', accept: 'Accept auto', reject: 'Reject auto', reset: 'Reset view', drag: 'Select, move, or resize boxes at their corners · pinch/wheel to zoom', improve: 'Improve model', setup: 'Set up ML', auto: 'Auto-label', train: 'Train locally', export: 'Apple model', share: 'Create package', importModel: 'Import model', activeModel: 'Active exchange model', noModel: 'No exchange model active', trustWarning: 'Import model packages only from a trusted source.', privacy: 'Local and private', noFolder: 'No folder selected', folderReady: 'Folder connected. Annotations are stored locally and backed up before changes.', emptyFrames: 'Select a folder and prepare videos locally.', localReady: 'prepared locally', offline: 'Local worker unavailable. Reopen Reco Trainer with its starter.', confidence: 'Minimum confidence', marked: 'annotated frames', boxes: 'boxes', pending: 'auto pending', noTraining: 'No completed training yet', testGood: 'Independent test set available', testWeak: 'At least three videos are needed for an independent test.', previewOnly: 'UI preview', validation: 'Validation', help: 'Show workflow', walkthroughTitle: 'How to improve your Reco model', back: 'Back', next: 'Next', done: 'Get started', close: 'Close', step: 'Step',
+    preview: 'Local training on this computer', note: 'Videos, frames, and models remain on this computer', sport: 'Sport', videos: 'Videos', choose: 'Select video folder', analyze: 'Prepare videos locally', refresh: 'Safely refresh frames', analyzing: 'Extracting real frames …', images: 'Training images', annotate: 'Class', ball: 'Ball', puck: 'Puck', player: 'Player', goalkeeper: 'Goalkeeper', referee: 'Referee', goal: 'Goal', goalpost: 'Goalpost', hoop: 'Hoop', football: 'Football', americanFootball: 'American Football', select: 'Select', draw: 'New box', pan: 'Pan', undo: 'Undo', redo: 'Redo', remove: 'Delete', accept: 'Accept auto', reject: 'Reject auto', reset: 'Reset view', drag: 'Select, move, or resize boxes at their corners · pinch/wheel to zoom', improve: 'Improve model', setup: 'Set up ML', auto: 'Auto-label', train: 'Train locally', export: 'Apple model', share: 'Create package', importModel: 'Import model', activeModel: 'Active exchange model', noModel: 'No exchange model active', trustWarning: 'Import model packages only from a trusted source.', privacy: 'Local and private', noFolder: 'No folder selected', folderReady: 'Folder connected. Annotations are stored locally and backed up before changes.', emptyFrames: 'Select a folder and prepare videos locally.', localReady: 'prepared locally', offline: 'Local worker unavailable. Reopen Reco Trainer with its starter.', confidence: 'Minimum confidence', marked: 'annotated frames', boxes: 'boxes', pending: 'auto pending', noTraining: 'No completed training yet', testGood: 'Independent test set available', testWeak: 'At least three videos are needed for an independent test.', previewOnly: 'UI preview', validation: 'Validation', help: 'Show workflow', walkthroughTitle: 'How to improve your Reco model', back: 'Back', next: 'Next', done: 'Get started', close: 'Close', step: 'Step', updateAvailable: (version: string) => `New version ${version} available.`, updateDownload: 'Download', updateDismiss: 'Not now',
     walkthrough: [
       ['Choose a sport', 'Choose the sport first. Each sport has suitable object classes and a separate model library.'],
       ['Connect a local video folder', 'Select the folder containing your videos. Recordings stay on this computer and are never uploaded.'],
@@ -76,7 +106,7 @@ const copy = {
     ],
   },
   es: {
-    preview: 'Entrenamiento local en este equipo', note: 'Los vídeos, fotogramas y modelos permanecen en este equipo', sport: 'Deporte', videos: 'Vídeos', choose: 'Seleccionar carpeta de vídeos', analyze: 'Preparar vídeos localmente', refresh: 'Actualizar fotogramas de forma segura', analyzing: 'Extrayendo fotogramas reales …', images: 'Imágenes de entrenamiento', annotate: 'Clase', ball: 'Balón', puck: 'Disco', player: 'Jugador', goalkeeper: 'Portero', referee: 'Árbitro', goal: 'Portería', goalpost: 'Postes', hoop: 'Canasta', football: 'Fútbol', americanFootball: 'Fútbol americano', select: 'Seleccionar', draw: 'Nuevo cuadro', pan: 'Mover vista', undo: 'Deshacer', redo: 'Rehacer', remove: 'Eliminar', accept: 'Aceptar automático', reject: 'Rechazar automático', reset: 'Restablecer vista', drag: 'Selecciona, mueve o cambia el tamaño de los cuadros · pellizca/rueda para ampliar', improve: 'Mejorar modelo', setup: 'Configurar ML', auto: 'Marcar automáticamente', train: 'Entrenar localmente', export: 'Modelo Apple', share: 'Crear paquete', importModel: 'Importar modelo', activeModel: 'Modelo de intercambio activo', noModel: 'Ningún modelo de intercambio activo', trustWarning: 'Importa paquetes de modelos solo de una fuente de confianza.', privacy: 'Local y privado', noFolder: 'Ninguna carpeta seleccionada', folderReady: 'Carpeta conectada. Las anotaciones se guardan localmente y se respaldan antes de los cambios.', emptyFrames: 'Selecciona una carpeta y prepara los vídeos localmente.', localReady: 'preparado localmente', offline: 'El proceso local no está disponible. Abre Reco Trainer de nuevo con su iniciador.', confidence: 'Confianza mínima', marked: 'fotogramas marcados', boxes: 'cuadros', pending: 'automáticos pendientes', noTraining: 'Aún no hay entrenamiento finalizado', testGood: 'Conjunto de prueba independiente disponible', testWeak: 'Se necesitan al menos tres vídeos para una prueba independiente.', previewOnly: 'Vista previa de la interfaz', validation: 'Validación', help: 'Mostrar el flujo', walkthroughTitle: 'Cómo mejorar tu modelo Reco', back: 'Atrás', next: 'Siguiente', done: 'Empezar', close: 'Cerrar', step: 'Paso',
+    preview: 'Entrenamiento local en este equipo', note: 'Los vídeos, fotogramas y modelos permanecen en este equipo', sport: 'Deporte', videos: 'Vídeos', choose: 'Seleccionar carpeta de vídeos', analyze: 'Preparar vídeos localmente', refresh: 'Actualizar fotogramas de forma segura', analyzing: 'Extrayendo fotogramas reales …', images: 'Imágenes de entrenamiento', annotate: 'Clase', ball: 'Balón', puck: 'Disco', player: 'Jugador', goalkeeper: 'Portero', referee: 'Árbitro', goal: 'Portería', goalpost: 'Postes', hoop: 'Canasta', football: 'Fútbol', americanFootball: 'Fútbol americano', select: 'Seleccionar', draw: 'Nuevo cuadro', pan: 'Mover vista', undo: 'Deshacer', redo: 'Rehacer', remove: 'Eliminar', accept: 'Aceptar automático', reject: 'Rechazar automático', reset: 'Restablecer vista', drag: 'Selecciona, mueve o cambia el tamaño de los cuadros · pellizca/rueda para ampliar', improve: 'Mejorar modelo', setup: 'Configurar ML', auto: 'Marcar automáticamente', train: 'Entrenar localmente', export: 'Modelo Apple', share: 'Crear paquete', importModel: 'Importar modelo', activeModel: 'Modelo de intercambio activo', noModel: 'Ningún modelo de intercambio activo', trustWarning: 'Importa paquetes de modelos solo de una fuente de confianza.', privacy: 'Local y privado', noFolder: 'Ninguna carpeta seleccionada', folderReady: 'Carpeta conectada. Las anotaciones se guardan localmente y se respaldan antes de los cambios.', emptyFrames: 'Selecciona una carpeta y prepara los vídeos localmente.', localReady: 'preparado localmente', offline: 'El proceso local no está disponible. Abre Reco Trainer de nuevo con su iniciador.', confidence: 'Confianza mínima', marked: 'fotogramas marcados', boxes: 'cuadros', pending: 'automáticos pendientes', noTraining: 'Aún no hay entrenamiento finalizado', testGood: 'Conjunto de prueba independiente disponible', testWeak: 'Se necesitan al menos tres vídeos para una prueba independiente.', previewOnly: 'Vista previa de la interfaz', validation: 'Validación', help: 'Mostrar el flujo', walkthroughTitle: 'Cómo mejorar tu modelo Reco', back: 'Atrás', next: 'Siguiente', done: 'Empezar', close: 'Cerrar', step: 'Paso', updateAvailable: (version: string) => `Nueva versión ${version} disponible.`, updateDownload: 'Descargar', updateDismiss: 'Ahora no',
     walkthrough: [
       ['Elige un deporte', 'Elige primero el deporte. Cada deporte tiene clases de objetos adecuadas y una biblioteca de modelos independiente.'],
       ['Conecta una carpeta local', 'Selecciona la carpeta que contiene tus vídeos. Las grabaciones permanecen en este equipo y nunca se suben.'],
@@ -89,7 +119,7 @@ const copy = {
     ],
   },
   fr: {
-    preview: 'Entraînement local sur cet ordinateur', note: 'Les vidéos, images et modèles restent sur cet ordinateur', sport: 'Sport', videos: 'Vidéos', choose: 'Sélectionner le dossier vidéo', analyze: 'Préparer les vidéos localement', refresh: 'Actualiser les images en sécurité', analyzing: 'Extraction des images réelles …', images: 'Images d’entraînement', annotate: 'Classe', ball: 'Ballon', puck: 'Palet', player: 'Joueur', goalkeeper: 'Gardien', referee: 'Arbitre', goal: 'But', goalpost: 'Poteaux', hoop: 'Panier', football: 'Football', americanFootball: 'Football américain', select: 'Sélectionner', draw: 'Nouvelle boîte', pan: 'Déplacer la vue', undo: 'Annuler', redo: 'Rétablir', remove: 'Supprimer', accept: 'Accepter auto', reject: 'Refuser auto', reset: 'Réinitialiser la vue', drag: 'Sélectionnez, déplacez ou redimensionnez les boîtes · pincez/molette pour zoomer', improve: 'Améliorer le modèle', setup: 'Configurer le ML', auto: 'Marquage automatique', train: 'Entraîner localement', export: 'Modèle Apple', share: 'Créer le paquet', importModel: 'Importer un modèle', activeModel: 'Modèle d’échange actif', noModel: 'Aucun modèle d’échange actif', trustWarning: 'Importez uniquement des paquets provenant d’une source fiable.', privacy: 'Local et privé', noFolder: 'Aucun dossier sélectionné', folderReady: 'Dossier connecté. Les annotations sont stockées localement et sauvegardées avant modification.', emptyFrames: 'Sélectionnez un dossier et préparez les vidéos localement.', localReady: 'préparé localement', offline: 'Le processus local est indisponible. Rouvrez Reco Trainer avec son lanceur.', confidence: 'Confiance minimale', marked: 'images annotées', boxes: 'boîtes', pending: 'autos en attente', noTraining: 'Aucun entraînement terminé', testGood: 'Jeu de test indépendant disponible', testWeak: 'Au moins trois vidéos sont nécessaires pour un test indépendant.', previewOnly: 'Aperçu de l’interface', validation: 'Validation', help: 'Afficher le parcours', walkthroughTitle: 'Comment améliorer votre modèle Reco', back: 'Retour', next: 'Suivant', done: 'Commencer', close: 'Fermer', step: 'Étape',
+    preview: 'Entraînement local sur cet ordinateur', note: 'Les vidéos, images et modèles restent sur cet ordinateur', sport: 'Sport', videos: 'Vidéos', choose: 'Sélectionner le dossier vidéo', analyze: 'Préparer les vidéos localement', refresh: 'Actualiser les images en sécurité', analyzing: 'Extraction des images réelles …', images: 'Images d’entraînement', annotate: 'Classe', ball: 'Ballon', puck: 'Palet', player: 'Joueur', goalkeeper: 'Gardien', referee: 'Arbitre', goal: 'But', goalpost: 'Poteaux', hoop: 'Panier', football: 'Football', americanFootball: 'Football américain', select: 'Sélectionner', draw: 'Nouvelle boîte', pan: 'Déplacer la vue', undo: 'Annuler', redo: 'Rétablir', remove: 'Supprimer', accept: 'Accepter auto', reject: 'Refuser auto', reset: 'Réinitialiser la vue', drag: 'Sélectionnez, déplacez ou redimensionnez les boîtes · pincez/molette pour zoomer', improve: 'Améliorer le modèle', setup: 'Configurer le ML', auto: 'Marquage automatique', train: 'Entraîner localement', export: 'Modèle Apple', share: 'Créer le paquet', importModel: 'Importer un modèle', activeModel: 'Modèle d’échange actif', noModel: 'Aucun modèle d’échange actif', trustWarning: 'Importez uniquement des paquets provenant d’une source fiable.', privacy: 'Local et privé', noFolder: 'Aucun dossier sélectionné', folderReady: 'Dossier connecté. Les annotations sont stockées localement et sauvegardées avant modification.', emptyFrames: 'Sélectionnez un dossier et préparez les vidéos localement.', localReady: 'préparé localement', offline: 'Le processus local est indisponible. Rouvrez Reco Trainer avec son lanceur.', confidence: 'Confiance minimale', marked: 'images annotées', boxes: 'boîtes', pending: 'autos en attente', noTraining: 'Aucun entraînement terminé', testGood: 'Jeu de test indépendant disponible', testWeak: 'Au moins trois vidéos sont nécessaires pour un test indépendant.', previewOnly: 'Aperçu de l’interface', validation: 'Validation', help: 'Afficher le parcours', walkthroughTitle: 'Comment améliorer votre modèle Reco', back: 'Retour', next: 'Suivant', done: 'Commencer', close: 'Fermer', step: 'Étape', updateAvailable: (version: string) => `Nouvelle version ${version} disponible.`, updateDownload: 'Télécharger', updateDismiss: 'Pas maintenant',
     walkthrough: [
       ['Choisissez un sport', 'Choisissez d’abord le sport. Chaque sport possède des classes adaptées et une bibliothèque de modèles distincte.'],
       ['Connectez un dossier local', 'Sélectionnez le dossier contenant vos vidéos. Les enregistrements restent sur cet ordinateur et ne sont jamais envoyés.'],
@@ -122,6 +152,8 @@ export default function Home() {
   const [walkthroughOpen, setWalkthroughOpen] = useState(false);
   const [walkthroughStep, setWalkthroughStep] = useState(0);
   const [languagePromptOpen, setLanguagePromptOpen] = useState(false);
+  const [availableUpdate, setAvailableUpdate] = useState<{ version: string; url: string } | null>(null);
+  const [dismissedUpdateVersion, setDismissedUpdateVersion] = useState('');
   const [worker, setWorker] = useState<WorkerStatus | null>(null);
   const [workerOnline, setWorkerOnline] = useState(false);
   const [api, setAPI] = useState(DEFAULT_API);
@@ -179,7 +211,33 @@ export default function Home() {
     } else {
       setLanguagePromptOpen(true);
     }
+    setDismissedUpdateVersion(window.localStorage.getItem(DISMISSED_UPDATE_KEY) ?? '');
   }, []);
+
+  // Best-effort, once-per-load check against GitHub's public releases API.
+  // Failures (offline, rate-limited, unexpected response) are silently
+  // ignored - this must never interrupt the user. Only the releases endpoint
+  // is contacted; no project data leaves the computer.
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      try {
+        const response = await fetch(LATEST_RELEASE_API, { headers: { Accept: 'application/vnd.github+json' } });
+        if (!response.ok) return;
+        const release = await response.json() as { tag_name?: string; html_url?: string };
+        const tag = release.tag_name;
+        if (!active || !tag) return;
+        const version = tag.replace(/^v/i, '');
+        if (isNewerVersion(version, CURRENT_VERSION)) setAvailableUpdate({ version, url: release.html_url || LATEST_RELEASE_PAGE });
+      } catch { /* offline or blocked - stay silent */ }
+    })();
+    return () => { active = false; };
+  }, []);
+
+  function dismissUpdate(version: string) {
+    setDismissedUpdateVersion(version);
+    window.localStorage.setItem(DISMISSED_UPDATE_KEY, version);
+  }
 
   function chooseLanguage(nextLanguage: Language) {
     setLanguage(nextLanguage);
@@ -381,10 +439,11 @@ export default function Home() {
 
   return <main className="preview-page">
     <header className="preview-header">
-      <div className="brand-block"><div className="brand-mark" aria-hidden="true">R</div><div><h1>Reco Trainer <small>0.12</small></h1><p>{t.preview}</p></div></div>
+      <div className="brand-block"><div className="brand-mark" aria-hidden="true">R</div><div><h1>Reco Trainer <small>{CURRENT_VERSION}</small></h1><p>{t.preview}</p></div></div>
       <div className="switches"><div className="segmented" role="group" aria-label="Plattform">{(['mac', 'windows', 'linux'] as Platform[]).map((item) => <button type="button" key={item} className={platform === item ? 'active' : ''} onClick={() => setPlatform(item)}>{item === 'mac' ? 'macOS' : item === 'windows' ? 'Windows' : 'Linux'}</button>)}</div><div className="segmented language-switch" role="group" aria-label="Sprache">{(['de', 'en', 'es', 'fr'] as Language[]).map((item) => <button type="button" key={item} className={language === item ? 'active' : ''} onClick={() => chooseLanguage(item)}>{item.toUpperCase()}</button>)}</div></div>
       <div className="header-actions"><button type="button" className={workspaceView === 'benchmark' ? 'walkthrough-launch active-view' : 'walkthrough-launch'} onClick={() => setWorkspaceView((view) => view === 'training' ? 'benchmark' : 'training')}>{workspaceView === 'training' ? `◇ ${benchmarkLabel}` : `← ${trainingLabel}`}</button><button type="button" className="walkthrough-launch" onClick={() => { setWalkthroughStep(0); setWalkthroughOpen(true); }}>? {t.help}</button><div className="local-note"><span>●</span>{t.note}</div></div>
     </header>
+    {availableUpdate && availableUpdate.version !== dismissedUpdateVersion && <div className="update-banner"><span>⬇ {t.updateAvailable(availableUpdate.version)}</span><a href={availableUpdate.url} target="_blank" rel="noreferrer" className="update-banner-download">{t.updateDownload}</a><button type="button" className="update-banner-dismiss" onClick={() => dismissUpdate(availableUpdate.version)}>{t.updateDismiss}</button></div>}
     <section className="preview-stage" aria-label={`${platform} Vorschau`}><div className={`app-window platform-${platform}`}><div className="app-body">
       <aside className="app-sidebar">
         <section className="side-section"><label>1 · {t.sport}</label><select aria-label={t.sport} value={sport} onChange={(event) => { const next = event.target.value as Sport; setSport(next); setCategory(next === 'hockey' ? 'puck' : 'ball'); setAutoLabelCategories([next === 'hockey' ? 'puck' : 'ball']); }}><option value="basketball">Basketball</option><option value="football">{t.football}</option><option value="futsal">Futsal</option><option value="handball">Handball</option><option value="hockey">Hockey</option><option value="rugby">Rugby</option><option value="lacrosse">Lacrosse</option><option value="american_football">{t.americanFootball}</option></select>{platform !== 'mac' && <small className="preview-only">{t.previewOnly}</small>}</section>

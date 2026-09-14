@@ -235,5 +235,37 @@ class FrameExtractionTests(unittest.TestCase):
             self.assertIn("boom", str(context.exception))
 
 
+class RunLoggedEncodingTests(unittest.TestCase):
+    """Regression coverage for a real Windows crash: local training died with a
+    raw UnicodeEncodeError from inside RF-DETR's rich-rendered metrics tables,
+    because a subprocess whose stdout is piped (not a real terminal) falls back
+    to the OS locale's preferred encoding - a legacy codepage like cp1252 on
+    Windows, not UTF-8 - for both the child's writes and this parent's reads.
+    """
+
+    def test_forces_utf8_for_both_the_child_and_this_process(self):
+        captured: dict = {}
+
+        class FakeProcess:
+            stdout = iter(())
+
+            def wait(self):
+                return 0
+
+        def fake_popen(command, **kwargs):
+            captured.update(kwargs)
+            return FakeProcess()
+
+        original_popen = local_worker.subprocess.Popen
+        try:
+            local_worker.subprocess.Popen = fake_popen
+            local_worker.run_logged(["echo", "hi"])
+        finally:
+            local_worker.subprocess.Popen = original_popen
+
+        self.assertEqual(captured.get("encoding"), "utf-8")
+        self.assertEqual(captured.get("env", {}).get("PYTHONIOENCODING"), "utf-8")
+
+
 if __name__ == "__main__":
     unittest.main()

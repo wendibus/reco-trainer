@@ -712,7 +712,19 @@ def system_python() -> Path:
 
 
 def run_logged(command: list[str]) -> None:
-    process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1, env={**os.environ, "PYTHONUNBUFFERED": "1", "PYTORCH_ENABLE_MPS_FALLBACK": "1"})
+    # Without an explicit UTF-8 encoding on both ends, a subprocess whose stdout
+    # is piped (not a real terminal) falls back to the OS's locale-preferred
+    # encoding to decide how to write text - on Windows that's typically a
+    # legacy codepage like cp1252, not UTF-8. Training output that includes any
+    # non-ASCII character (e.g. RF-DETR's rich-rendered metrics tables use
+    # box-drawing characters) then crashes the child with a raw
+    # UnicodeEncodeError instead of completing. PYTHONIOENCODING fixes the
+    # child's own writes; encoding="utf-8" here fixes how this parent process
+    # decodes what it reads back.
+    process = subprocess.Popen(
+        command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding="utf-8", errors="replace",
+        bufsize=1, env={**os.environ, "PYTHONUNBUFFERED": "1", "PYTORCH_ENABLE_MPS_FALLBACK": "1", "PYTHONIOENCODING": "utf-8"},
+    )
     assert process.stdout is not None
     for line in process.stdout:
         STATE.append_log(line)

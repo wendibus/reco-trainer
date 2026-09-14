@@ -23,6 +23,10 @@ body { background:#fff; color:var(--ink); font-family:Inter,ui-sans-serif,-apple
 .local-note { justify-self:end; display:flex; align-items:center; gap:8px; color:#506078; font-size:12px; }
 .local-note span,.privacy-lock span { color:var(--green); font-size:9px; }
 .header-actions { justify-self:end; display:flex; align-items:center; gap:14px; }
+.update-banner { flex:0 0 auto; display:flex; align-items:center; gap:14px; padding:9px clamp(18px,3vw,38px); background:rgba(23,105,255,.1); border-bottom:1px solid #dfe5ee; font-size:13px; color:var(--ink); }
+.update-banner span { flex:1; }
+.update-banner-download { color:#fff; background:var(--blue); border-radius:8px; padding:6px 14px; font-size:12px; font-weight:650; text-decoration:none; }
+.update-banner-dismiss { border:0; background:transparent; color:var(--muted); font-size:12px; }
 .walkthrough-launch { min-height:32px; padding:6px 10px; border:1px solid #cbd4df; border-radius:8px; background:#fff; color:#31435f; font-size:10px; font-weight:700; }
 .walkthrough-launch.active-view { border-color:var(--blue); background:#edf4ff; color:var(--blue); }
 
