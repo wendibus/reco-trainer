@@ -884,6 +884,12 @@ struct ContentView: View {
                                         .font(.system(.caption2, design: .monospaced))
                                         .foregroundStyle(.secondary)
                                         .lineLimit(1)
+                                    if !model.classes.isEmpty {
+                                        Text(model.classes.map { app.language.category($0) }.joined(separator: ", "))
+                                            .font(.caption2)
+                                            .foregroundStyle(.secondary)
+                                            .lineLimit(1)
+                                    }
                                     Text(model.packageID).font(.system(size: 9, design: .monospaced)).foregroundStyle(.tertiary).lineLimit(1)
                                 }
                                 Spacer(minLength: 6)

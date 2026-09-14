@@ -688,6 +688,18 @@ def find_ml_worker() -> Path:
     raise RuntimeError("Der lokale RF-DETR-Worker wurde nicht gefunden.")
 
 
+def venv_python_path(venv: Path) -> Path:
+    """Where `python -m venv <venv>` puts its interpreter - venv/bin/python3 on
+    macOS/Linux, venv/Scripts/python.exe on Windows. Hardcoding the POSIX layout
+    here previously made every local ML action after venv creation fail on
+    Windows with "[WinError 2] The system cannot find the file specified",
+    since that path never exists there.
+    """
+    if os.name == "nt":
+        return venv / "Scripts" / "python.exe"
+    return venv / "bin" / "python3"
+
+
 def system_python() -> Path:
     candidates = [
         Path("/opt/homebrew/bin/python3.12"), Path("/usr/local/bin/python3.12"),
@@ -726,7 +738,7 @@ def ml_action(action: str, payload: dict) -> None:
         model = payload.get("model", "nano")
         STATE.update(operation=action, busy=True, progress=0.0, error=None, log=[], message="Lokaler ML-Vorgang startet …")
         venv = root / ".runtime" / "venv"
-        venv_python = venv / "bin" / "python3"
+        venv_python = venv_python_path(venv)
         if action == "setup":
             if not venv_python.is_file():
                 venv.parent.mkdir(parents=True, exist_ok=True)

@@ -5,7 +5,7 @@ import json
 import stat
 import tempfile
 import unittest
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 
 
 WORKER_PATH = Path(__file__).parents[1] / "local_worker.py"
@@ -143,6 +143,36 @@ class PythonVersionWarningTests(unittest.TestCase):
         warning = local_worker.python_version_warning()
         self.assertIsNotNone(warning)
         self.assertIn("3.13", warning)
+
+
+class VenvPythonPathTests(unittest.TestCase):
+    """Regression coverage for a real report: a Windows user's "Set Up ML" click
+    failed with "[WinError 2] The system cannot find the file specified" -
+    ml_action() hardcoded the POSIX venv layout (venv/bin/python3) for every
+    platform, which never exists on Windows (venv/Scripts/python.exe there), so
+    every subprocess call after venv creation failed outright.
+    """
+
+    def setUp(self):
+        self.original_name = local_worker.os.name
+
+    def tearDown(self):
+        local_worker.os.name = self.original_name
+
+    def test_posix_layout(self):
+        # A plain concrete Path here (not PurePosixPath) also exercises that the
+        # "posix" branch works with whatever real Path type callers pass in.
+        local_worker.os.name = "posix"
+        path = local_worker.venv_python_path(PurePosixPath("/project/.runtime/venv"))
+        self.assertEqual(path, PurePosixPath("/project/.runtime/venv/bin/python3"))
+
+    def test_windows_layout(self):
+        # PureWindowsPath (not the concrete Path/WindowsPath) so this test can
+        # build a Windows-flavored path while actually running on macOS/Linux -
+        # a concrete Path refuses to instantiate the "wrong" OS's flavor.
+        local_worker.os.name = "nt"
+        path = local_worker.venv_python_path(PureWindowsPath("/project/.runtime/venv"))
+        self.assertEqual(path, PureWindowsPath("/project/.runtime/venv/Scripts/python.exe"))
 
 
 class FrameExtractionTests(unittest.TestCase):
