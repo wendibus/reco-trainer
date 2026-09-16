@@ -1,5 +1,10 @@
 # Änderungen
 
+## 0.13.1
+
+- Der Ordner-Browser für „Unabhängiger Modelltest“ hing bei vielen Videos (z. B. GoPro-Aufnahmen mit mehreren Kapitel-Dateien): die neue „bereits verwendet“-Markierung durchsuchte jeden sichtbaren Unterordner vollständig rekursiv statt nur die direkte Ebene.
+- Das Einlesen der Videolängen vor der Extraktion zeigt jetzt Fortschritt an, statt kommentarlos zu pausieren.
+
 ## 0.13.0
 
 - Neuer Bereich „Balltracking simulieren“: ein kurzes Video wählen und die Ballerkennung des aktiven Modells Bild für Bild abspielen - erkannt, interpoliert, gehalten oder verloren, mit einem Live-Regler für den Vorhersage-Horizont.

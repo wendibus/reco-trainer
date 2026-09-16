@@ -1444,13 +1444,23 @@ private struct LocalFilePicker: View {
     /// already-extracted videoID (see FrameExtractor.stableID, which hashes
     /// a video's absolute path) - so "Unabhängiger Modelltest" can mark a
     /// subfolder as already used without re-extracting anything.
+    /// Deliberately shallow (this folder's immediate children only), not a
+    /// recursive descent - a previous version used FileManager.enumerator
+    /// (recursive) here, which meant every folder listing while browsing for
+    /// "Unabhängiger Modelltest" had to walk the *entire* subtree of every
+    /// visible subfolder before the list could even appear. For someone with
+    /// many GoPro session folders, each holding a dozen-plus chapter files,
+    /// that made the picker look hung. Camera dumps are essentially always
+    /// flat (videos directly inside each session folder), so a shallow check
+    /// already covers the common case at a cost in line with the rest of
+    /// this picker's browsing (a single directory listing, not a full walk).
     nonisolated private static func containsAlreadyUsedVideo(in folder: URL, knownVideoIDs: Set<String>) -> Bool {
-        guard let enumerator = FileManager.default.enumerator(
+        guard let entries = try? FileManager.default.contentsOfDirectory(
             at: folder,
             includingPropertiesForKeys: [.isRegularFileKey],
             options: [.skipsHiddenFiles, .skipsPackageDescendants]
         ) else { return false }
-        while let candidate = enumerator.nextObject() as? URL {
+        for candidate in entries {
             guard FrameExtractor.supportedExtensions.contains(candidate.pathExtension.lowercased()) else { continue }
             if knownVideoIDs.contains(FrameExtractor.stableID(for: candidate.path)) { return true }
         }
@@ -1518,6 +1528,10 @@ private struct WhatsNewSheet: View {
 
     private var changes: [(String, String)] {
         [
+            (
+                language.text("Ordner-Browser für „Unabhängiger Modelltest“ hing bei vielen Videos", "Folder browser for “Independent model test” hung with many videos", "El navegador de carpetas de “Prueba de modelo independiente” se bloqueaba con muchos vídeos", "Le navigateur de dossiers pour « Test de modèle indépendant » se bloquait avec de nombreuses vidéos"),
+                language.text("Die neue „bereits verwendet“-Markierung im Ordner-Browser hat beim Durchsuchen jeden sichtbaren Unterordner vollständig rekursiv nach Videos durchsucht - bei vielen Aufnahme-Ordnern mit jeweils vielen Dateien (z. B. GoPro-Aufnahmen mit mehreren Kapitel-Dateien) sah das wie Hängen aus. Prüft jetzt nur noch die jeweils direkte Ordnerebene. Außerdem zeigt das Einlesen der Videolängen vor der Extraktion jetzt Fortschritt an, statt kommentarlos zu pausieren.", "The new “already used” marker in the folder browser recursively searched every visible subfolder's entire contents for videos - with many recording folders each holding many files (e.g. GoPro recordings split into several chapter files), this looked like hanging. Now only checks each folder's immediate contents. Reading video durations before extraction also now shows progress instead of pausing silently.", "La nueva marca de “ya usado” en el navegador de carpetas buscaba vídeos de forma recursiva en todo el contenido de cada subcarpeta visible - con muchas carpetas de grabación con muchos archivos cada una (p. ej. grabaciones GoPro divididas en varios capítulos), esto parecía un bloqueo. Ahora solo revisa el contenido directo de cada carpeta. Además, la lectura de la duración de los vídeos antes de la extracción ahora muestra progreso en lugar de pausarse sin avisar.", "Le nouveau marqueur « déjà utilisé » du navigateur de dossiers recherchait récursivement les vidéos dans tout le contenu de chaque sous-dossier visible - avec de nombreux dossiers d’enregistrement contenant chacun de nombreux fichiers (p. ex. des enregistrements GoPro divisés en plusieurs chapitres), cela ressemblait à un blocage. Ne vérifie désormais que le contenu direct de chaque dossier. La lecture de la durée des vidéos avant l’extraction affiche aussi désormais une progression au lieu de faire une pause silencieuse.")
+            ),
             (
                 language.text("Balltracking-Simulation", "Ball-tracking simulation", "Simulación de seguimiento del balón", "Simulation de suivi du ballon"),
                 language.text("Neuer Bereich „Balltracking simulieren“: ein kurzes Video wählen und die Ballerkennung des aktiven Modells Bild für Bild abspielen - erkannt (grün), zwischen zwei echten Erkennungen interpoliert (orange), auf der letzten bekannten Position gehalten (gelb) oder verloren. Ein Regler bestimmt live, wie viele Bilder weit nach vorn und zurück geschaut werden darf, ohne dass die Erkennung neu laufen muss. Das Video wird nur lokal verarbeitet, nie gespeichert oder trainiert.", "New „Simulate ball tracking“ section: pick a short clip and play back the active model's ball detection frame by frame - detected (green), interpolated between two real detections (orange), held at the last known position (yellow), or lost. A live slider controls how many frames ahead and behind it's allowed to look, without rerunning detection. The video is only processed locally, never saved or trained on.", "Nueva sección „Simular seguimiento del balón“: elige un vídeo corto y reproduce la detección del balón del modelo activo cuadro a cuadro - detectado (verde), interpolado entre dos detecciones reales (naranja), mantenido en la última posición conocida (amarillo) o perdido. Un control deslizante en vivo determina cuántos cuadros hacia delante y atrás se puede mirar, sin volver a ejecutar la detección. El vídeo solo se procesa localmente, nunca se guarda ni se entrena con él.", "Nouvelle section « Simuler le suivi du ballon » : choisissez une courte vidéo et regardez la détection du ballon du modèle actif image par image - détecté (vert), interpolé entre deux détections réelles (orange), maintenu à la dernière position connue (jaune) ou perdu. Un curseur en direct détermine de combien d’images on peut regarder en avant et en arrière, sans relancer la détection. La vidéo n’est traitée que localement, jamais enregistrée ni utilisée pour l’entraînement.")

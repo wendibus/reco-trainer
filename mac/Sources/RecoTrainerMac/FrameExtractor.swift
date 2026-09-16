@@ -65,8 +65,14 @@ struct FrameExtractor {
         guard !videos.isEmpty else { throw FrameExtractorError.noVideos }
         try store.prepare()
 
+        // Reading each video's duration (AVFoundation) happens before any
+        // extraction or progress starts below - with many files (e.g. a
+        // GoPro recording split into a dozen+ chapter files), this alone can
+        // take a visible moment with nothing else moving, looking like a
+        // hang. Report it the same way the extraction loop below does.
         var durations: [(VideoSource, Double)] = []
-        for video in videos {
+        for (index, video) in videos.enumerated() {
+            await progress(0, "\(video.name) (\(index + 1)/\(videos.count))")
             let asset = AVURLAsset(url: video.url)
             let duration = try await asset.load(.duration).seconds
             guard duration.isFinite, duration > 0 else {
