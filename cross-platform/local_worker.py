@@ -122,7 +122,7 @@ class LocalState:
     def snapshot(self) -> dict:
         with self.lock:
             frames = (self.project or {}).get("frames", [])
-            training_frames = [frame for frame in frames if frame.get("reviewStatus") != "candidate"]
+            training_frames = [frame for frame in frames if frame.get("reviewStatus") != "candidate" and not frame.get("heldOut")]
             candidates = [frame for frame in frames if frame.get("reviewStatus") == "candidate"]
             annotations = [annotation for frame in training_frames for annotation in frame.get("annotations", [])]
             classes = sorted({str(annotation.get("category")) for annotation in annotations})
@@ -271,9 +271,9 @@ def freeze_ground_truth() -> dict:
     project = STATE.project
     if root is None or project is None:
         raise RuntimeError("Kein lokales Projekt geöffnet.")
-    frames = [frame for frame in project.get("frames", []) if frame.get("reviewStatus") != "candidate"]
+    frames = [frame for frame in project.get("frames", []) if frame.get("reviewStatus") != "candidate" and frame.get("heldOut")]
     if not frames:
-        raise RuntimeError("Das Projekt enthält keine Testbilder.")
+        raise RuntimeError("Das Projekt enthält keine unabhängigen Testbilder. Zuerst unter „Unabhängiger Modelltest“ einen Videoordner prüfen, der nicht zum Training verwendet wurde.")
     pending = sum(annotation.get("source") == "auto" for frame in frames for annotation in frame.get("annotations", []))
     if pending:
         raise RuntimeError("Vor dem Modelltest alle automatischen Vorschläge übernehmen, korrigieren oder verwerfen.")
@@ -618,8 +618,17 @@ def extract_project(sport: str, requested_frames_per_video: int = DEFAULT_FRAMES
         STATE.append_log(str(error))
 
 
-def expand_dataset(folder: Path, payload: dict) -> None:
-    """Extract a review inbox from separate videos, then pre-label only that inbox."""
+def expand_dataset(folder: Path, payload: dict, held_out: bool = False) -> None:
+    """Extract a review inbox from separate videos, then pre-label only that inbox.
+
+    held_out marks the new frames so build_dataset() (training) and
+    freeze_ground_truth() (benchmarking) treat them as an independent test
+    set: never trainable on, and the only source a benchmark ground truth
+    may be frozen from. When held_out, every one of the sport's categories
+    is pre-labeled for review (not just the caller's single/selected
+    category), since an independent validation set needs correct boxes
+    across all categories to produce a meaningful per-category comparison.
+    """
     try:
         root = STATE.project_root
         project = STATE.project
@@ -655,13 +664,16 @@ def expand_dataset(folder: Path, payload: dict) -> None:
                 ffmpeg, apple_extractor, "Kandidaten-Extraktion fehlgeschlagen",
             )
             for index, image_path in enumerate(generated, start=1):
-                new_frames.append({
+                new_frame = {
                     "id": str(uuid.uuid5(uuid.NAMESPACE_URL, f"active-learning:{video_id}:{index}")),
                     "relativePath": f"frames/{image_path.name}", "videoID": video_id,
                     "videoName": video.name, "timestamp": min((index - 1) / rate, duration),
                     "width": output_width, "height": output_height, "annotations": [],
                     "reviewStatus": "candidate",
-                })
+                }
+                if held_out:
+                    new_frame["heldOut"] = True
+                new_frames.append(new_frame)
             completed += duration
             STATE.update(progress=min(completed / total_duration * 0.45, 0.45), message=f"Neue Videos werden geprüft: {video.name}")
 
@@ -670,8 +682,11 @@ def expand_dataset(folder: Path, payload: dict) -> None:
         project["frames"] = [*project.get("frames", []), *new_frames]
         project["updatedAt"] = utc_now()
         atomic_json(root / "project.json", project)
-        STATE.update(project=project, busy=False, progress=0.5, message=f"{len(new_frames)} Kandidaten extrahiert. Lokale Ballerkennung startet …")
-        ml_action("autolabel", {**payload, "candidateOnly": True, "threshold": payload.get("threshold", 0.12)})
+        STATE.update(project=project, busy=False, progress=0.5, message=f"{len(new_frames)} Kandidaten extrahiert. Lokale Erkennung startet …")
+        autolabel_payload = {**payload, "candidateOnly": True, "threshold": payload.get("threshold", 0.12)}
+        if held_out:
+            autolabel_payload["categories"] = list(SPORT_CATEGORIES.get(project.get("sport"), []))
+        ml_action("autolabel", autolabel_payload)
     except Exception as error:
         STATE.append_log(str(error))
         STATE.update(operation="error", busy=False, error=str(error), message="Datensatzerweiterung fehlgeschlagen.")
@@ -768,6 +783,19 @@ def ml_action(action: str, payload: dict) -> None:
             elif action == "package-model":
                 executable = system_python()
                 args = ["package", "--project", str(root), "--model", model, "--name", str(payload.get("name", "")), "--language", language]
+            elif action == "combine-models":
+                executable = system_python()
+                members = payload.get("members") or []
+                if not isinstance(members, list) or not members:
+                    raise RuntimeError("Mindestens zwei Modelle für ein kombiniertes Modell auswählen.")
+                member_args = []
+                for member in members:
+                    package_id = str((member or {}).get("packageID", ""))
+                    categories = (member or {}).get("categories") or []
+                    if not package_id or not isinstance(categories, list) or not categories:
+                        raise RuntimeError("Ungültige Kategorie-Zuordnung für ein kombiniertes Modell.")
+                    member_args.extend(["--member", f"{package_id}:{','.join(str(category) for category in categories)}"])
+                args = ["combine-models", "--project", str(root), *member_args, "--name", str(payload.get("name", "")), "--language", language]
             elif action in {"activate-model", "rename-model", "delete-model"}:
                 executable = system_python()
                 package_id = str(payload.get("packageID", ""))
@@ -895,6 +923,13 @@ def review_candidate(payload: dict) -> None:
             annotation["source"] = "manual"
     elif decision == "no-ball":
         frame["annotations"] = [item for item in frame.get("annotations", []) if item.get("category") != target]
+    elif decision == "confirm":
+        # Held-out/independent-validation frames can carry several categories'
+        # boxes, already corrected directly in the box editor - unlike "ball"/
+        # "no-ball", this just accepts whatever is there instead of filtering
+        # by a single target category.
+        for annotation in frame.get("annotations", []):
+            annotation["source"] = "manual"
     else:
         raise RuntimeError("Unbekannte Prüfentscheidung.")
     backup_project(root, "kandidat-geprueft")
@@ -995,6 +1030,12 @@ class Handler(BaseHTTPRequestHandler):
                 folder = choose_video_folder(expansion=True)
                 threading.Thread(target=expand_dataset, args=(folder, payload), daemon=True).start()
                 self.json_response({"ok": True, "folder": str(folder)})
+            elif self.path == "/api/independent-validation":
+                if STATE.busy:
+                    raise RuntimeError("Ein lokaler Vorgang läuft bereits.")
+                folder = choose_video_folder(expansion=True)
+                threading.Thread(target=expand_dataset, args=(folder, payload), kwargs={"held_out": True}, daemon=True).start()
+                self.json_response({"ok": True, "folder": str(folder)})
             elif self.path == "/api/annotations":
                 save_annotations(payload)
                 self.json_response({"ok": True, "status": STATE.snapshot()})
@@ -1018,7 +1059,7 @@ class Handler(BaseHTTPRequestHandler):
                 package_file = select_model_package()
                 threading.Thread(target=ml_action, args=("import-model", {**payload, "file": str(package_file)}), daemon=True).start()
                 self.json_response({"ok": True, "fileName": package_file.name})
-            elif self.path in {"/api/setup", "/api/autolabel", "/api/train", "/api/export-coreml", "/api/export-onnx", "/api/package-model", "/api/benchmark", "/api/activate-model", "/api/rename-model", "/api/delete-model"}:
+            elif self.path in {"/api/setup", "/api/autolabel", "/api/train", "/api/export-coreml", "/api/export-onnx", "/api/package-model", "/api/combine-models", "/api/benchmark", "/api/activate-model", "/api/rename-model", "/api/delete-model"}:
                 if STATE.busy:
                     raise RuntimeError("Ein lokaler Vorgang läuft bereits.")
                 action = self.path.removeprefix("/api/")

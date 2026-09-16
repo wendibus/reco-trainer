@@ -68,6 +68,13 @@ struct FrameRecord: Codable, Identifiable, Equatable, Sendable {
     var height: Int
     var annotations: [BoxAnnotation] = []
     var reviewStatus: String?
+    /// True only for frames extracted via "Unabhängiger Modelltest" from a video
+    /// folder never used for training - kept optional (nil == false) so older
+    /// project.json files without this key decode unchanged. Held-out frames
+    /// are excluded from training and are the only frames a benchmark ground
+    /// truth may be frozen from, so a model can't be validated on footage it
+    /// was trained on.
+    var heldOut: Bool?
 }
 
 struct ProjectDocument: Codable, Equatable, Sendable {

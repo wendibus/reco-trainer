@@ -1,5 +1,12 @@
 # Änderungen
 
+## 0.12.15
+
+- Neuer Bereich „Unabhängiger Modelltest“: einen Videoordner prüfen, der nie zum Training verwendet wurde, und daraus - mit Unterstützung über alle Kategorien hinweg - ein echtes, unabhängiges Testset erstellen.
+- Der Modellvergleich verlangt jetzt unabhängige Testbilder für die Referenz (nicht mehr beliebige geprüfte Trainingsbilder) - eine bestehende Referenz muss einmal neu festgelegt werden.
+- Neue Aktion „Kombiniertes Modell erstellen“ beim Modellvergleich: aus mehreren installierten Modellen pro Kategorie das stärkste auswählen und daraus ein neues Modell backen (Ensemble zur Laufzeit, kein echtes Gewichte-Merging).
+- Die plattformübergreifende Weboberfläche zeigt jetzt ebenfalls den Vergleich je Kategorie (mAP@.50), wie die Mac-App bereits seit 0.12.9.
+
 ## 0.12.14
 
 - Windows: „Lokal trainieren“ stürzte während der ersten Epoche mit einem Kodierungsfehler ab, weil die Konsolenausgabe dort standardmäßig nicht auf UTF-8 steht. Behoben.

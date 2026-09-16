@@ -208,6 +208,13 @@ select { height:34px; padding:0 9px; border:1px solid #cbd3df; border-radius:7px
 .benchmark-empty { display:grid; min-height:145px; place-items:center; border:1px dashed #cbd4df; border-radius:8px; color:#7b8798; font-size:10px; text-align:center; }
 .benchmark-empty.stale { border-color:#e7c38d; background:#fff9ef; color:#906028; }
 .benchmark-log { margin-top:0; }
+.per-category-card { margin-top:14px; }
+.per-category-card td.winner { background:#effaf5; color:#1f7a4d; font-weight:750; }
+.combine-card { margin-top:14px; }
+.combine-form { display:flex; flex-wrap:wrap; align-items:end; gap:10px; }
+.combine-category-row { display:flex; flex-direction:column; gap:4px; min-width:130px; font-size:8px; color:#4a5872; }
+.combine-category-row select { padding:6px 7px; border:1px solid #d8e0ea; border-radius:7px; background:#fff; font-size:8px; }
+.combine-name-input { flex:1 1 180px; min-width:150px; padding:7px 9px; border:1px solid #d8e0ea; border-radius:7px; font-size:8px; }
 
 .model-library { margin-top:9px; padding:9px; border:1px solid #d8e0ea; border-radius:9px; background:#f8fafc; }
 .model-library > strong { display:block; margin-bottom:7px; color:#34445b; font-size:9px; }

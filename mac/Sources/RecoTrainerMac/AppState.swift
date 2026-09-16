@@ -6,6 +6,7 @@ import Foundation
 enum LocalPickerPurpose: String, Identifiable, Sendable {
     case trainingFolder
     case activeLearningFolder
+    case independentValidationFolder
     case modelPackage
 
     var id: String { rawValue }
@@ -28,7 +29,7 @@ final class AppState: ObservableObject {
     /// CFBundleShortVersionString (Info.plist) and VERSION (package-platforms.sh)
     /// at every release. Used both for the "what's new" sheet and for deciding
     /// whether a fetched GitHub release is actually newer than what's running.
-    static let appVersion = "0.12.14"
+    static let appVersion = "0.12.15"
 
     @Published var language: AppLanguage = .de
     @Published var sport: Sport = .football
@@ -104,13 +105,22 @@ final class AppState: ObservableObject {
         project?.frames.filter { $0.reviewStatus == "candidate" } ?? []
     }
 
-    /// Mirrors freezeBenchmarkGroundTruth()'s own frame filter: only training
-    /// frames (not pending active-learning candidates, which freezing ignores
-    /// entirely) matter for whether ground truth can be frozen.
+    /// Mirrors freezeBenchmarkGroundTruth()'s own frame filter: only held-out
+    /// validation frames (not pending active-learning candidates, and not
+    /// regular training frames, which freezing ignores entirely) matter for
+    /// whether ground truth can be frozen.
     var hasUnreviewedTrainingAnnotations: Bool {
-        (project?.frames.filter { $0.reviewStatus != "candidate" } ?? [])
+        (project?.frames.filter { $0.reviewStatus != "candidate" && $0.heldOut == true } ?? [])
             .flatMap(\.annotations)
             .contains { $0.source == "auto" }
+    }
+
+    var independentValidationCandidates: [FrameRecord] {
+        project?.frames.filter { $0.reviewStatus == "candidate" && $0.heldOut == true } ?? []
+    }
+
+    var hasReviewedHeldOutFrames: Bool {
+        project?.frames.contains { $0.reviewStatus != "candidate" && $0.heldOut == true } ?? false
     }
 
     var continuationCheckpointName: String? {
@@ -183,7 +193,7 @@ final class AppState: ObservableObject {
         switch purpose {
         case .trainingFolder:
             return selectedFolder ?? URL(filePath: "/Volumes", directoryHint: .isDirectory)
-        case .activeLearningFolder:
+        case .activeLearningFolder, .independentValidationFolder:
             return URL(filePath: "/Volumes", directoryHint: .isDirectory)
         case .modelPackage:
             return FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
@@ -205,6 +215,9 @@ final class AppState: ObservableObject {
         case .activeLearningFolder:
             guard let selectedFolder, let store else { return }
             startActiveLearning(from: url, selectedFolder: selectedFolder, store: store)
+        case .independentValidationFolder:
+            guard let selectedFolder, let store else { return }
+            startIndependentValidation(from: url, selectedFolder: selectedFolder, store: store)
         case .modelPackage:
             guard let store else { return }
             importModelPackage(from: url, store: store)
@@ -706,6 +719,88 @@ final class AppState: ObservableObject {
         }
     }
 
+    /// Entry point for "Unabhängiger Modelltest": pick a folder of videos never
+    /// used for training, so a benchmark against it is a real held-out test
+    /// instead of risking overlap with training footage.
+    func startIndependentValidation() {
+        guard selectedFolder != nil, store != nil else { return }
+        localPickerPurpose = .independentValidationFolder
+    }
+
+    private func startIndependentValidation(from folder: URL, selectedFolder: URL, store: ProjectStore) {
+        guard folder.standardizedFileURL != selectedFolder.standardizedFileURL else {
+            errorMessage = tr("Bitte einen anderen Ordner als den bisherigen Trainingsordner wählen.", "Choose a folder different from the existing training folder.", "Elige una carpeta distinta de la carpeta de entrenamiento.", "Choisissez un dossier différent du dossier d’entraînement.")
+            return
+        }
+        isWorking = true
+        progress = 0
+        errorMessage = nil
+        status = tr("Unabhängige Testvideos werden lokal vorbereitet …", "Preparing independent test videos locally …", "Preparando vídeos de prueba independientes …", "Préparation des vidéos de test indépendantes …")
+        Task {
+            do {
+                let extractor = FrameExtractor()
+                let videos = extractor.discoverVideos(in: folder)
+                var fresh = try await extractor.extract(videos: videos, into: store, framesPerVideo: min(framesPerVideo, 500)) { value, name in
+                    await MainActor.run {
+                        self.progress = value * 0.45
+                        self.status = self.tr("Extrahiere unabhängige Testbilder: \(name)", "Extracting independent test images: \(name)", "Extrayendo imágenes de prueba: \(name)", "Extraction des images de test : \(name)")
+                    }
+                }
+                var document = project ?? ProjectDocument(name: selectedFolder.lastPathComponent, sport: sport, sourceFolder: selectedFolder.path)
+                let existingPaths = Set(document.frames.map(\.relativePath))
+                fresh.removeAll { existingPaths.contains($0.relativePath) }
+                guard !fresh.isEmpty else {
+                    throw NSError(domain: "RecoIndependentValidation", code: 1, userInfo: [NSLocalizedDescriptionKey: tr("Alle gewählten Videos wurden bereits verwendet. Bitte neue Videos auswählen.", "All selected videos were already used. Choose new videos.", "Todos los vídeos seleccionados ya se utilizaron. Elige vídeos nuevos.", "Toutes les vidéos sélectionnées ont déjà été utilisées. Choisissez de nouvelles vidéos.")])
+                }
+                for index in fresh.indices {
+                    fresh[index].reviewStatus = "candidate"
+                    fresh[index].heldOut = true
+                }
+                document.frames.append(contentsOf: fresh)
+                try store.save(document)
+                project = document
+                status = tr("Lokale Erkennung für alle Kategorien läuft …", "Running local detection for every category …", "Ejecutando detección local para todas las categorías …", "Détection locale pour toutes les catégories …")
+                let worker = MLWorker(projectRoot: store.rootURL)
+                try await worker.autoLabel(modelSize: modelSize, categories: sport.categories, threshold: 0.12, candidateOnly: true, language: language) { chunk in
+                    await MainActor.run { self.log += chunk }
+                }
+                let loaded = try store.load()
+                project = loaded
+                selectedFrameID = loaded.frames.first(where: { $0.reviewStatus == "candidate" && $0.heldOut == true })?.id
+                progress = 1
+                status = tr("Prüfwarteschlange bereit. Nur geprüfte, unabhängige Bilder zählen für den Modelltest.", "Review queue ready. Only reviewed, independent images count for the model test.", "Cola lista. Solo las imágenes independientes y revisadas cuentan para la prueba.", "File prête. Seules les images indépendantes vérifiées comptent pour le test.")
+            } catch {
+                errorMessage = error.localizedDescription
+                status = tr("Vorbereitung des unabhängigen Modelltests fehlgeschlagen.", "Independent model test preparation failed.", "Error al preparar la prueba independiente.", "Échec de la préparation du test indépendant.")
+            }
+            isWorking = false
+        }
+    }
+
+    /// Marks the selected held-out candidate as reviewed without touching its
+    /// annotations - unlike reviewSelectedCandidate(asBall:), correction here
+    /// already happened directly in the full AnnotationEditor (click-to-select,
+    /// relabel, move, delete), since a held-out frame can carry several
+    /// categories' boxes needing independent correction, not just one.
+    func markHeldOutCandidateReviewed() {
+        guard var document = project,
+              let frameID = selectedFrameID,
+              let index = document.frames.firstIndex(where: { $0.id == frameID && $0.reviewStatus == "candidate" && $0.heldOut == true }),
+              let store else { return }
+        document.frames[index].annotations = document.frames[index].annotations.map { annotation in
+            var accepted = annotation
+            accepted.source = "manual"
+            return accepted
+        }
+        document.frames[index].reviewStatus = "reviewed"
+        do {
+            try store.save(document)
+            project = document
+            selectedFrameID = document.frames.first(where: { $0.reviewStatus == "candidate" && $0.heldOut == true })?.id ?? frameID
+            status = tr("Geprüftes unabhängiges Testbild übernommen.", "Reviewed independent test image accepted.", "Imagen de prueba independiente revisada aceptada.", "Image de test indépendante vérifiée acceptée.")
+        } catch { errorMessage = error.localizedDescription }
+    }
+
     func reviewSelectedCandidate(asBall: Bool) {
         guard var document = project,
               let frameID = selectedFrameID,
@@ -761,9 +856,9 @@ final class AppState: ObservableObject {
     func freezeBenchmarkGroundTruth() {
         guard let project, let store else { return }
         do {
-            let reviewedProjectFrames = project.frames.filter { $0.reviewStatus != "candidate" }
+            let reviewedProjectFrames = project.frames.filter { $0.reviewStatus != "candidate" && $0.heldOut == true }
             guard !reviewedProjectFrames.isEmpty else {
-                throw NSError(domain: "RecoBenchmark", code: 1, userInfo: [NSLocalizedDescriptionKey: tr("Das Projekt enthält keine Testbilder.", "The project contains no test images.", "El proyecto no contiene imágenes de prueba.", "Le projet ne contient aucune image de test.")])
+                throw NSError(domain: "RecoBenchmark", code: 1, userInfo: [NSLocalizedDescriptionKey: tr("Das Projekt enthält keine unabhängigen Testbilder. Zuerst unter „Unabhängiger Modelltest“ einen Videoordner prüfen, der nicht zum Training verwendet wurde.", "The project contains no independent test images. First review a video folder under “Independent model test” that was never used for training.", "El proyecto no contiene imágenes de prueba independientes. Primero revisa una carpeta de vídeos en “Prueba de modelo independiente” que nunca se usó para entrenar.", "Le projet ne contient aucune image de test indépendante. Vérifiez d’abord un dossier vidéo sous « Test de modèle indépendant » jamais utilisé pour l’entraînement.")])
             }
             guard !hasUnreviewedTrainingAnnotations else {
                 throw NSError(domain: "RecoBenchmark", code: 2, userInfo: [NSLocalizedDescriptionKey: tr("Vor dem Modelltest alle automatischen Vorschläge übernehmen, korrigieren oder verwerfen.", "Accept, correct, or reject every automatic suggestion before benchmarking.", "Acepta, corrige o rechaza todas las sugerencias automáticas antes de comparar.", "Acceptez, corrigez ou refusez toutes les suggestions automatiques avant la comparaison.")])

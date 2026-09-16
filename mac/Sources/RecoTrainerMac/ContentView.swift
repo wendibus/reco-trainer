@@ -309,6 +309,22 @@ struct ContentView: View {
                     Text("\(app.reviewCandidates.count) \(app.tr("Prüfkandidaten", "review candidates", "candidatos", "candidats"))")
                         .font(.caption.bold()).foregroundStyle(.orange)
                 }
+                Button {
+                    app.startIndependentValidation()
+                } label: {
+                    Label(app.tr("Unabhängiger Modelltest", "Independent model test", "Prueba de modelo independiente", "Test de modèle indépendant"), systemImage: "checkmark.shield")
+                }
+                .disabled((app.project?.frames.isEmpty ?? true) || app.isWorking)
+                .help(app.tr(
+                    "Videoordner prüfen, der nie zum Training verwendet wurde - nötig, um den Modellvergleich ehrlich zu testen.",
+                    "Review a video folder that was never used for training - needed for an honest model comparison.",
+                    "Revisa una carpeta de vídeos que nunca se usó para entrenar - necesario para una comparación de modelos honesta.",
+                    "Vérifiez un dossier vidéo jamais utilisé pour l’entraînement - nécessaire pour une comparaison de modèles honnête."
+                ))
+                if !app.independentValidationCandidates.isEmpty {
+                    Text("\(app.independentValidationCandidates.count) \(app.tr("unabhängige Prüfkandidaten", "independent review candidates", "candidatos independientes", "candidats indépendants"))")
+                        .font(.caption.bold()).foregroundStyle(.blue)
+                }
             }
 
             if let project = app.project {
@@ -347,7 +363,12 @@ struct ContentView: View {
                                 .font(.caption2)
                                 .foregroundStyle(.secondary)
                         }
-                        if frame.reviewStatus == "candidate" { Image(systemName: "questionmark.diamond.fill").foregroundStyle(.orange) }
+                        if frame.reviewStatus == "candidate" {
+                            Image(systemName: frame.heldOut == true ? "checkmark.shield" : "questionmark.diamond.fill")
+                                .foregroundStyle(frame.heldOut == true ? .blue : .orange)
+                        } else if frame.heldOut == true {
+                            Image(systemName: "checkmark.shield.fill").foregroundStyle(.blue)
+                        }
                     }
                     .tag(frame.id)
                 }
@@ -391,7 +412,9 @@ struct ContentView: View {
                 }
                 .id(frame.id)
                 .frame(minHeight: 420)
-                if frame.reviewStatus == "candidate" { candidateReviewBar }
+                if frame.reviewStatus == "candidate" {
+                    if frame.heldOut == true { heldOutReviewBar } else { candidateReviewBar }
+                }
                 trainingPanel
             }
             .padding(18)
@@ -459,8 +482,11 @@ struct ContentView: View {
                             }
                             Button(app.tr("Geprüfte Antworten festlegen", "Freeze reviewed answers", "Fijar respuestas revisadas", "Figer les réponses vérifiées"), action: app.freezeBenchmarkGroundTruth)
                                 .buttonStyle(.borderedProminent)
-                                .disabled(app.project == nil || app.isWorking || app.hasUnreviewedTrainingAnnotations)
-                            if !app.isWorking && app.hasUnreviewedTrainingAnnotations {
+                                .disabled(app.project == nil || app.isWorking || app.hasUnreviewedTrainingAnnotations || !app.hasReviewedHeldOutFrames)
+                            if !app.isWorking && !app.hasReviewedHeldOutFrames {
+                                Label(app.tr("Zuerst unter „Unabhängiger Modelltest“ einen nie trainierten Videoordner prüfen.", "First review a never-trained video folder under “Independent model test”.", "Primero revisa una carpeta de vídeos nunca entrenada en “Prueba de modelo independiente”.", "Vérifiez d’abord un dossier vidéo jamais entraîné sous « Test de modèle indépendant »."), systemImage: "exclamationmark.triangle")
+                                    .font(.caption).foregroundStyle(.orange)
+                            } else if !app.isWorking && app.hasUnreviewedTrainingAnnotations {
                                 Label(app.tr("Automatische Vorschläge zuerst übernehmen, korrigieren oder verwerfen.", "Accept, correct, or reject automatic suggestions first.", "Primero acepta, corrige o rechaza las sugerencias automáticas.", "Acceptez, corrigez ou refusez d’abord les suggestions automatiques."), systemImage: "exclamationmark.triangle")
                                     .font(.caption).foregroundStyle(.orange)
                             }
@@ -669,6 +695,25 @@ struct ContentView: View {
         }
         .padding(10)
         .background(.orange.opacity(0.10), in: RoundedRectangle(cornerRadius: 10))
+    }
+
+    private var heldOutReviewBar: some View {
+        HStack(spacing: 10) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(app.tr("Unabhängiges Testbild prüfen", "Review independent test image", "Revisar imagen de prueba independiente", "Vérifier l’image de test indépendante")).font(.headline)
+                Text(app.tr(
+                    "Boxen oben direkt anklicken, verschieben, umbenennen oder löschen. Danach übernehmen.",
+                    "Click, move, relabel, or delete boxes directly above. Then confirm.",
+                    "Haz clic, mueve, renombra o elimina los cuadros arriba. Luego confirma.",
+                    "Cliquez, déplacez, renommez ou supprimez les boîtes ci-dessus. Puis confirmez."
+                )).font(.caption).foregroundStyle(.secondary)
+            }
+            Spacer()
+            Button(app.tr("Übernehmen", "Confirm", "Confirmar", "Confirmer")) { app.markHeldOutCandidateReviewed() }.buttonStyle(.borderedProminent).tint(.blue)
+            Button(app.tr("Überspringen", "Skip", "Omitir", "Ignorer"), role: .destructive) { app.removeSelectedFrame() }
+        }
+        .padding(10)
+        .background(.blue.opacity(0.10), in: RoundedRectangle(cornerRadius: 10))
     }
 
     private var trainingPanel: some View {
@@ -1081,6 +1126,8 @@ private struct LocalFilePicker: View {
             language.text("Ordner mit Sportvideos auswählen", "Select folder containing sports videos", "Seleccionar carpeta con vídeos deportivos", "Sélectionner le dossier des vidéos sportives")
         case .activeLearningFolder:
             language.text("Ordner mit neuen Videos auswählen", "Select folder with new videos", "Seleccionar carpeta con vídeos nuevos", "Sélectionner le dossier des nouvelles vidéos")
+        case .independentValidationFolder:
+            language.text("Ordner mit nie trainierten Videos auswählen", "Select folder with never-trained videos", "Seleccionar carpeta con vídeos nunca entrenados", "Sélectionner le dossier des vidéos jamais entraînées")
         case .modelPackage:
             language.text("Reco-Modellpaket auswählen", "Select Reco model package", "Seleccionar paquete de modelo Reco", "Sélectionner le paquet de modèle Reco")
         }
@@ -1322,6 +1369,14 @@ private struct WhatsNewSheet: View {
 
     private var changes: [(String, String)] {
         [
+            (
+                language.text("Unabhängiger Modelltest", "Independent model test", "Prueba de modelo independiente", "Test de modèle indépendant"),
+                language.text("Neuer Bereich „Unabhängiger Modelltest“: einen Videoordner prüfen, der nie zum Training verwendet wurde, und daraus - mit Unterstützung über alle Kategorien hinweg - ein echtes, unabhängiges Testset erstellen. Der Modellvergleich verlangt jetzt genau solche unabhängigen Bilder für die Referenz, statt beliebiger geprüfter Trainingsbilder - damit ein Modell nicht einfach gut abschneidet, weil es genau diese Aufnahmen schon kannte.", "New „Independent model test“ section: review a video folder that was never used for training, and turn it - with app assistance across every category - into a genuinely independent test set. The model benchmark now requires exactly this kind of independent images for its reference instead of any reviewed training images, so a model can't simply score well because it already knew that exact footage.", "Nueva sección „Prueba de modelo independiente“: revisa una carpeta de vídeos que nunca se usó para entrenar y conviértela - con ayuda en todas las categorías - en un conjunto de prueba realmente independiente. La comparación de modelos ahora exige precisamente este tipo de imágenes independientes como referencia, en lugar de cualquier imagen de entrenamiento revisada, para que un modelo no puntúe bien solo por conocer ya exactamente ese material.", "Nouvelle section « Test de modèle indépendant » : vérifiez un dossier vidéo jamais utilisé pour l’entraînement et transformez-le - avec l’aide de l’appli sur toutes les catégories - en un vrai jeu de test indépendant. La comparaison de modèles exige désormais ce type d’images indépendantes comme référence, plutôt que n’importe quelle image d’entraînement vérifiée, pour qu’un modèle ne réussisse pas simplement parce qu’il connaissait déjà exactement ces images.")
+            ),
+            (
+                language.text("Kombiniertes Modell erstellen", "Create a combined model", "Crear un modelo combinado", "Créer un modèle combiné"),
+                language.text("Beim Modellvergleich lässt sich jetzt aus mehreren installierten Modellen ein neues, kombiniertes Modell „backen“: pro Kategorie das stärkste Modell wählen (z. B. ein Modell für Schiedsrichter, ein anderes für den Ball) - kein echtes Zusammenführen der Gewichte (bei RF-DETR nicht möglich), sondern jedes Modell übernimmt zur Laufzeit nur seine zugeordneten Kategorien. Erscheint danach wie jedes andere Modell in der Bibliothek.", "The model benchmark can now „bake“ a new combined model from several installed models: pick the strongest model per category (e.g. one model for referees, another for the ball) - not real weight merging (not possible with RF-DETR), each model just handles its assigned categories at runtime. Appears in the library afterward like any other model.", "La comparación de modelos ahora puede „crear“ un nuevo modelo combinado a partir de varios modelos instalados: elige el modelo más fuerte por categoría (p. ej. un modelo para árbitros, otro para el balón) - no es una fusión real de pesos (no es posible con RF-DETR), cada modelo solo gestiona sus categorías asignadas en tiempo de ejecución. Después aparece en la biblioteca como cualquier otro modelo.", "La comparaison de modèles peut désormais « créer » un nouveau modèle combiné à partir de plusieurs modèles installés : choisissez le modèle le plus fort par catégorie (p. ex. un modèle pour les arbitres, un autre pour le ballon) - pas une vraie fusion de poids (impossible avec RF-DETR), chaque modèle ne gère que ses catégories assignées au moment de l’exécution. Apparaît ensuite dans la bibliothèque comme n’importe quel autre modèle.")
+            ),
             (
                 language.text("Windows: Trainingsabsturz durch Konsolen-Kodierung behoben", "Windows: fixed a training crash caused by console encoding", "Windows: corregido un fallo de entrenamiento por la codificación de la consola", "Windows : correction d’un plantage d’entraînement lié à l’encodage de la console"),
                 language.text("„Lokal trainieren“ stürzte unter Windows während der ersten Epoche mit einem Kodierungsfehler ab, weil die Konsolenausgabe dort standardmäßig nicht auf UTF-8 steht. Behoben, indem der lokale ML-Vorgang jetzt ausdrücklich UTF-8 verwendet.", "\"Train locally\" crashed on Windows during the first epoch with an encoding error, because console output there does not default to UTF-8. Fixed by having the local ML process use UTF-8 explicitly.", "«Entrenar localmente» fallaba en Windows durante la primera época con un error de codificación, ya que la salida de la consola no usa UTF-8 por defecto allí. Corregido haciendo que el proceso local de ML use UTF-8 explícitamente.", "« Entraîner localement » plantait sous Windows pendant la première époque avec une erreur d’encodage, la sortie console n’y étant pas UTF-8 par défaut. Corrigé en forçant le processus ML local à utiliser UTF-8 explicitement.")

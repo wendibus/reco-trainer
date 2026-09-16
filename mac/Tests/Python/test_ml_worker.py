@@ -986,6 +986,115 @@ class DatasetTests(unittest.TestCase):
             with self.assertRaises(SystemExit):
                 ml_worker.install_model_package(type("Args", (), {"project": str(target), "file": str(package), "language": "fr"})())
 
+    def test_held_out_frames_are_excluded_from_the_training_dataset(self):
+        """A frame extracted via "Unabhängiger Modelltest" is marked heldOut and
+        must never enter the training dataset - that's the actual leakage guard
+        behind the independent model test, not just a label.
+        """
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            trainable = self.make_frame("trainable", 1, root)
+            held_out = self.make_frame("held-out", 1, root)
+            held_out["heldOut"] = True
+            ml_worker.atomic_json(root / "project.json", {
+                "schemaVersion": 2, "name": "Test", "sport": "basketball",
+                "sourceFolder": str(root), "frames": [trainable, held_out],
+            })
+            dataset = ml_worker.build_dataset(root)
+            coco = json.loads((dataset / "train" / "_annotations.coco.json").read_text())
+            image_names = {image["file_name"] for image in coco["images"]}
+            self.assertIn(Path(trainable["relativePath"]).name, image_names)
+            self.assertNotIn(Path(held_out["relativePath"]).name, image_names)
+
+    def _install_single_class_model(self, root: Path, label: str, category: str, model_size: str = "nano") -> str:
+        """Archive a fresh checkpoint straight into root's model library, like a
+        normal installed model - the same place combine_models() expects its
+        source models to already be in. Uses archive_local_checkpoint() rather
+        than the package_model()/install_model_package() round trip because the
+        latter's package ID only has second resolution, which collides when two
+        models are created back-to-back within the same test.
+        """
+        checkpoint = root / "runs" / model_size / f"{label}.pth"
+        checkpoint.parent.mkdir(parents=True, exist_ok=True)
+        checkpoint.write_bytes(f"{label}-weights".encode())
+        document = {
+            "schemaVersion": 2, "name": "Test", "sport": "basketball", "sourceFolder": str(root),
+            "frames": [{"reviewStatus": "reviewed", "annotations": [{"category": category}]}],
+        }
+        _, manifest, _ = ml_worker.archive_local_checkpoint(root, document, model_size, checkpoint, {}, "local-training")
+        return str(manifest["packageID"])
+
+    def test_combine_models_builds_an_ensemble_manifest(self):
+        """Coverage for "ein neues Modell backen": combine two already-installed
+        library models, each contributing only the categories it was assigned -
+        an ensemble at inference time, not real weight merging (RF-DETR's joint
+        classification head makes true weight merging infeasible).
+        """
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            ml_worker.atomic_json(root / "project.json", {"schemaVersion": 2, "sport": "basketball", "frames": []})
+            referee_id = self._install_single_class_model(root, "referee-model", "referee")
+            ball_id = self._install_single_class_model(root, "ball-model", "ball")
+
+            combine_args = type("Args", (), {
+                "project": str(root), "member": [f"{referee_id}:referee", f"{ball_id}:ball"],
+                "name": "Combo", "language": "en",
+            })()
+            ml_worker.combine_models(combine_args)
+
+            active = ml_worker.load_json(root / "models" / "active.json")
+            manifest = ml_worker.load_json(root / "models" / "library" / active["packageID"] / "manifest.json")
+            self.assertEqual(manifest["schemaVersion"], 2)
+            self.assertEqual(sorted(manifest["classes"]), ["ball", "referee"])
+            members = manifest["ensemble"]["members"]
+            self.assertEqual(len(members), 2)
+            for member in members:
+                weight_path = root / "models" / "library" / active["packageID"] / member["weightsFile"]
+                self.assertTrue(weight_path.is_file())
+                self.assertEqual(ml_worker.sha256_file(weight_path), member["sha256"])
+
+    def test_combine_models_rejects_fewer_than_two_members(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            ml_worker.atomic_json(root / "project.json", {"schemaVersion": 2, "sport": "basketball", "frames": []})
+            referee_id = self._install_single_class_model(root, "referee-model", "referee")
+            combine_args = type("Args", (), {
+                "project": str(root), "member": [f"{referee_id}:referee"], "name": "", "language": "en",
+            })()
+            with self.assertRaises(SystemExit):
+                ml_worker.combine_models(combine_args)
+
+    def test_ensemble_package_can_be_validated_and_installed(self):
+        """A combined/ensemble .recomodel bundles one weights file per member
+        instead of the usual single manifest+weights pair."""
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            ml_worker.atomic_json(root / "project.json", {"sport": "basketball", "frames": []})
+            manifest = {
+                "schemaVersion": 2,
+                "packageID": "reco-ensemble-basketball-nano-20260101-000000",
+                "displayName": "Combo", "sport": "basketball", "modelSize": "nano",
+                "classes": ["ball", "referee"],
+                "ensemble": {"members": [
+                    {"packageID": "referee-model", "modelSize": "nano", "categories": ["referee"], "weightsFile": "weights/referee-model.pth", "sha256": ml_worker.hashlib.sha256(b"referee-weights").hexdigest()},
+                    {"packageID": "ball-model", "modelSize": "nano", "categories": ["ball"], "weightsFile": "weights/ball-model.pth", "sha256": ml_worker.hashlib.sha256(b"ball-weights").hexdigest()},
+                ]},
+            }
+            package = root / "combo.recomodel"
+            with zipfile.ZipFile(package, "w") as archive:
+                archive.writestr("manifest.json", json.dumps(manifest))
+                archive.writestr("weights/referee-model.pth", b"referee-weights")
+                archive.writestr("weights/ball-model.pth", b"ball-weights")
+
+            validated = ml_worker.validate_model_package_file(package, "en")
+            self.assertEqual(validated["ensemble"]["members"][0]["packageID"], "referee-model")
+
+            ml_worker.install_model_package(type("Args", (), {"project": str(root), "file": str(package), "language": "en"})())
+            active = ml_worker.load_json(root / "models" / "active.json")
+            self.assertEqual(active["packageID"], manifest["packageID"])
+            for member in manifest["ensemble"]["members"]:
+                self.assertTrue((root / "models" / "library" / active["packageID"] / member["weightsFile"]).is_file())
+
 
 if __name__ == "__main__":
     unittest.main()

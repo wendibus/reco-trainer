@@ -205,20 +205,39 @@ import Testing
 // never be able to block freezing - only unreviewed training frames should.
 @Test @MainActor func benchmarkFreezeIgnoresUnreviewedActiveLearningCandidates() {
     let app = AppState()
-    let reviewedTrainingFrame = FrameRecord(
+    var reviewedHeldOutFrame = FrameRecord(
         relativePath: "frames/reviewed.jpg", videoID: "v1", videoName: "clip.mov", timestamp: 0,
         width: 10, height: 10,
         annotations: [BoxAnnotation(category: "ball", x: 1, y: 1, width: 2, height: 2, source: "manual")]
     )
+    reviewedHeldOutFrame.heldOut = true
     var pendingCandidateFrame = FrameRecord(
         relativePath: "frames/candidate.jpg", videoID: "v2", videoName: "clip2.mov", timestamp: 0,
         width: 10, height: 10,
         annotations: [BoxAnnotation(category: "ball", x: 1, y: 1, width: 2, height: 2, source: "auto")]
     )
     pendingCandidateFrame.reviewStatus = "candidate"
-    app.project = ProjectDocument(name: "Test", sport: .basketball, sourceFolder: "/tmp/videos", frames: [reviewedTrainingFrame, pendingCandidateFrame])
+    pendingCandidateFrame.heldOut = true
+    app.project = ProjectDocument(name: "Test", sport: .basketball, sourceFolder: "/tmp/videos", frames: [reviewedHeldOutFrame, pendingCandidateFrame])
 
     #expect(app.hasUnreviewedTrainingAnnotations == false)
+}
+
+// Regression coverage: only held-out frames (extracted via "Unabhängiger
+// Modelltest") count toward whether ground truth can be frozen - a reviewed
+// frame that was never marked heldOut (i.e. an ordinary training frame) must
+// not make the freeze gate think an independent test set is ready.
+@Test @MainActor func benchmarkFreezeIgnoresReviewedFramesThatAreNotHeldOut() {
+    let app = AppState()
+    let reviewedTrainingFrame = FrameRecord(
+        relativePath: "frames/reviewed.jpg", videoID: "v1", videoName: "clip.mov", timestamp: 0,
+        width: 10, height: 10,
+        annotations: [BoxAnnotation(category: "ball", x: 1, y: 1, width: 2, height: 2, source: "auto")]
+    )
+    app.project = ProjectDocument(name: "Test", sport: .basketball, sourceFolder: "/tmp/videos", frames: [reviewedTrainingFrame])
+
+    #expect(app.hasUnreviewedTrainingAnnotations == false)
+    #expect(app.hasReviewedHeldOutFrames == false)
 }
 
 // Regression coverage: the annotation editor has no way to select, move, or resize
@@ -276,11 +295,12 @@ import Testing
 
 @Test @MainActor func benchmarkFreezeBlocksOnUnreviewedTrainingAnnotations() {
     let app = AppState()
-    let unreviewedTrainingFrame = FrameRecord(
+    var unreviewedTrainingFrame = FrameRecord(
         relativePath: "frames/unreviewed.jpg", videoID: "v1", videoName: "clip.mov", timestamp: 0,
         width: 10, height: 10,
         annotations: [BoxAnnotation(category: "ball", x: 1, y: 1, width: 2, height: 2, source: "auto")]
     )
+    unreviewedTrainingFrame.heldOut = true
     app.project = ProjectDocument(name: "Test", sport: .basketball, sourceFolder: "/tmp/videos", frames: [unreviewedTrainingFrame])
 
     #expect(app.hasUnreviewedTrainingAnnotations == true)
@@ -447,4 +467,59 @@ import Testing
     updatedFrame.annotations.append(BoxAnnotation(category: "hoop", x: 6, y: 6, width: 2, height: 2))
     app.project?.frames = [updatedFrame]
     #expect(app.trainingCategories == ["referee", "hoop"])
+}
+
+// Regression coverage: "Unabhängiger Modelltest" candidates must be tracked
+// separately from the ordinary active-learning queue (reviewCandidates), and
+// only held-out frames should ever make hasReviewedHeldOutFrames true - a
+// project with zero held-out frames at all must not look freeze-ready.
+@Test @MainActor func independentValidationCandidatesTracksOnlyHeldOutCandidates() {
+    let app = AppState()
+    var heldOutCandidate = FrameRecord(
+        relativePath: "frames/held-out.jpg", videoID: "v1", videoName: "clip.mov", timestamp: 0,
+        width: 10, height: 10
+    )
+    heldOutCandidate.reviewStatus = "candidate"
+    heldOutCandidate.heldOut = true
+    var ordinaryCandidate = FrameRecord(
+        relativePath: "frames/ordinary.jpg", videoID: "v2", videoName: "clip2.mov", timestamp: 0,
+        width: 10, height: 10
+    )
+    ordinaryCandidate.reviewStatus = "candidate"
+    app.project = ProjectDocument(name: "Test", sport: .basketball, sourceFolder: "/tmp/videos", frames: [heldOutCandidate, ordinaryCandidate])
+
+    #expect(app.independentValidationCandidates.map(\.id) == [heldOutCandidate.id])
+    #expect(app.reviewCandidates.count == 2)
+    #expect(app.hasReviewedHeldOutFrames == false)
+}
+
+// Regression coverage: markHeldOutCandidateReviewed() must accept whatever
+// boxes are already on a held-out candidate (corrected directly in the full
+// AnnotationEditor beforehand) rather than filtering by a single category the
+// way reviewSelectedCandidate(asBall:) does - a held-out frame can carry
+// several categories at once.
+@Test @MainActor func markHeldOutCandidateReviewedAcceptsAllBoxesRegardlessOfCategory() throws {
+    let folder = FileManager.default.temporaryDirectory
+        .appending(path: "reco-trainer-held-out-review-test-\(UUID().uuidString)", directoryHint: .isDirectory)
+    let app = AppState()
+    app.selectedFolder = folder
+    var frame = FrameRecord(
+        relativePath: "frames/one.jpg", videoID: "v1", videoName: "clip.mov", timestamp: 0,
+        width: 10, height: 10,
+        annotations: [
+            BoxAnnotation(category: "ball", x: 1, y: 1, width: 2, height: 2, source: "auto"),
+            BoxAnnotation(category: "referee", x: 4, y: 4, width: 2, height: 2, source: "auto"),
+        ]
+    )
+    frame.reviewStatus = "candidate"
+    frame.heldOut = true
+    app.project = ProjectDocument(name: "Test", sport: .basketball, sourceFolder: folder.path, frames: [frame])
+    app.selectedFrameID = frame.id
+
+    app.markHeldOutCandidateReviewed()
+
+    #expect(app.project?.frames.first?.reviewStatus == "reviewed")
+    #expect(app.project?.frames.first?.annotations.count == 2)
+    #expect(app.project?.frames.first?.annotations.allSatisfy { $0.source == "manual" } == true)
+    #expect(app.hasReviewedHeldOutFrames == true)
 }

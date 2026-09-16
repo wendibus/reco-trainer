@@ -25,8 +25,8 @@ class GroundTruthTests(unittest.TestCase):
             project = {
                 "sport": "basketball",
                 "frames": [
-                    {"id": "positive", "relativePath": "frames/one.jpg", "width": 100, "height": 80, "annotations": [{"category": "ball", "x": 1, "y": 2, "width": 3, "height": 4, "source": "manual"}]},
-                    {"id": "negative", "relativePath": "frames/two.jpg", "width": 100, "height": 80, "annotations": []},
+                    {"id": "positive", "relativePath": "frames/one.jpg", "width": 100, "height": 80, "annotations": [{"category": "ball", "x": 1, "y": 2, "width": 3, "height": 4, "source": "manual"}], "heldOut": True},
+                    {"id": "negative", "relativePath": "frames/two.jpg", "width": 100, "height": 80, "annotations": [], "heldOut": True},
                 ],
             }
             local_worker.STATE.update(project_root=root, project=project)

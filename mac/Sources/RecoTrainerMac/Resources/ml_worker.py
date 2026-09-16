@@ -311,6 +311,46 @@ def active_model_classes(project_root: Path, size: str) -> set[str] | None:
         return None
 
 
+def active_model_manifest(project_root: Path, size: str) -> dict[str, Any] | None:
+    """The full manifest of the currently activated library model for this size,
+    or None if there is no such activation (see active_model_classes, which
+    returns just the classes - auto_label()/benchmark() need the full manifest
+    to detect an "ensemble" combined model, which isn't backed by a single
+    weights file the way a normal package is).
+    """
+    try:
+        active = load_json(project_root / "models" / "active.json")
+        if active.get("modelSize") != size:
+            return None
+        library_root = (project_root / "models" / "library").resolve()
+        manifest_path = (library_root / str(active["packageID"]) / "manifest.json").resolve()
+        if library_root not in manifest_path.parents or not manifest_path.is_file():
+            return None
+        return load_json(manifest_path)
+    except (OSError, ValueError, TypeError, KeyError, json.JSONDecodeError):
+        return None
+
+
+def ensemble_member_model(package_dir: Path, member: dict[str, Any], language: str = "de"):
+    """Load one ensemble member's own checkpoint.
+
+    A combined/ensemble package's manifest.json's weightsFile is relative to
+    that combined package's own library directory, not the original source
+    model's - combine_models() copies every member's weights into the new
+    package at build time (see combine_models), so a combined package is
+    self-contained like any other .recomodel.
+    """
+    model_class = import_model_class(str(member["modelSize"]), language)
+    weight_path = (package_dir / str(member["weightsFile"])).resolve()
+    if package_dir.resolve() not in weight_path.parents or not weight_path.is_file():
+        raise SystemExit(localized(
+            language,
+            f"Gewichtsdatei für kombiniertes Modell fehlt: {member.get('packageID')}",
+            f"Weights file for combined model is missing: {member.get('packageID')}",
+        ))
+    return model_class(pretrain_weights=str(weight_path), device=detect_device())
+
+
 def model_instance(project_root: Path, size: str, trained: bool, language: str = "de"):
     model_class = import_model_class(size, language)
     checkpoint = newest_checkpoint(project_root, size) if trained else None
@@ -518,6 +558,51 @@ def normalize_detection_batch(predictions: Any, expected_count: int) -> list[Any
     return normalized
 
 
+def run_benchmark_pass(
+    model: Any,
+    frames: list[dict[str, Any]],
+    package_classes: set[str],
+    sport: str,
+    threshold: float,
+    batch_size: int,
+    project_root: Path,
+    progress_label: str,
+    language: str,
+) -> tuple[list[dict[str, Any]], float]:
+    """Run one model over every benchmark frame, returning (predictions,
+    inference_seconds). Shared by benchmark()'s single-model candidates and
+    each member of a combined/ensemble candidate, which calls this once per
+    member restricted to that member's own category subset (package_classes),
+    so evaluate_predictions() sees one merged prediction list either way.
+    """
+    predictions: list[dict[str, Any]] = []
+    inference_seconds = 0.0
+    frames_root = (project_root / "frames").resolve()
+    for start in range(0, len(frames), batch_size):
+        batch = frames[start : start + batch_size]
+        paths: list[str] = []
+        for frame in batch:
+            candidate_path = (project_root / str(frame.get("relativePath", ""))).resolve()
+            if frames_root not in candidate_path.parents or not candidate_path.is_file():
+                raise RuntimeError(f"Benchmark frame is missing: {frame.get('id')}")
+            paths.append(str(candidate_path))
+        inference_started = time.perf_counter()
+        detected_batch = normalize_detection_batch(model.predict(paths, threshold=threshold), len(batch))
+        inference_seconds += time.perf_counter() - inference_started
+        for frame, detections in zip(batch, detected_batch):
+            detection_data = (getattr(detections, "data", {}) or {})
+            names = detection_data.get("class_name")
+            for index, box in enumerate(detections.xyxy):
+                class_id = int(detections.class_id[index]) if getattr(detections, "class_id", None) is not None else None
+                detected_name = str(names[index]) if names is not None else ""
+                category = benchmark_detection_category(detected_name, class_id, sport, package_classes)
+                if not category:
+                    continue
+                predictions.append({"frameID": str(frame.get("id")), "category": category, "confidence": float(detections.confidence[index]), "box": [float(value) for value in box]})
+        emit(localized(language, f"{progress_label}: {min(start + batch_size, len(frames))}/{len(frames)}", f"{progress_label}: {min(start + batch_size, len(frames))}/{len(frames)}"))
+    return predictions, inference_seconds
+
+
 def benchmark(args: argparse.Namespace) -> None:
     project_root = Path(args.project).resolve()
     document = require_project(project_root, args.language)
@@ -532,12 +617,21 @@ def benchmark(args: argparse.Namespace) -> None:
     if not frames or not classes:
         raise SystemExit(localized(args.language, "Die Referenz enthält keine auswertbaren Markierungen.", "The ground truth contains no evaluable annotations."))
     library_root = (project_root / "models" / "library").resolve()
-    candidates: list[tuple[Path, dict[str, Any], Path]] = []
+    candidates: list[tuple[Path, dict[str, Any], Path | None]] = []
     for manifest_path in sorted(library_root.glob("*/manifest.json")) if library_root.is_dir() else []:
         try:
             manifest = load_json(manifest_path)
+            if manifest.get("sport") != document.get("sport"):
+                continue
+            ensemble = manifest.get("ensemble")
+            if ensemble:
+                members = ensemble.get("members") or []
+                member_paths = [(manifest_path.parent / str(member.get("weightsFile", ""))).resolve() for member in members]
+                if members and all(member.get("modelSize") in MODEL_CLASSES for member in members) and all(library_root in path.parents and path.is_file() for path in member_paths):
+                    candidates.append((manifest_path.parent, manifest, None))
+                continue
             weight_path = (manifest_path.parent / "weights" / Path(str(manifest.get("weights", {}).get("file", ""))).name).resolve()
-            if manifest.get("sport") == document.get("sport") and manifest.get("modelSize") in MODEL_CLASSES and library_root in weight_path.parents and weight_path.is_file():
+            if manifest.get("modelSize") in MODEL_CLASSES and library_root in weight_path.parents and weight_path.is_file():
                 candidates.append((manifest_path.parent, manifest, weight_path))
         except (OSError, ValueError, TypeError, json.JSONDecodeError):
             continue
@@ -549,43 +643,43 @@ def benchmark(args: argparse.Namespace) -> None:
     device = detect_device()
     results: list[dict[str, Any]] = []
     threshold = min(0.95, max(0.01, float(args.threshold)))
-    for model_index, (_, manifest, weight_path) in enumerate(candidates, start=1):
-        package_id = str(manifest.get("packageID") or weight_path.parent.parent.name)
+    for model_index, (package_dir, manifest, weight_path) in enumerate(candidates, start=1):
+        package_id = str(manifest.get("packageID") or (weight_path.parent.parent.name if weight_path else package_dir.name))
         emit(localized(args.language, f"Modelltest {model_index}/{len(candidates)}: {package_id}", f"Model test {model_index}/{len(candidates)}: {package_id}"))
         started = time.perf_counter()
         predictions: list[dict[str, Any]] = []
+        loaded_models: list[Any] = []
         try:
-            model_class = import_model_class(str(manifest["modelSize"]), args.language)
-            model = model_class(pretrain_weights=str(weight_path), device=device)
             package_classes = {str(item) for item in manifest.get("classes", [])}
-            profile = training_profile(str(manifest["modelSize"]), device)
-            batch_size = profile["batch_size"] if device != "cpu" else 1
             inference_seconds = 0.0
-            for start in range(0, len(frames), batch_size):
-                batch = frames[start : start + batch_size]
-                paths: list[str] = []
-                for frame in batch:
-                    candidate_path = (project_root / str(frame.get("relativePath", ""))).resolve()
-                    frames_root = (project_root / "frames").resolve()
-                    if frames_root not in candidate_path.parents or not candidate_path.is_file():
-                        raise RuntimeError(f"Benchmark frame is missing: {frame.get('id')}")
-                    paths.append(str(candidate_path))
-                inference_started = time.perf_counter()
-                detected_batch = normalize_detection_batch(
-                    model.predict(paths, threshold=threshold), len(batch)
+            ensemble = manifest.get("ensemble")
+            if ensemble:
+                # A combined/"baked" model: run each member only for the
+                # categories it was assigned, and merge every member's
+                # predictions into one list before evaluate_predictions() -
+                # which needs no changes, since it just sees predictions.
+                for member in ensemble.get("members", []):
+                    member_classes = {str(category) for category in member.get("categories", [])}
+                    member_model = ensemble_member_model(package_dir, member, args.language)
+                    loaded_models.append(member_model)
+                    member_profile = training_profile(str(member["modelSize"]), device)
+                    member_batch_size = member_profile["batch_size"] if device != "cpu" else 1
+                    member_predictions, member_seconds = run_benchmark_pass(
+                        member_model, frames, member_classes, str(document["sport"]), threshold, member_batch_size,
+                        project_root, package_id, args.language,
+                    )
+                    predictions.extend(member_predictions)
+                    inference_seconds += member_seconds
+            else:
+                model_class = import_model_class(str(manifest["modelSize"]), args.language)
+                model = model_class(pretrain_weights=str(weight_path), device=device)
+                loaded_models.append(model)
+                profile = training_profile(str(manifest["modelSize"]), device)
+                batch_size = profile["batch_size"] if device != "cpu" else 1
+                predictions, inference_seconds = run_benchmark_pass(
+                    model, frames, package_classes, str(document["sport"]), threshold, batch_size,
+                    project_root, package_id, args.language,
                 )
-                inference_seconds += time.perf_counter() - inference_started
-                for frame, detections in zip(batch, detected_batch):
-                    detection_data = (getattr(detections, "data", {}) or {})
-                    names = detection_data.get("class_name")
-                    for index, box in enumerate(detections.xyxy):
-                        class_id = int(detections.class_id[index]) if getattr(detections, "class_id", None) is not None else None
-                        detected_name = str(names[index]) if names is not None else ""
-                        category = benchmark_detection_category(detected_name, class_id, str(document["sport"]), package_classes)
-                        if not category:
-                            continue
-                        predictions.append({"frameID": str(frame.get("id")), "category": category, "confidence": float(detections.confidence[index]), "box": [float(value) for value in box]})
-                emit(localized(args.language, f"{package_id}: {min(start + batch_size, len(frames))}/{len(frames)}", f"{package_id}: {min(start + batch_size, len(frames))}/{len(frames)}"))
             metrics = evaluate_predictions(frames, predictions, classes)
             result = {"packageID": package_id, "modelSize": manifest.get("modelSize"), "classes": sorted(package_classes), "status": "completed", "metrics": metrics, "predictionCount": len(predictions), "totalSeconds": time.perf_counter() - started, "meanLatencyMs": 1000.0 * inference_seconds / max(len(frames), 1)}
             atomic_json(run_dir / f"{package_id}.predictions.json", {"schemaVersion": 1, "packageID": package_id, "datasetID": ground_truth.get("datasetID"), "threshold": threshold, "predictions": predictions})
@@ -593,7 +687,7 @@ def benchmark(args: argparse.Namespace) -> None:
             result = {"packageID": package_id, "modelSize": manifest.get("modelSize"), "classes": sorted(str(item) for item in manifest.get("classes", [])), "status": "failed", "error": str(error), "totalSeconds": time.perf_counter() - started}
         results.append(result)
         try:
-            del model
+            del loaded_models
             import gc
             gc.collect()
             if device == "mps":
@@ -1246,15 +1340,38 @@ def auto_label(args: argparse.Namespace) -> None:
     processed_frames = frames_with_detections = boxes_added = 0
 
     if custom_categories:
-        model = model_instance(project_root, args.model, trained=True, language=args.language)
-        pass_processed, pass_with_detections, pass_boxes = run_autolabel_pass(
-            model, frames, custom_categories, category_map, args.threshold, batch_size,
-            project_root, document, args.language, is_on_field, referee_clothing_match,
-        )
-        processed_frames += pass_processed
-        frames_with_detections += pass_with_detections
-        boxes_added += pass_boxes
-        del model
+        active_manifest = active_model_manifest(project_root, args.model)
+        ensemble = (active_manifest or {}).get("ensemble")
+        if ensemble:
+            # A combined/"baked" model: no single checkpoint knows every
+            # category, so run each member for only the categories it was
+            # assigned when the ensemble was built - the same two-pass
+            # accumulation pattern as the base-model fallback below, just
+            # generalized to N passes instead of a fixed two.
+            package_dir = (project_root / "models" / "library" / str(active_manifest["packageID"])).resolve()
+            for member in ensemble.get("members", []):
+                member_categories = [category for category in custom_categories if category in set(member.get("categories", []))]
+                if not member_categories:
+                    continue
+                member_model = ensemble_member_model(package_dir, member, args.language)
+                pass_processed, pass_with_detections, pass_boxes = run_autolabel_pass(
+                    member_model, frames, member_categories, category_map, args.threshold, batch_size,
+                    project_root, document, args.language, is_on_field, referee_clothing_match,
+                )
+                processed_frames += pass_processed
+                frames_with_detections += pass_with_detections
+                boxes_added += pass_boxes
+                del member_model
+        else:
+            model = model_instance(project_root, args.model, trained=True, language=args.language)
+            pass_processed, pass_with_detections, pass_boxes = run_autolabel_pass(
+                model, frames, custom_categories, category_map, args.threshold, batch_size,
+                project_root, document, args.language, is_on_field, referee_clothing_match,
+            )
+            processed_frames += pass_processed
+            frames_with_detections += pass_with_detections
+            boxes_added += pass_boxes
+            del model
 
     if base_fallback_categories:
         base_model = model_instance(project_root, args.model, trained=False, language=args.language)
@@ -1365,7 +1482,7 @@ def build_dataset(project_root: Path, language: str = "de", categories: list[str
     document = require_project(project_root, language)
     frames = [
         frame for frame in document.get("frames", [])
-        if frame.get("reviewStatus") != "candidate"
+        if frame.get("reviewStatus") != "candidate" and not frame.get("heldOut")
     ]
     if not frames:
         raise SystemExit(localized(language, "Keine Trainingsframes vorhanden.", "No training frames are available."))
@@ -1569,17 +1686,31 @@ def library_manifests(project_root: Path) -> list[tuple[Path, dict[str, Any]]]:
 
 
 def activate_library_model(project_root: Path, manifest_path: Path, manifest: dict[str, Any]) -> dict[str, Any]:
-    weight_name = Path(str(manifest.get("weights", {}).get("file", ""))).name
-    weight_path = manifest_path.parent / "weights" / weight_name
-    if not weight_name or not weight_path.is_file():
-        raise ValueError("Model weights are missing")
+    ensemble = manifest.get("ensemble")
+    weights_field = ""
+    if ensemble:
+        # A combined model has no single checkpoint - auto_label()/benchmark()
+        # look up its members via active_model_manifest() instead of this
+        # weights path, which stays blank (newest_checkpoint() already treats
+        # a blank/invalid weights path as "no single checkpoint", the same
+        # safe fallback as an activation with no weights at all).
+        for member in ensemble.get("members", []):
+            member_path = manifest_path.parent / str(member.get("weightsFile", ""))
+            if not member.get("weightsFile") or not member_path.is_file():
+                raise ValueError("Combined model weights are missing")
+    else:
+        weight_name = Path(str(manifest.get("weights", {}).get("file", ""))).name
+        weight_path = manifest_path.parent / "weights" / weight_name
+        if not weight_name or not weight_path.is_file():
+            raise ValueError("Model weights are missing")
+        weights_field = str(weight_path.relative_to(project_root))
     active = {
         "packageID": str(manifest["packageID"]),
         "displayName": manifest.get("displayName") or manifest["packageID"],
         "modelSize": manifest.get("modelSize"),
         "sport": manifest.get("sport"),
         "description": manifest.get("description"),
-        "weights": str(weight_path.relative_to(project_root)),
+        "weights": weights_field,
         "activatedAt": datetime.now(timezone.utc).isoformat(),
     }
     atomic_json(project_root / "models" / "active.json", active)
@@ -2053,6 +2184,152 @@ def train(args: argparse.Namespace) -> None:
     ))
 
 
+def combine_models(args: argparse.Namespace) -> None:
+    """Build a combined ("baked") model from already-installed library models,
+    each contributing only the categories it was assigned - e.g. one model's
+    referee detection plus another's ball detection, as one deliverable.
+
+    This is an ensemble at inference time (auto_label()/benchmark() run each
+    member for its own categories and merge predictions), not real weight
+    merging - RF-DETR's joint classification head makes true weight merging
+    infeasible. Installs directly into this project's model library, like any
+    other model, since every source model is already local: there's no reason
+    to force a package/export + re-import round trip for the common case of
+    "use the better combination right here". Exporting a combined model as a
+    shareable .recomodel isn't built yet (package_model() still only knows
+    how to package a single fresh checkpoint) - install_model_package() and
+    validate_model_package_file() already accept a multi-weights ensemble
+    manifest so that export can be added later without another schema change.
+    """
+    project_root = Path(args.project).resolve()
+    document = require_project(project_root, args.language)
+    sport = str(document["sport"])
+    assignments: list[tuple[str, list[str]]] = []
+    for raw in args.member:
+        package_id, _, category_list = str(raw).partition(":")
+        categories = [category.strip() for category in category_list.split(",") if category.strip()]
+        if not package_id or not categories:
+            raise SystemExit(localized(args.language, f"Ungültige Modellzuordnung: {raw}", f"Invalid model assignment: {raw}"))
+        assignments.append((package_id, categories))
+    if len(assignments) < 2:
+        raise SystemExit(localized(
+            args.language,
+            "Mindestens zwei Modelle mit je mindestens einer Kategorie werden für ein kombiniertes Modell benötigt.",
+            "A combined model needs at least two models, each with at least one category.",
+        ))
+    seen_categories: set[str] = set()
+    for _, categories in assignments:
+        duplicate = seen_categories.intersection(categories)
+        if duplicate:
+            raise SystemExit(localized(
+                args.language,
+                f"Kategorie(n) mehrfach zugeordnet: {', '.join(sorted(duplicate))}",
+                f"Categories assigned more than once: {', '.join(sorted(duplicate))}",
+            ))
+        seen_categories.update(categories)
+
+    manifests_by_id = {str(manifest.get("packageID")): (path, manifest) for path, manifest in library_manifests(project_root)}
+    members: list[dict[str, Any]] = []
+    model_sizes: set[str] = set()
+    for package_id, categories in assignments:
+        found = manifests_by_id.get(package_id)
+        if found is None:
+            raise SystemExit(localized(args.language, f"Modell nicht in der Bibliothek gefunden: {package_id}", f"Model not found in the library: {package_id}"))
+        source_path, source_manifest = found
+        if source_manifest.get("ensemble"):
+            raise SystemExit(localized(args.language, "Ein kombiniertes Modell kann nicht selbst wieder kombiniert werden.", "A combined model cannot itself be combined again."))
+        if source_manifest.get("sport") != sport:
+            raise SystemExit(localized(args.language, f"Modell {package_id} gehört zu einer anderen Sportart.", f"Model {package_id} belongs to a different sport."))
+        unsupported = set(categories) - {str(item) for item in source_manifest.get("classes", [])}
+        if unsupported:
+            raise SystemExit(localized(
+                args.language,
+                f"Modell {package_id} kennt folgende Kategorien nicht: {', '.join(sorted(unsupported))}",
+                f"Model {package_id} does not know these categories: {', '.join(sorted(unsupported))}",
+            ))
+        model_size = str(source_manifest.get("modelSize"))
+        model_sizes.add(model_size)
+        weight_name = Path(str(source_manifest.get("weights", {}).get("file", ""))).name
+        weight_path = source_path.parent / "weights" / weight_name
+        if not weight_name or not weight_path.is_file():
+            raise SystemExit(localized(args.language, f"Gewichtsdatei für {package_id} fehlt.", f"Weights file for {package_id} is missing."))
+        members.append({
+            "packageID": package_id,
+            "modelSize": model_size,
+            "categories": sorted(categories),
+            "sourceWeightPath": weight_path,
+        })
+    if len(model_sizes) > 1:
+        raise SystemExit(localized(
+            args.language,
+            f"Alle Modelle müssen dieselbe Modellgröße verwenden (gefunden: {', '.join(sorted(model_sizes))}).",
+            f"All models must use the same model size (found: {', '.join(sorted(model_sizes))}).",
+        ))
+    combined_model_size = next(iter(model_sizes))
+
+    created = datetime.now(timezone.utc)
+    package_name = str(getattr(args, "name", "") or "").strip()
+    if len(package_name) > 80:
+        raise SystemExit(localized(
+            args.language,
+            "Der Paketname darf höchstens 80 Zeichen lang sein.",
+            "The package name must not exceed 80 characters.",
+        ))
+    if not package_name:
+        package_name = f"{sport.replace('_', ' ').title()} · {combined_model_size.capitalize()} · {localized(args.language, 'Kombiniert', 'Combined')}"
+    package_id = f"reco-ensemble-{sport}-{combined_model_size}-{created.strftime('%Y%m%d-%H%M%S')}"
+    combined_classes = sorted({category for _, categories in assignments for category in categories})
+
+    library_root = project_root / "models" / "library"
+    final = library_root / package_id
+    staging = project_root / "models" / f".combine-{uuid.uuid4().hex}"
+    try:
+        (staging / "weights").mkdir(parents=True, exist_ok=False)
+        manifest_members = []
+        for member in members:
+            destination_name = f"{package_file_slug(member['packageID'])}{member['sourceWeightPath'].suffix}"
+            destination = staging / "weights" / destination_name
+            shutil.copyfile(member["sourceWeightPath"], destination)
+            manifest_members.append({
+                "packageID": member["packageID"],
+                "modelSize": member["modelSize"],
+                "categories": member["categories"],
+                "weightsFile": f"weights/{destination_name}",
+                "sha256": sha256_file(destination),
+            })
+        manifest = {
+            "schemaVersion": 2,
+            "packageID": package_id,
+            "displayName": package_name,
+            "createdAt": created.isoformat(),
+            "sport": sport,
+            "modelSize": combined_model_size,
+            "classes": combined_classes,
+            "description": localized(
+                args.language,
+                f"Kombiniertes Modell aus {len(members)} Modellen, je eigene Kategorien: " + ", ".join(f"{m['packageID']} ({', '.join(m['categories'])})" for m in members),
+                f"Combined model from {len(members)} models, each contributing its own categories: " + ", ".join(f"{m['packageID']} ({', '.join(m['categories'])})" for m in members),
+            ),
+            "ensemble": {"members": manifest_members},
+            "privacy": "This package contains model weights and aggregate metadata only. It contains no videos, frames, source paths, or video file names.",
+            "license": "Apache-2.0 RF-DETR base; the publisher must confirm rights to redistribute fine-tuned weights.",
+        }
+        atomic_json(staging / "manifest.json", manifest)
+        library_root.mkdir(parents=True, exist_ok=True)
+        staging.replace(final)
+    finally:
+        if staging.exists():
+            shutil.rmtree(staging)
+
+    active = activate_library_model(project_root, final / "manifest.json", manifest)
+    emit(localized(
+        args.language,
+        f"Kombiniertes Modell erstellt und aktiviert: {package_name}",
+        f"Combined model created and activated: {package_name}",
+    ))
+    print(json.dumps({"installed": True, "active": active, "manifest": manifest}, ensure_ascii=False))
+
+
 def sha256_file(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as handle:
@@ -2144,38 +2421,62 @@ def validate_model_package_file(package: Path, language: str = "de") -> dict[str
         raise SystemExit(localized(language, "Modellpaket ist zu groß.", "Model package is too large.", "El paquete del modelo es demasiado grande.", "Le paquet du modèle est trop volumineux."))
     with zipfile.ZipFile(package) as archive:
         names = archive.namelist()
-        if len(names) != 2:
-            raise SystemExit(localized(language, "Modellpaket muss genau Manifest und Gewichte enthalten.", "The model package must contain exactly a manifest and weights.", "El paquete debe contener exactamente el manifiesto y los pesos.", "Le paquet doit contenir exactement le manifeste et les poids."))
-        for name in names:
-            path = Path(name)
-            if path.is_absolute() or ".." in path.parts:
-                raise SystemExit(localized(language, "Unsicherer Pfad im Modellpaket.", "Unsafe path in model package.", "Ruta no segura en el paquete.", "Chemin non sécurisé dans le paquet."))
-            if name != "manifest.json" and not (name.startswith("weights/") and path.suffix in {".pth", ".ckpt"}):
-                raise SystemExit(localized(language, f"Unzulässige Datei im Modellpaket: {name}", f"Disallowed file in model package: {name}"))
         if "manifest.json" not in names:
             raise SystemExit(localized(language, "manifest.json fehlt.", "manifest.json is missing."))
         manifest_info = archive.getinfo("manifest.json")
         if manifest_info.file_size > 1024 * 1024:
             raise SystemExit(localized(language, "Manifest ist zu groß.", "Manifest is too large."))
         manifest = json.loads(archive.read("manifest.json"))
-        if manifest.get("schemaVersion") != 1:
+        schema_version = manifest.get("schemaVersion")
+        if schema_version not in (1, 2):
             raise SystemExit(localized(language, "Unbekannte Paketversion.", "Unsupported package version."))
         description = manifest.get("description")
         if description is not None and (not isinstance(description, str) or not description.strip() or len(description) > 500 or any(ord(character) < 32 and character not in "\t\n\r" for character in description)):
             raise SystemExit(localized(language, "Ungültige Paketbeschreibung.", "Invalid package description."))
-        weight_name = manifest.get("weights", {}).get("file")
-        if weight_name not in names:
-            raise SystemExit(localized(language, "Gewichtsdatei fehlt.", "Weights file is missing."))
-        weight_info = archive.getinfo(weight_name)
-        if weight_info.file_size > 4 * 1024**3:
-            raise SystemExit(localized(language, "Gewichtsdatei ist zu groß.", "Weights file is too large."))
-        checksum = hashlib.sha256()
-        with archive.open(weight_name) as weights:
-            for chunk in iter(lambda: weights.read(1024 * 1024), b""):
-                checksum.update(chunk)
-        digest = checksum.hexdigest()
-        if digest != manifest.get("weights", {}).get("sha256"):
-            raise SystemExit(localized(language, "Prüfsumme stimmt nicht.", "Checksum does not match.", "La suma de verificación no coincide.", "La somme de contrôle ne correspond pas."))
+        for name in names:
+            path = Path(name)
+            if path.is_absolute() or ".." in path.parts:
+                raise SystemExit(localized(language, "Unsicherer Pfad im Modellpaket.", "Unsafe path in model package.", "Ruta no segura en el paquete.", "Chemin non sécurisé dans le paquet."))
+            if name != "manifest.json" and not (name.startswith("weights/") and path.suffix in {".pth", ".ckpt"}):
+                raise SystemExit(localized(language, f"Unzulässige Datei im Modellpaket: {name}", f"Disallowed file in model package: {name}"))
+
+        ensemble = manifest.get("ensemble") if schema_version == 2 else None
+        if ensemble:
+            # A combined model bundles one weights file per member instead of
+            # the usual single manifest + weights pair - verify each member's
+            # own checksum instead of one top-level "weights" entry.
+            members = ensemble.get("members") or []
+            if not members or len(names) != 1 + len(members):
+                raise SystemExit(localized(language, "Kombiniertes Modellpaket muss Manifest und genau eine Gewichtsdatei je Mitglied enthalten.", "A combined model package must contain the manifest and exactly one weights file per member."))
+            for member in members:
+                weight_name = member.get("weightsFile")
+                if weight_name not in names:
+                    raise SystemExit(localized(language, f"Gewichtsdatei fehlt: {member.get('packageID')}", f"Weights file is missing: {member.get('packageID')}"))
+                weight_info = archive.getinfo(weight_name)
+                if weight_info.file_size > 4 * 1024**3:
+                    raise SystemExit(localized(language, "Gewichtsdatei ist zu groß.", "Weights file is too large."))
+                checksum = hashlib.sha256()
+                with archive.open(weight_name) as weights:
+                    for chunk in iter(lambda: weights.read(1024 * 1024), b""):
+                        checksum.update(chunk)
+                if checksum.hexdigest() != member.get("sha256"):
+                    raise SystemExit(localized(language, f"Prüfsumme stimmt nicht: {member.get('packageID')}", f"Checksum does not match: {member.get('packageID')}"))
+        else:
+            if len(names) != 2:
+                raise SystemExit(localized(language, "Modellpaket muss genau Manifest und Gewichte enthalten.", "The model package must contain exactly a manifest and weights.", "El paquete debe contener exactamente el manifiesto y los pesos.", "Le paquet doit contenir exactement le manifeste et les poids."))
+            weight_name = manifest.get("weights", {}).get("file")
+            if weight_name not in names:
+                raise SystemExit(localized(language, "Gewichtsdatei fehlt.", "Weights file is missing."))
+            weight_info = archive.getinfo(weight_name)
+            if weight_info.file_size > 4 * 1024**3:
+                raise SystemExit(localized(language, "Gewichtsdatei ist zu groß.", "Weights file is too large."))
+            checksum = hashlib.sha256()
+            with archive.open(weight_name) as weights:
+                for chunk in iter(lambda: weights.read(1024 * 1024), b""):
+                    checksum.update(chunk)
+            digest = checksum.hexdigest()
+            if digest != manifest.get("weights", {}).get("sha256"):
+                raise SystemExit(localized(language, "Prüfsumme stimmt nicht.", "Checksum does not match.", "La suma de verificación no coincide.", "La somme de contrôle ne correspond pas."))
     return manifest
 
 
@@ -2212,38 +2513,45 @@ def install_model_package(args: argparse.Namespace) -> None:
     if not set(manifest.get("classes") or []).issubset(allowed_classes):
         raise SystemExit(localized(args.language, "Das Paket enthält unzulässige Klassen.", "The package contains unsupported classes."))
 
+    ensemble = manifest.get("ensemble")
+    weight_entries = (
+        [(str(member["weightsFile"]), str(member["sha256"]), str(member.get("packageID"))) for member in ensemble.get("members", [])]
+        if ensemble else
+        [(str(manifest["weights"]["file"]), str(manifest["weights"]["sha256"]), None)]
+    )
+
     library_root = project_root / "models" / "library"
     final = library_root / package_id
-    weights_name = Path(str(manifest["weights"]["file"])).name
     if final.exists():
         existing_manifest = load_json(final / "manifest.json")
-        if existing_manifest.get("weights", {}).get("sha256") != manifest["weights"]["sha256"]:
+        existing_hashes = (
+            {member.get("weightsFile"): member.get("sha256") for member in (existing_manifest.get("ensemble") or {}).get("members", [])}
+            if existing_manifest.get("ensemble") else
+            {existing_manifest.get("weights", {}).get("file"): existing_manifest.get("weights", {}).get("sha256")}
+        )
+        if any(existing_hashes.get(weights_file) != digest for weights_file, digest, _ in weight_entries):
             raise SystemExit(localized(args.language, "Paket-ID ist bereits mit anderen Gewichten installiert.", "This package ID is already installed with different weights."))
     else:
         staging = project_root / "models" / f".install-{uuid.uuid4().hex}"
         try:
             (staging / "weights").mkdir(parents=True, exist_ok=False)
             atomic_json(staging / "manifest.json", manifest)
-            with zipfile.ZipFile(package) as archive, archive.open(manifest["weights"]["file"]) as source, (staging / "weights" / weights_name).open("wb") as destination:
-                shutil.copyfileobj(source, destination, length=1024 * 1024)
-            if sha256_file(staging / "weights" / weights_name) != manifest["weights"]["sha256"]:
-                raise SystemExit(localized(args.language, "Prüfsumme nach dem Import ungültig.", "Checksum is invalid after import."))
+            with zipfile.ZipFile(package) as archive:
+                for weights_file, expected_digest, member_id in weight_entries:
+                    destination = staging / weights_file
+                    destination.parent.mkdir(parents=True, exist_ok=True)
+                    with archive.open(weights_file) as source, destination.open("wb") as sink:
+                        shutil.copyfileobj(source, sink, length=1024 * 1024)
+                    if sha256_file(destination) != expected_digest:
+                        label = f" ({member_id})" if member_id else ""
+                        raise SystemExit(localized(args.language, f"Prüfsumme nach dem Import ungültig{label}.", f"Checksum is invalid after import{label}."))
             library_root.mkdir(parents=True, exist_ok=True)
             staging.replace(final)
         finally:
             if staging.exists():
                 shutil.rmtree(staging)
 
-    active = {
-        "packageID": package_id,
-        "displayName": manifest.get("displayName") or package_id,
-        "modelSize": model_size,
-        "sport": sport,
-        "description": manifest.get("description"),
-        "weights": str((final / "weights" / weights_name).relative_to(project_root)),
-        "activatedAt": datetime.now(timezone.utc).isoformat(),
-    }
-    atomic_json(project_root / "models" / "active.json", active)
+    active = activate_library_model(project_root, final / "manifest.json", manifest)
     print(json.dumps({"installed": True, "active": active, "manifest": manifest}, ensure_ascii=False))
 
 
@@ -2451,6 +2759,13 @@ def build_parser() -> argparse.ArgumentParser:
     install_parser.add_argument("--file", required=True)
     install_parser.add_argument("--language", choices=["de", "en", "es", "fr"], default="de")
     install_parser.set_defaults(func=install_model_package)
+
+    combine_parser = commands.add_parser("combine-models")
+    combine_parser.add_argument("--project", required=True)
+    combine_parser.add_argument("--member", action="append", required=True, help="packageID:category1,category2 - repeatable")
+    combine_parser.add_argument("--name", default="")
+    combine_parser.add_argument("--language", choices=["de", "en", "es", "fr"], default="de")
+    combine_parser.set_defaults(func=combine_models)
 
     list_models_parser = commands.add_parser("list-models")
     list_models_parser.add_argument("--project", required=True)

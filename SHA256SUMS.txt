@@ -1,4 +1,4 @@
-af2e7b895f4d54ffaf034fedd33bfd29290b2c433a5e4e74daf1b757465477d6  Reco-Trainer-Mac-0.12.14.dmg
-aed8a468185f93a32652d7c27b637db861f1966f6f4e02c04e16d96f0fccffea  Reco.Trainer.Windows.0.12.14.zip
-a8dadc6e2783f08ef6ef971b98e56fe9ddb56d8f73f5e6df3bb783a3aa13e518  Reco.Trainer.Linux.0.12.14.zip
-2b5f18ff318b19a94b40ccdf7c86b1dc522e079abe14c5f6143cd23985fabca6  Reco.Trainer.Docker.0.12.14.zip
+b4209fed32d0563577a64c55254461ff7bed2abe831d4b2813aff271844f3fcb  Reco-Trainer-Mac-0.12.15.dmg
+14b61a71e4f5732ae2dd480643d46b4f49984102a339c898d66e250b2b36e7f4  Reco.Trainer.Windows.0.12.15.zip
+1c39b640f040d11b25ec2958ef4d98ff7c1d339e2fe78b941a483733bbdd22d6  Reco.Trainer.Linux.0.12.15.zip
+b36b11b69d625f89303c8f5f2948ce3ee2bca2c67fe02066b417c57b9d098976  Reco.Trainer.Docker.0.12.15.zip
