@@ -75,6 +75,9 @@ def backup_project(root: Path, reason: str) -> Path | None:
     return target
 
 
+_ACCELERATOR_CACHE: dict[str, str] = {}
+
+
 def hardware_summary() -> dict:
     memory = 0
     try:
@@ -86,8 +89,80 @@ def hardware_summary() -> dict:
         "machine": machine,
         "cpuCores": os.cpu_count() or 1,
         "memoryGB": round(memory / (1024 ** 3)) if memory else None,
-        "accelerator": "Apple GPU · Metal/MPS" if sys.platform == "darwin" and machine == "arm64" else "CPU",
+        "accelerator": "Apple GPU · Metal/MPS" if sys.platform == "darwin" and machine == "arm64" else non_apple_accelerator(),
     }
+
+
+def detect_nvidia_gpu_name() -> str | None:
+    """Raw GPU presence via nvidia-smi, independent of whether PyTorch itself
+    was built with CUDA support - used both for the pre-setup hardware label
+    and to decide whether "ML einrichten" should install a CUDA build of
+    torch (see ml_action's "setup" branch).
+    """
+    nvidia_smi = shutil.which("nvidia-smi")
+    if not nvidia_smi:
+        return None
+    try:
+        result = subprocess.run(
+            [nvidia_smi, "--query-gpu=name", "--format=csv,noheader"],
+            capture_output=True, text=True, timeout=5, check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    return result.stdout.strip().splitlines()[0] if result.returncode == 0 and result.stdout.strip() else None
+
+
+def non_apple_accelerator() -> str:
+    """Best-effort accelerator label for Windows/Linux.
+
+    Previously this branch was hardcoded to "CPU" unconditionally, so Windows
+    users with a working NVIDIA GPU had no way to tell from the app whether
+    it was actually being used - the /api/status poll (every 900ms, see
+    page.tsx) meant this couldn't just shell out to the venv's torch on every
+    call, so the result is cached by venv path once computed (recomputing on
+    a fresh venv path covers "just finished ML setup" / "reinstalled with a
+    different torch build" without re-probing every second).
+    """
+    root = STATE.project_root
+    if root is not None:
+        venv_python = venv_python_path(root / ".runtime" / "venv")
+        if venv_python.is_file():
+            cache_key = str(venv_python)
+            cached = _ACCELERATOR_CACHE.get(cache_key)
+            if cached is not None:
+                return cached
+            try:
+                probe = (
+                    "import json, torch\n"
+                    "available = torch.cuda.is_available()\n"
+                    "print(json.dumps({'cuda': available, 'name': torch.cuda.get_device_name(0) if available else None}))"
+                )
+                result = subprocess.run(
+                    [str(venv_python), "-c", probe],
+                    capture_output=True, text=True, timeout=8, check=False,
+                )
+                if result.returncode == 0 and result.stdout.strip():
+                    payload = json.loads(result.stdout.strip().splitlines()[-1])
+                    label = (
+                        f"NVIDIA-GPU · CUDA ({payload['name']})" if payload.get("cuda") and payload.get("name")
+                        else "NVIDIA-GPU · CUDA" if payload.get("cuda")
+                        else "CPU (PyTorch ohne CUDA-Unterstützung installiert)"
+                    )
+                    _ACCELERATOR_CACHE[cache_key] = label
+                    return label
+            except (OSError, subprocess.TimeoutExpired, ValueError, json.JSONDecodeError, KeyError):
+                pass
+    # No venv yet (or its torch probe failed) - fall back to raw GPU presence
+    # via nvidia-smi so the hint isn't just "CPU" before ML setup has even
+    # run. Cached under a fixed key since this doesn't depend on the venv and
+    # hardware presence doesn't change mid-session.
+    pre_setup_cached = _ACCELERATOR_CACHE.get("pre-setup")
+    if pre_setup_cached is not None:
+        return pre_setup_cached
+    name = detect_nvidia_gpu_name()
+    label = f"NVIDIA-GPU erkannt ({name}) · ML noch nicht eingerichtet" if name else "CPU"
+    _ACCELERATOR_CACHE["pre-setup"] = label
+    return label
 
 
 def safe_name(value: str) -> str:
@@ -106,6 +181,7 @@ class LocalState:
         self.log: list[str] = []
         self.busy = False
         self.error: str | None = None
+        self.simulation: dict | None = None
 
     def update(self, **values) -> None:
         with self.lock:
@@ -154,6 +230,7 @@ class LocalState:
                 "benchmark": benchmark_snapshot(self.project_root),
                 "frames": frames,
                 "log": "\n".join(self.log[-80:]),
+                "simulation": self.simulation,
             }
 
 
@@ -425,6 +502,46 @@ def select_model_package() -> Path:
     return selected
 
 
+def select_video_file() -> Path:
+    configured = os.environ.get("RECO_SIMULATION_VIDEO") or os.environ.get("RECO_TEST_SIMULATION_VIDEO")
+    if configured:
+        selected = Path(configured).expanduser().resolve()
+    elif sys.platform == "darwin":
+        script = 'POSIX path of (choose file with prompt "Kurzes Video für die Balltracking-Simulation auswählen")'
+        result = subprocess.run(["/usr/bin/osascript", "-e", script], capture_output=True, text=True, check=False)
+        if result.returncode != 0:
+            raise RuntimeError("Videoauswahl wurde abgebrochen.")
+        selected = Path(result.stdout.strip()).resolve()
+    elif sys.platform == "win32":
+        powershell = shutil.which("powershell") or shutil.which("pwsh")
+        if not powershell:
+            raise RuntimeError("PowerShell wurde für die Videoauswahl nicht gefunden.")
+        script = (
+            "Add-Type -AssemblyName System.Windows.Forms; "
+            "$dialog = New-Object System.Windows.Forms.OpenFileDialog; "
+            "$dialog.Filter = 'Videos (*.mp4;*.mov;*.m4v)|*.mp4;*.mov;*.m4v'; "
+            "if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { $dialog.FileName }"
+        )
+        result = subprocess.run([powershell, "-NoProfile", "-Command", script], capture_output=True, text=True, check=False)
+        if result.returncode != 0 or not result.stdout.strip():
+            raise RuntimeError("Videoauswahl wurde abgebrochen.")
+        selected = Path(result.stdout.strip()).resolve()
+    else:
+        dialog = shutil.which("zenity")
+        command = [dialog, "--file-selection", "--title=Select a short clip for the ball-tracking simulation", "--file-filter=Videos | *.mp4 *.mov *.m4v"] if dialog else None
+        if command is None and shutil.which("kdialog"):
+            command = [shutil.which("kdialog"), "--getopenfilename", str(Path.home()), "*.mp4 *.mov *.m4v"]
+        if command is None:
+            raise RuntimeError("Für die Videoauswahl bitte Zenity/KDialog installieren oder RECO_SIMULATION_VIDEO setzen.")
+        result = subprocess.run(command, capture_output=True, text=True, check=False)
+        if result.returncode != 0 or not result.stdout.strip():
+            raise RuntimeError("Videoauswahl wurde abgebrochen.")
+        selected = Path(result.stdout.strip()).resolve()
+    if not selected.is_file() or selected.suffix.lower() not in VIDEO_EXTENSIONS:
+        raise RuntimeError("Bitte eine vorhandene Videodatei auswählen.")
+    return selected
+
+
 def discover_videos(folder: Path) -> list[Path]:
     return sorted(
         (path for path in folder.rglob("*") if path.is_file() and path.suffix.lower() in VIDEO_EXTENSIONS and ".reco-training" not in path.parts),
@@ -555,7 +672,14 @@ def extract_project(sport: str, requested_frames_per_video: int = DEFAULT_FRAMES
         videos = discover_videos(folder)
         if not videos:
             raise RuntimeError("Im gewählten Ordner wurden keine MP4-, MOV- oder M4V-Videos gefunden.")
-        infos = [(video, *media_info(video, apple_extractor)) for video in videos]
+        # Reading each video's metadata (ffprobe) is a separate subprocess call
+        # per file, done before any extraction starts - with many files (e.g.
+        # a GoPro game split into a dozen+ chapter files), this alone can take
+        # a while with no visible movement otherwise, looking like a hang.
+        infos = []
+        for index, video in enumerate(videos, start=1):
+            STATE.update(message=f"Prüfe Video {index}/{len(videos)}: {video.name}")
+            infos.append((video, *media_info(video, apple_extractor)))
         total_duration = max(sum(item[1] for item in infos), 1.0)
         temporary_frames = root / f"frames.next-{uuid.uuid4().hex[:8]}"
         temporary_frames.mkdir(parents=True, exist_ok=False)
@@ -640,10 +764,19 @@ def expand_dataset(folder: Path, payload: dict, held_out: bool = False) -> None:
         backup_project(root, "active-learning")
         ffmpeg = shutil.which("ffmpeg")
         apple_extractor = native_frame_extractor(root) if not ffmpeg or not shutil.which("ffprobe") else None
+        # busy must be true before this point, not only once extraction itself
+        # starts below - otherwise the UI doesn't show anything is happening
+        # while videos are being discovered/probed, which for many files (a
+        # GoPro game split into a dozen+ chapter files) can itself take a
+        # visible moment.
+        STATE.update(operation="active-learning-scan", busy=True, progress=0.01, error=None, log=[], message="Suche lokale Videos …")
         videos = discover_videos(folder)
         if not videos:
             raise RuntimeError("Im gewählten Erweiterungsordner wurden keine Videos gefunden.")
-        infos = [(video, *media_info(video, apple_extractor)) for video in videos]
+        infos = []
+        for index, video in enumerate(videos, start=1):
+            STATE.update(message=f"Prüfe Video {index}/{len(videos)}: {video.name}")
+            infos.append((video, *media_info(video, apple_extractor)))
         total_duration = max(sum(item[1] for item in infos), 1.0)
         frames_dir = root / "frames"
         frames_dir.mkdir(parents=True, exist_ok=True)
@@ -690,6 +823,73 @@ def expand_dataset(folder: Path, payload: dict, held_out: bool = False) -> None:
     except Exception as error:
         STATE.append_log(str(error))
         STATE.update(operation="error", busy=False, error=str(error), message="Datensatzerweiterung fehlgeschlagen.")
+
+
+def simulate_ball_tracking(video: Path, payload: dict) -> None:
+    """Extract a short clip at near-native frame rate into a scratch directory
+    (never added to project.json - this is a read-only diagnostic, not data
+    collection) and run the active model's ball detection over every frame.
+
+    Unlike expand_dataset()/extract_project(), this reuses the same scratch
+    directory every time (root/.runtime/simulation) rather than one per run,
+    since only one simulation is ever shown at a time and there is no reason
+    to accumulate throwaway extractions.
+    """
+    try:
+        root = STATE.project_root
+        project = STATE.project
+        if root is None or project is None:
+            raise RuntimeError("Zuerst ein bestehendes Trainingsprojekt öffnen.")
+        model = str(payload.get("model", "nano"))
+        language = payload.get("language", "de")
+        if language not in {"de", "en", "es", "fr"}:
+            language = "de"
+        threshold = min(0.95, max(0.01, float(payload.get("threshold", 0.25))))
+        venv_python = venv_python_path(root / ".runtime" / "venv")
+        if not venv_python.is_file():
+            raise RuntimeError("ML-Umgebung fehlt. Zuerst „ML einrichten“ anklicken.")
+
+        STATE.update(operation="simulation-extract", busy=True, progress=0.01, error=None, log=[], message="Extrahiere Bilder für die Simulation …")
+        ffmpeg = shutil.which("ffmpeg")
+        apple_extractor = native_frame_extractor(root) if not ffmpeg or not shutil.which("ffprobe") else None
+        duration, width, height = media_info(video, apple_extractor)
+        target_count = min(300, max(1, round(duration * 12)))
+        frames_dir = root / ".runtime" / "simulation"
+        if frames_dir.exists():
+            shutil.rmtree(frames_dir)
+        frames_dir.mkdir(parents=True, exist_ok=True)
+        generated, rate, output_width, output_height = extract_frames_for_video(
+            video, duration, width, height, target_count, frames_dir, "sim",
+            ffmpeg, apple_extractor, "Extraktion für die Simulation fehlgeschlagen",
+        )
+        if not generated:
+            raise RuntimeError("Es konnten keine Bilder aus dem Video extrahiert werden.")
+
+        STATE.update(operation="simulation-detect", progress=0.4, message="Ballerkennung läuft …")
+        worker = find_ml_worker()
+        detections = run_json([
+            str(venv_python), str(worker), "simulate-ball-tracking",
+            "--project", str(root), "--frames-dir", str(frames_dir),
+            "--model", model, "--threshold", str(threshold), "--language", language,
+        ])
+        frames = [
+            {
+                "file": item["file"],
+                "timestamp": min(index / rate, duration),
+                "width": output_width,
+                "height": output_height,
+                "ball": item.get("ball"),
+            }
+            for index, item in enumerate(detections.get("frames", []))
+        ]
+        STATE.update(
+            simulation={"fps": rate, "frames": frames},
+            operation="ready", busy=False, progress=1.0,
+            message=f"{len(frames)} Bilder simuliert.",
+        )
+    except Exception as error:
+        STATE.append_log(str(error))
+        STATE.update(operation="error", busy=False, error=str(error), message="Balltracking-Simulation fehlgeschlagen.")
 
 
 def find_ml_worker() -> Path:
@@ -754,6 +954,22 @@ def run_logged(command: list[str]) -> None:
         raise RuntimeError(f"Lokaler ML-Worker wurde mit Code {code} beendet.")
 
 
+def run_json(command: list[str]) -> dict:
+    """Like run_logged, but for single-JSON actions (ml_worker.py subcommands
+    that print exactly one JSON blob and nothing else instead of a progress
+    stream) - captures stdout and parses it instead of logging it line by
+    line. Same UTF-8 fix as run_logged (see its comment) applies here too.
+    """
+    result = subprocess.run(
+        command, capture_output=True, text=True, encoding="utf-8", errors="replace",
+        env={**os.environ, "PYTHONUNBUFFERED": "1", "PYTORCH_ENABLE_MPS_FALLBACK": "1", "PYTHONIOENCODING": "utf-8"},
+        check=False,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(result.stderr.strip() or result.stdout.strip() or f"Lokaler ML-Worker wurde mit Code {result.returncode} beendet.")
+    return json.loads(result.stdout.strip())
+
+
 def ml_action(action: str, payload: dict) -> None:
     try:
         root = STATE.project_root
@@ -770,7 +986,40 @@ def ml_action(action: str, payload: dict) -> None:
             if not venv_python.is_file():
                 venv.parent.mkdir(parents=True, exist_ok=True)
                 run_logged([str(system_python()), "-m", "venv", str(venv)])
-            run_logged([str(venv_python), "-m", "pip", "install", "--upgrade", "pip", "rfdetr[train,onnx,coreml]>=1.9.0", "onnxruntime"])
+            # Plain `pip install torch` gives a CPU-only wheel on Windows -
+            # PyPI only hosts CUDA-enabled torch builds for Linux, Windows
+            # needs the dedicated index (pytorch.org/get-started/locally).
+            # detect_device()/training already handled CUDA correctly *if*
+            # torch itself had it; this is what makes sure it actually does.
+            # Guarded by payload["useCuda"] (UI checkbox, default on) so a
+            # user who hits trouble with the CUDA install (blocked network,
+            # unsupported driver, ...) can opt back into the plain install
+            # that always works, just slower.
+            use_cuda = bool(payload.get("useCuda", True))
+            cuda_index_url = "https://download.pytorch.org/whl/cu121"
+            gpu_name = detect_nvidia_gpu_name() if (os.name == "nt" and use_cuda) else None
+            if gpu_name:
+                STATE.update(message=f"NVIDIA-GPU erkannt ({gpu_name}) - installiere PyTorch mit CUDA-Unterstützung …")
+                try:
+                    run_logged([str(venv_python), "-m", "pip", "install", "--upgrade", "pip"])
+                    run_logged([str(venv_python), "-m", "pip", "install", "torch", "--index-url", cuda_index_url])
+                except RuntimeError as error:
+                    # Not fatal - fall through to the normal install below,
+                    # which still produces a working (CPU) setup.
+                    STATE.append_log(f"CUDA-PyTorch-Installation fehlgeschlagen, verwende CPU-Version: {error}")
+                    STATE.update(message="CUDA-Installation fehlgeschlagen, richte CPU-Version ein …")
+            run_logged([
+                str(venv_python), "-m", "pip", "install", "--upgrade", "pip",
+                "rfdetr[train,onnx,coreml]>=1.9.0", "onnxruntime",
+                *(["--extra-index-url", cuda_index_url] if gpu_name else []),
+            ])
+            # The accelerator label (see non_apple_accelerator()) is cached
+            # per venv path - a re-run of setup (e.g. retrying with CUDA
+            # switched off, or after fixing a failed CUDA install) just
+            # reinstalled the same venv's torch, so any previously cached
+            # label for it is now stale.
+            _ACCELERATOR_CACHE.pop(str(venv_python), None)
+            _ACCELERATOR_CACHE.pop("pre-setup", None)
         else:
             worker = find_ml_worker()
             executable = venv_python
@@ -1007,6 +1256,26 @@ class Handler(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(data)
             return
+        if route.path == "/api/simulation-frame":
+            root = STATE.project_root
+            file_name = (parse_qs(route.query).get("file") or [""])[0]
+            if root is None or not file_name:
+                self.send_error(HTTPStatus.NOT_FOUND)
+                return
+            frames_dir = (root / ".runtime" / "simulation").resolve()
+            target = (frames_dir / file_name).resolve()
+            if frames_dir not in target.parents or not target.is_file():
+                self.send_error(HTTPStatus.NOT_FOUND)
+                return
+            data = target.read_bytes()
+            self.send_response(HTTPStatus.OK)
+            self.add_cors()
+            self.send_header("Content-Type", "image/jpeg")
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+            return
         self.send_error(HTTPStatus.NOT_FOUND)
 
     def do_POST(self) -> None:
@@ -1036,6 +1305,12 @@ class Handler(BaseHTTPRequestHandler):
                 folder = choose_video_folder(expansion=True)
                 threading.Thread(target=expand_dataset, args=(folder, payload), kwargs={"held_out": True}, daemon=True).start()
                 self.json_response({"ok": True, "folder": str(folder)})
+            elif self.path == "/api/simulate-ball-tracking":
+                if STATE.busy:
+                    raise RuntimeError("Ein lokaler Vorgang läuft bereits.")
+                video = select_video_file()
+                threading.Thread(target=simulate_ball_tracking, args=(video, payload), daemon=True).start()
+                self.json_response({"ok": True, "video": str(video)})
             elif self.path == "/api/annotations":
                 save_annotations(payload)
                 self.json_response({"ok": True, "status": STATE.snapshot()})

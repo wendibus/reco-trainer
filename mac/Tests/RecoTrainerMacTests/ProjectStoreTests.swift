@@ -523,3 +523,52 @@ import Testing
     #expect(app.project?.frames.first?.annotations.allSatisfy { $0.source == "manual" } == true)
     #expect(app.hasReviewedHeldOutFrames == true)
 }
+
+// MARK: - BallTrackingResolver
+
+@Test func ballTrackingResolverPassesThroughRealDetectionsUnchanged() {
+    let detections: [(x: Double, y: Double)?] = [(0, 0), (1, 1), (2, 2)]
+    let resolved = BallTrackingResolver.resolve(detections: detections, lookaheadFrames: 5)
+    #expect(resolved.map(\.state) == [.detected, .detected, .detected])
+    #expect(resolved[1].x == 1 && resolved[1].y == 1)
+}
+
+@Test func ballTrackingResolverInterpolatesAGapWithinTheLookaheadWindow() {
+    // Detected at 0 and 4, three-frame gap in between, window covers it.
+    let detections: [(x: Double, y: Double)?] = [(0, 0), nil, nil, nil, (8, 0)]
+    let resolved = BallTrackingResolver.resolve(detections: detections, lookaheadFrames: 5)
+    #expect(resolved.map(\.state) == [.detected, .interpolated, .interpolated, .interpolated, .detected])
+    // Frame 2 is exactly halfway between frame 0 (x=0) and frame 4 (x=8).
+    #expect(resolved[2].x == 4)
+}
+
+@Test func ballTrackingResolverHoldsTheLastKnownPositionWhenNoFutureDetectionIsInWindow() {
+    // Detected only at 0; nothing after it at all (e.g. end of clip).
+    let detections: [(x: Double, y: Double)?] = [(3, 4), nil, nil]
+    let resolved = BallTrackingResolver.resolve(detections: detections, lookaheadFrames: 5)
+    #expect(resolved.map(\.state) == [.detected, .coasting, .coasting])
+    #expect(resolved[1].x == 3 && resolved[1].y == 4)
+    #expect(resolved[2].x == 3 && resolved[2].y == 4)
+}
+
+@Test func ballTrackingResolverIsLostWhenTheGapExceedsTheLookaheadWindow() {
+    let detections: [(x: Double, y: Double)?] = [(0, 0), nil, nil, nil, nil, nil, (5, 0)]
+    let resolved = BallTrackingResolver.resolve(detections: detections, lookaheadFrames: 2)
+    // Frames 1-2 can still reach the last known position (distance <= 2);
+    // frames 3-4 can reach neither the past nor the future detection.
+    #expect(resolved[1].state == .coasting)
+    #expect(resolved[2].state == .coasting)
+    #expect(resolved[3].state == .lost)
+    #expect(resolved[3].x == nil)
+    #expect(resolved[4].state == .lost)
+}
+
+@Test func ballTrackingResolverShowsNothingBeforeTheFirstEverDetection() {
+    // A future detection exists within the window, but there is no last-known
+    // position yet - reco cam's own tracker shows nothing until acquired.
+    let detections: [(x: Double, y: Double)?] = [nil, nil, (1, 1)]
+    let resolved = BallTrackingResolver.resolve(detections: detections, lookaheadFrames: 5)
+    #expect(resolved[0].state == .lost)
+    #expect(resolved[1].state == .lost)
+    #expect(resolved[2].state == .detected)
+}

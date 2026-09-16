@@ -8,6 +8,7 @@ enum LocalPickerPurpose: String, Identifiable, Sendable {
     case activeLearningFolder
     case independentValidationFolder
     case modelPackage
+    case simulationVideo
 
     var id: String { rawValue }
 }
@@ -29,7 +30,7 @@ final class AppState: ObservableObject {
     /// CFBundleShortVersionString (Info.plist) and VERSION (package-platforms.sh)
     /// at every release. Used both for the "what's new" sheet and for deciding
     /// whether a fetched GitHub release is actually newer than what's running.
-    static let appVersion = "0.12.15"
+    static let appVersion = "0.13.0"
 
     @Published var language: AppLanguage = .de
     @Published var sport: Sport = .football
@@ -85,6 +86,8 @@ final class AppState: ObservableObject {
     @Published var benchmarkThreshold = 0.05
     @Published var benchmarkGroundTruth: BenchmarkGroundTruthRecord?
     @Published var benchmarkReport: BenchmarkReport?
+    @Published var ballTrackingSimulation: BallTrackingSimulation?
+    @Published var ballTrackingLookaheadFrames = 8
     @Published var errorMessage: String?
     @Published var localPickerPurpose: LocalPickerPurpose?
     @Published private(set) var installedModelCount = 0
@@ -198,6 +201,9 @@ final class AppState: ObservableObject {
         case .modelPackage:
             return FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
                 ?? FileManager.default.homeDirectoryForCurrentUser
+        case .simulationVideo:
+            return FileManager.default.urls(for: .moviesDirectory, in: .userDomainMask).first
+                ?? FileManager.default.homeDirectoryForCurrentUser
         }
     }
 
@@ -221,6 +227,8 @@ final class AppState: ObservableObject {
         case .modelPackage:
             guard let store else { return }
             importModelPackage(from: url, store: store)
+        case .simulationVideo:
+            startBallTrackingSimulation(video: url)
         }
     }
 
@@ -799,6 +807,63 @@ final class AppState: ObservableObject {
             selectedFrameID = document.frames.first(where: { $0.reviewStatus == "candidate" && $0.heldOut == true })?.id ?? frameID
             status = tr("Geprüftes unabhängiges Testbild übernommen.", "Reviewed independent test image accepted.", "Imagen de prueba independiente revisada aceptada.", "Image de test indépendante vérifiée acceptée.")
         } catch { errorMessage = error.localizedDescription }
+    }
+
+    /// Entry point for the ball-tracking simulation player: pick a short clip
+    /// and watch the active model's ball detection frame by frame.
+    func startBallTrackingSimulation() {
+        guard store != nil else { return }
+        localPickerPurpose = .simulationVideo
+    }
+
+    private func startBallTrackingSimulation(video: URL) {
+        guard let projectStore = store else { return }
+        isWorking = true
+        progress = 0
+        errorMessage = nil
+        ballTrackingSimulation = nil
+        status = tr("Bilder für die Simulation werden extrahiert …", "Extracting simulation images …", "Extrayendo imágenes para la simulación …", "Extraction des images pour la simulation …")
+        Task {
+            do {
+                // A throwaway scratch project, never saved and never added to
+                // the real project's frames/annotations - this is a read-only
+                // diagnostic, not data collection. Reused (not uuid-per-run)
+                // since only one simulation is ever shown at a time.
+                let scratchURL = FileManager.default.temporaryDirectory.appending(path: "reco-trainer-simulation", directoryHint: .isDirectory)
+                try? FileManager.default.removeItem(at: scratchURL)
+                let scratchStore = ProjectStore(rootURL: scratchURL)
+                let extractor = FrameExtractor()
+                let frames = try await extractor.extract(videos: [VideoSource(url: video)], into: scratchStore, framesPerVideo: 300) { value, name in
+                    await MainActor.run {
+                        self.progress = value * 0.5
+                        self.status = self.tr("Extrahiere: \(name)", "Extracting: \(name)", "Extrayendo: \(name)", "Extraction : \(name)")
+                    }
+                }
+                guard !frames.isEmpty else {
+                    throw NSError(domain: "RecoBallTracking", code: 1, userInfo: [NSLocalizedDescriptionKey: tr("Es konnten keine Bilder aus dem Video extrahiert werden.", "No images could be extracted from the video.", "No se pudieron extraer imágenes del vídeo.", "Aucune image n’a pu être extraite de la vidéo.")])
+                }
+                status = tr("Ballerkennung läuft …", "Running ball detection …", "Ejecutando detección del balón …", "Détection du ballon en cours …")
+                let worker = MLWorker(projectRoot: projectStore.rootURL)
+                let response = try await worker.simulateBallTracking(
+                    framesDirectory: scratchStore.framesURL, modelSize: modelSize, threshold: 0.25, language: language
+                )
+                let ballByFile = Dictionary(uniqueKeysWithValues: response.frames.map { (URL(fileURLWithPath: $0.file).lastPathComponent, $0.ball) })
+                let detections: [(x: Double, y: Double)?] = frames.map { frame in
+                    guard let ball = ballByFile[URL(fileURLWithPath: frame.relativePath).lastPathComponent] ?? nil else { return nil }
+                    return (ball.x, ball.y)
+                }
+                let fps = frames.count > 1 && frames.last!.timestamp > frames.first!.timestamp
+                    ? Double(frames.count - 1) / (frames.last!.timestamp - frames.first!.timestamp)
+                    : 12
+                ballTrackingSimulation = BallTrackingSimulation(store: scratchStore, frames: frames, fps: fps, detections: detections)
+                progress = 1
+                status = tr("Simulation bereit: \(frames.count) Bilder.", "Simulation ready: \(frames.count) images.", "Simulación lista: \(frames.count) imágenes.", "Simulation prête : \(frames.count) images.")
+            } catch {
+                errorMessage = error.localizedDescription
+                status = tr("Balltracking-Simulation fehlgeschlagen.", "Ball-tracking simulation failed.", "Simulación de seguimiento del balón fallida.", "Échec de la simulation de suivi du ballon.")
+            }
+            isWorking = false
+        }
     }
 
     func reviewSelectedCandidate(asBall: Bool) {

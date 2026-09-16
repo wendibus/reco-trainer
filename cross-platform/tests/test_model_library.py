@@ -3,7 +3,9 @@ import contextlib
 import importlib.util
 import io
 import json
+import sys
 import tempfile
+import types
 import unittest
 import zipfile
 from pathlib import Path
@@ -159,6 +161,55 @@ class BenchmarkMetricsTests(unittest.TestCase):
         self.assertEqual(metrics["truePositives"], 0)
         self.assertEqual(metrics["falsePositives"], 1)
         self.assertEqual(metrics["falseNegatives"], 1)
+
+
+class DoctorCudaDetectionTests(unittest.TestCase):
+    """Regression coverage for a real report: a Windows user with a working
+    NVIDIA GPU had no way to tell from the app whether it was being used -
+    doctor() only ever checked torch.backends.mps.is_available() (Mac-only)
+    and hardcoded every other case to "cpu", even though detect_device()
+    (the function actually used to pick the training/inference device) has
+    always checked CUDA correctly. This only tests that doctor() reads
+    torch.cuda's real API when present; it fakes the "torch" module entirely
+    since doctor() imports it directly rather than through a patchable
+    module-level indirection.
+    """
+
+    def _install_fake_torch(self, *, cuda_available: bool, device_name: str = "NVIDIA GeForce RTX 4070"):
+        import importlib.machinery
+        module = types.ModuleType("torch")
+        # find_spec("torch") consults sys.modules[name].__spec__ once the name
+        # is already loaded - a bare ModuleType has none, which would make
+        # doctor() see torch as "not installed" and skip CUDA detection
+        # entirely despite the fake module being right there.
+        module.__spec__ = importlib.machinery.ModuleSpec("torch", loader=None)
+        module.backends = types.SimpleNamespace(mps=types.SimpleNamespace(is_available=lambda: False))
+        module.cuda = types.SimpleNamespace(
+            is_available=lambda: cuda_available,
+            get_device_name=lambda _index=0: device_name,
+        )
+        sys.modules["torch"] = module
+        self.addCleanup(sys.modules.pop, "torch", None)
+
+    def test_reports_cuda_available_and_device_name(self):
+        self._install_fake_torch(cuda_available=True)
+        buffer = io.StringIO()
+        with contextlib.redirect_stdout(buffer):
+            ml_worker.doctor(argparse.Namespace())
+        payload = json.loads(buffer.getvalue())
+        self.assertTrue(payload["cudaAvailable"])
+        self.assertEqual(payload["gpuName"], "NVIDIA GeForce RTX 4070")
+        self.assertEqual(payload["recommendedDevice"], "cuda")
+
+    def test_reports_cpu_when_no_cuda_device_is_available(self):
+        self._install_fake_torch(cuda_available=False)
+        buffer = io.StringIO()
+        with contextlib.redirect_stdout(buffer):
+            ml_worker.doctor(argparse.Namespace())
+        payload = json.loads(buffer.getvalue())
+        self.assertFalse(payload["cudaAvailable"])
+        self.assertIsNone(payload["gpuName"])
+        self.assertEqual(payload["recommendedDevice"], "cpu")
 
 
 class ResumeCheckpointValidationTests(unittest.TestCase):
@@ -1036,6 +1087,91 @@ class AutoLabelEnsembleDispatchTests(unittest.TestCase):
             document = ml_worker.load_json(root / "project.json")
             categories = {item["category"] for item in document["frames"][0]["annotations"]}
             self.assertEqual(categories, {"ball", "referee"})
+
+
+class SimulateBallTrackingTests(unittest.TestCase):
+    """Coverage for the ball-tracking simulation player's backend: run the
+    active model over an already-extracted frame sequence (extraction itself
+    is platform-specific glue done by the caller, not ml_worker.py) and
+    return raw per-frame ball detections as a single JSON blob - no emit()
+    progress text mixed in, matching the same single-JSON contract
+    installModelPackage()/activateModel() already use in MLWorker.swift.
+    """
+
+    class _Detections:
+        def __init__(self, names, boxes, confidences):
+            self.data = {"class_name": names}
+            self.xyxy = boxes
+            self.class_id = [0] * len(names)
+            self.confidence = confidences
+
+    def test_returns_ball_center_per_frame_and_skips_non_ball_detections(self):
+        class FakeModel:
+            def __init__(self, **_): pass
+            def predict(self, paths, threshold):
+                results = []
+                for path in paths:
+                    if path.endswith("one.jpg"):
+                        results.append(SimulateBallTrackingTests._Detections(
+                            ["sports ball", "person"], [[10.0, 10.0, 20.0, 20.0], [1.0, 1.0, 2.0, 2.0]], [.9, .8],
+                        ))
+                    else:
+                        results.append(SimulateBallTrackingTests._Detections([], [], []))
+                return results
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "project"
+            ml_worker.atomic_json(root / "project.json", {"sport": "basketball", "frames": []})
+            frames_dir = Path(temporary) / "frames"
+            frames_dir.mkdir()
+            (frames_dir / "one.jpg").write_bytes(b"fake")
+            (frames_dir / "two.jpg").write_bytes(b"fake")
+
+            original_import = ml_worker.import_model_class
+            original_device = ml_worker.detect_device
+            try:
+                ml_worker.import_model_class = lambda *_: FakeModel
+                ml_worker.detect_device = lambda: "cpu"
+                args = type("Args", (), {
+                    "project": str(root), "frames_dir": str(frames_dir),
+                    "model": "nano", "threshold": 0.25, "language": "en",
+                })()
+                buffer = io.StringIO()
+                with contextlib.redirect_stdout(buffer):
+                    ml_worker.simulate_ball_tracking(args)
+                payload = json.loads(buffer.getvalue())
+            finally:
+                ml_worker.import_model_class = original_import
+                ml_worker.detect_device = original_device
+
+            by_file = {item["file"]: item["ball"] for item in payload["frames"]}
+            self.assertAlmostEqual(by_file["one.jpg"]["x"], 15.0)
+            self.assertAlmostEqual(by_file["one.jpg"]["y"], 15.0)
+            self.assertIsNone(by_file["two.jpg"])
+
+    def test_rejects_a_missing_frames_directory(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            ml_worker.atomic_json(root / "project.json", {"sport": "basketball", "frames": []})
+            args = type("Args", (), {
+                "project": str(root), "frames_dir": str(root / "missing"),
+                "model": "nano", "threshold": 0.25, "language": "en",
+            })()
+            with self.assertRaises(SystemExit):
+                ml_worker.simulate_ball_tracking(args)
+
+    def test_rejects_an_empty_frames_directory(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            ml_worker.atomic_json(root / "project.json", {"sport": "basketball", "frames": []})
+            frames_dir = root / "frames"
+            frames_dir.mkdir()
+            args = type("Args", (), {
+                "project": str(root), "frames_dir": str(frames_dir),
+                "model": "nano", "threshold": 0.25, "language": "en",
+            })()
+            with self.assertRaises(SystemExit):
+                ml_worker.simulate_ball_tracking(args)
 
 
 if __name__ == "__main__":

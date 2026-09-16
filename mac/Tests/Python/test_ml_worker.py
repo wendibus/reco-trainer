@@ -1,8 +1,14 @@
 from __future__ import annotations
 
+import argparse
+import contextlib
+import importlib.machinery
 import importlib.util
+import io
 import json
+import sys
 import tempfile
+import types
 import unittest
 import uuid
 import zipfile
@@ -1094,6 +1100,117 @@ class DatasetTests(unittest.TestCase):
             self.assertEqual(active["packageID"], manifest["packageID"])
             for member in manifest["ensemble"]["members"]:
                 self.assertTrue((root / "models" / "library" / active["packageID"] / member["weightsFile"]).is_file())
+
+    def test_simulate_ball_tracking_returns_ball_center_per_frame(self):
+        """Coverage for the ball-tracking simulation player's backend: run the
+        active model over an already-extracted frame sequence (extraction
+        itself is platform-specific glue done by the caller, e.g.
+        FrameExtractor.swift, not ml_worker.py) and return raw per-frame ball
+        detections as a single JSON blob with no other output on stdout.
+        """
+        class Detections:
+            def __init__(self, names, boxes, confidences):
+                self.data = {"class_name": names}
+                self.xyxy = boxes
+                self.class_id = [0] * len(names)
+                self.confidence = confidences
+
+        class FakeModel:
+            def __init__(self, **_): pass
+            def predict(self, paths, threshold):
+                results = []
+                for path in paths:
+                    if path.endswith("one.jpg"):
+                        results.append(Detections(["sports ball", "person"], [[10.0, 10.0, 20.0, 20.0], [1.0, 1.0, 2.0, 2.0]], [.9, .8]))
+                    else:
+                        results.append(Detections([], [], []))
+                return results
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "project"
+            ml_worker.atomic_json(root / "project.json", {"sport": "basketball", "frames": []})
+            frames_dir = Path(temporary) / "frames"
+            frames_dir.mkdir()
+            (frames_dir / "one.jpg").write_bytes(b"fake")
+            (frames_dir / "two.jpg").write_bytes(b"fake")
+
+            original_import = ml_worker.import_model_class
+            original_device = ml_worker.detect_device
+            try:
+                ml_worker.import_model_class = lambda *_: FakeModel
+                ml_worker.detect_device = lambda: "cpu"
+                args = type("Args", (), {
+                    "project": str(root), "frames_dir": str(frames_dir),
+                    "model": "nano", "threshold": 0.25, "language": "en",
+                })()
+                buffer = io.StringIO()
+                with contextlib.redirect_stdout(buffer):
+                    ml_worker.simulate_ball_tracking(args)
+                payload = json.loads(buffer.getvalue())
+            finally:
+                ml_worker.import_model_class = original_import
+                ml_worker.detect_device = original_device
+
+            by_file = {item["file"]: item["ball"] for item in payload["frames"]}
+            self.assertAlmostEqual(by_file["one.jpg"]["x"], 15.0)
+            self.assertAlmostEqual(by_file["one.jpg"]["y"], 15.0)
+            self.assertIsNone(by_file["two.jpg"])
+
+    def test_simulate_ball_tracking_rejects_a_missing_frames_directory(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            ml_worker.atomic_json(root / "project.json", {"sport": "basketball", "frames": []})
+            args = type("Args", (), {
+                "project": str(root), "frames_dir": str(root / "missing"),
+                "model": "nano", "threshold": 0.25, "language": "en",
+            })()
+            with self.assertRaises(SystemExit):
+                ml_worker.simulate_ball_tracking(args)
+
+    def _install_fake_torch(self, *, cuda_available: bool, device_name: str = "NVIDIA GeForce RTX 4070"):
+        """doctor() imports torch directly (not through a patchable
+        module-level indirection), so a fake torch module is injected into
+        sys.modules for the duration of the test. __spec__ must be set
+        because find_spec("torch") consults sys.modules[name].__spec__ once
+        the name is already loaded - a bare ModuleType has none, which would
+        make doctor() see torch as "not installed" and skip CUDA detection.
+        """
+        module = types.ModuleType("torch")
+        module.__spec__ = importlib.machinery.ModuleSpec("torch", loader=None)
+        module.backends = types.SimpleNamespace(mps=types.SimpleNamespace(is_available=lambda: False))
+        module.cuda = types.SimpleNamespace(
+            is_available=lambda: cuda_available,
+            get_device_name=lambda _index=0: device_name,
+        )
+        sys.modules["torch"] = module
+        self.addCleanup(sys.modules.pop, "torch", None)
+
+    def test_doctor_reports_cuda_available_and_device_name(self):
+        """Regression coverage for a real report: a Windows user with a
+        working NVIDIA GPU had no way to tell from the app whether it was
+        being used - doctor() only ever checked torch.backends.mps (Mac-only)
+        and hardcoded every other case to "cpu", even though detect_device()
+        (what actually picks the training/inference device) already checked
+        CUDA correctly.
+        """
+        self._install_fake_torch(cuda_available=True)
+        buffer = io.StringIO()
+        with contextlib.redirect_stdout(buffer):
+            ml_worker.doctor(argparse.Namespace())
+        payload = json.loads(buffer.getvalue())
+        self.assertTrue(payload["cudaAvailable"])
+        self.assertEqual(payload["gpuName"], "NVIDIA GeForce RTX 4070")
+        self.assertEqual(payload["recommendedDevice"], "cuda")
+
+    def test_doctor_reports_cpu_when_no_cuda_device_is_available(self):
+        self._install_fake_torch(cuda_available=False)
+        buffer = io.StringIO()
+        with contextlib.redirect_stdout(buffer):
+            ml_worker.doctor(argparse.Namespace())
+        payload = json.loads(buffer.getvalue())
+        self.assertFalse(payload["cudaAvailable"])
+        self.assertIsNone(payload["gpuName"])
+        self.assertEqual(payload["recommendedDevice"], "cpu")
 
 
 if __name__ == "__main__":

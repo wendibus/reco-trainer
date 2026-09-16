@@ -89,7 +89,7 @@ struct FrameExtractor {
             generator.appliesPreferredTrackTransform = true
             generator.requestedTimeToleranceBefore = CMTime(seconds: 0.12, preferredTimescale: 600)
             generator.requestedTimeToleranceAfter = CMTime(seconds: 0.12, preferredTimescale: 600)
-            let videoID = stableID(for: video.url.path)
+            let videoID = Self.stableID(for: video.url.path)
 
             var completedFrames = 0
             for try await (index, image) in generatedImages(for: generator, at: times, videoName: video.name) {
@@ -153,7 +153,11 @@ struct FrameExtractor {
         }
     }
 
-    private func stableID(for value: String) -> String {
+    /// Static so callers outside FrameExtractor (the "Unabhängiger Modelltest"
+    /// folder picker, to mark subfolders already used) can compute the same
+    /// videoID a video's path would get if extracted, without running a real
+    /// extraction.
+    static func stableID(for value: String) -> String {
         let digest = SHA256.hash(data: Data(value.utf8))
         return digest.prefix(6).map { String(format: "%02x", $0) }.joined()
     }

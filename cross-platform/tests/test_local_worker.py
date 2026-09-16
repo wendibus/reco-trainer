@@ -267,5 +267,90 @@ class RunLoggedEncodingTests(unittest.TestCase):
         self.assertEqual(captured.get("env", {}).get("PYTHONIOENCODING"), "utf-8")
 
 
+class CudaSetupTests(unittest.TestCase):
+    """Regression coverage for a real report: plain `pip install torch` gives
+    a CPU-only wheel on Windows (PyPI only hosts CUDA builds for Linux), so
+    "ML einrichten" previously left every Windows user on CPU regardless of
+    having a working NVIDIA GPU. ml_action("setup", ...) now installs torch
+    from the CUDA index first when a GPU is detected - guarded by
+    payload["useCuda"] so it can be switched off if that install itself
+    causes trouble.
+    """
+
+    def setUp(self):
+        local_worker.STATE.update(selected_folder=None, project_root=None, project=None, busy=False, error=None, log=[])
+        self.original_os_name = local_worker.os.name
+        self.original_run_logged = local_worker.run_logged
+        self.original_detect_gpu = local_worker.detect_nvidia_gpu_name
+        self.commands: list[list[str]] = []
+        local_worker.run_logged = lambda command: self.commands.append(command)
+
+    def tearDown(self):
+        local_worker.os.name = self.original_os_name
+        local_worker.run_logged = self.original_run_logged
+        local_worker.detect_nvidia_gpu_name = self.original_detect_gpu
+
+    def _prepare_project_with_existing_venv(self, root: Path, *, os_name: str) -> None:
+        # os.name must be set before computing venv_python_path, which
+        # branches on it (Scripts/python.exe vs bin/python3) - otherwise the
+        # placeholder file ends up at a different path than ml_action() will
+        # later check, making it look like the venv doesn't exist yet and
+        # triggering an unrelated `python -m venv` creation path instead.
+        local_worker.os.name = os_name
+        local_worker.atomic_json(root / "project.json", {"sport": "basketball", "frames": []})
+        venv_python = local_worker.venv_python_path(root / ".runtime" / "venv")
+        venv_python.parent.mkdir(parents=True, exist_ok=True)
+        venv_python.write_text("")
+        local_worker.STATE.update(project_root=root)
+
+    def test_installs_cuda_torch_first_when_a_windows_gpu_is_detected(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            self._prepare_project_with_existing_venv(root, os_name="nt")
+            local_worker.detect_nvidia_gpu_name = lambda: "NVIDIA GeForce RTX 4070"
+
+            local_worker.ml_action("setup", {"useCuda": True})
+
+            self.assertEqual(len(self.commands), 3)
+            self.assertIn("--index-url", self.commands[1])
+            self.assertIn("torch", self.commands[1])
+            self.assertIn("rfdetr[train,onnx,coreml]>=1.9.0", self.commands[2])
+            self.assertIn("--extra-index-url", self.commands[2])
+
+    def test_skips_cuda_install_when_the_toggle_is_off(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            self._prepare_project_with_existing_venv(root, os_name="nt")
+            local_worker.detect_nvidia_gpu_name = lambda: "NVIDIA GeForce RTX 4070"
+
+            local_worker.ml_action("setup", {"useCuda": False})
+
+            self.assertEqual(len(self.commands), 1)
+            self.assertIn("rfdetr[train,onnx,coreml]>=1.9.0", self.commands[0])
+            self.assertNotIn("--extra-index-url", self.commands[0])
+
+    def test_skips_cuda_install_when_no_gpu_is_detected(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            self._prepare_project_with_existing_venv(root, os_name="nt")
+            local_worker.detect_nvidia_gpu_name = lambda: None
+
+            local_worker.ml_action("setup", {"useCuda": True})
+
+            self.assertEqual(len(self.commands), 1)
+            self.assertNotIn("--extra-index-url", self.commands[0])
+
+    def test_skips_cuda_install_on_non_windows_platforms(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            self._prepare_project_with_existing_venv(root, os_name="posix")
+            local_worker.detect_nvidia_gpu_name = lambda: "NVIDIA GeForce RTX 4070"
+
+            local_worker.ml_action("setup", {"useCuda": True})
+
+            self.assertEqual(len(self.commands), 1)
+            self.assertNotIn("--extra-index-url", self.commands[0])
+
+
 if __name__ == "__main__":
     unittest.main()

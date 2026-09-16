@@ -154,6 +154,21 @@ struct VideoSource: Identifiable, Hashable, Sendable {
     var name: String { url.lastPathComponent }
 }
 
+/// The result of one ball-tracking simulation run: the throwaway-extracted
+/// frames (never added to the real project - see AppState.startBallTrackingSimulation)
+/// plus the raw per-frame ball detections, keyed to those frames by index so
+/// BallTrackingResolver.resolve(...) can turn them into a track on demand.
+struct BallTrackingSimulation: Sendable {
+    /// Unique per run (not derived from the scratch directory, which is
+    /// reused across runs) so SwiftUI resets BallTrackingPlayer's playback
+    /// state when a new simulation replaces an old one.
+    let id = UUID()
+    let store: ProjectStore
+    let frames: [FrameRecord]
+    let fps: Double
+    let detections: [(x: Double, y: Double)?]
+}
+
 enum ModelSize: String, CaseIterable, Identifiable, Sendable {
     case nano
     case small
@@ -239,6 +254,21 @@ struct ManagedTrainingSummary: Codable, Sendable {
 
 struct ActivatedModelResponse: Codable, Sendable {
     var active: ActiveModelRecord
+}
+
+struct BallDetectionRecord: Codable, Sendable {
+    var x: Double
+    var y: Double
+    var confidence: Double
+}
+
+struct BallSimulationFrameRecord: Codable, Sendable {
+    var file: String
+    var ball: BallDetectionRecord?
+}
+
+struct BallSimulationResponse: Codable, Sendable {
+    var frames: [BallSimulationFrameRecord]
 }
 
 struct BenchmarkAnnotationRecord: Codable, Equatable, Sendable {

@@ -225,11 +225,25 @@ def doctor(_: argparse.Namespace) -> None:
     torch_installed = importlib.util.find_spec("torch") is not None
     rfdetr_installed = importlib.util.find_spec("rfdetr") is not None
     mps_available = False
+    cuda_available = False
+    gpu_name: str | None = None
     if torch_installed:
         import torch
 
         mps_available = bool(torch.backends.mps.is_available())
-    device = "mps" if mps_available else "cpu"
+        # Previously only checked MPS, so Windows/Linux always reported
+        # "cpu" here regardless of an available NVIDIA GPU - detect_device()
+        # (the function actually used to pick the training/inference device)
+        # already checked CUDA correctly; this diagnostic just hadn't caught
+        # up with it, leaving Windows users with no way to see their GPU was
+        # (or wasn't) actually usable.
+        try:
+            cuda_available = bool(torch.cuda.is_available())
+            if cuda_available:
+                gpu_name = torch.cuda.get_device_name(0)
+        except (RuntimeError, AssertionError):
+            cuda_available = False
+    device = "mps" if mps_available else "cuda" if cuda_available else "cpu"
     profile = training_profile("nano", device)
     payload = {
         "python": sys.version.split()[0],
@@ -238,6 +252,8 @@ def doctor(_: argparse.Namespace) -> None:
         "torchInstalled": torch_installed,
         "rfdetrInstalled": rfdetr_installed,
         "mpsAvailable": mps_available,
+        "cudaAvailable": cuda_available,
+        "gpuName": gpu_name,
         "recommendedDevice": device,
         "cpuCores": profile["cpu_count"],
         "memoryGB": profile["memory_gb"],
@@ -708,6 +724,98 @@ def benchmark(args: argparse.Namespace) -> None:
     atomic_json(run_dir / "report.json", report)
     atomic_json(project_root / "benchmarks" / "latest.json", report)
     emit(localized(args.language, "Modellvergleich abgeschlossen.", "Model comparison completed.", "Comparación de modelos finalizada.", "Comparaison des modèles terminée."))
+
+
+def simulate_ball_tracking(args: argparse.Namespace) -> None:
+    """Run the active model's ball/puck detection over an already-extracted
+    sequence of frame images, for the ball-tracking simulation player.
+
+    Deliberately does not do extraction itself (that's platform-specific glue
+    - FrameExtractor.swift on Mac, extract_frames_for_video() in
+    local_worker.py on the web) and does not touch project.json - the caller
+    extracts a short clip into its own scratch directory first and passes it
+    here via --frames-dir, which does not need to be inside the project.
+
+    Prints exactly one JSON blob (the single-JSON action contract
+    MLWorker.swift already uses for installModelPackage/activateModel, not
+    the streaming-progress contract autoLabel/train use) so a UI can resolve
+    tracking/coasting/lost client-side from the raw per-frame detections
+    without another subprocess round trip per adjustment.
+
+    Coordinates are raw pixel positions, not normalized fractions: the caller
+    already knows each extracted frame's width/height from its own
+    extraction step, so there is no need to read image dimensions here.
+    """
+    project_root = Path(args.project).resolve()
+    document = require_project(project_root, args.language)
+    frames_dir = Path(args.frames_dir).resolve()
+    if not frames_dir.is_dir():
+        raise SystemExit(localized(args.language, "Bildordner für die Simulation wurde nicht gefunden.", "Simulation image folder was not found."))
+    image_paths = sorted(path for path in frames_dir.iterdir() if path.suffix.lower() in {".jpg", ".jpeg"})
+    if not image_paths:
+        raise SystemExit(localized(args.language, "Keine Bilder im Simulationsordner gefunden.", "No images found in the simulation folder."))
+
+    sport = str(document["sport"])
+    ball_category = "puck" if sport == "hockey" else "ball"
+    category_map = detection_category_map([ball_category])
+    device = detect_device()
+
+    # model_instance()/ensemble_member_model() call emit() internally (e.g.
+    # "Loading trained model: ...") - fine for every other action, which
+    # streams progress, but this action's contract is exactly one JSON blob
+    # and nothing else on stdout (see docstring). Suppress emit() for the
+    # duration of model loading and inference, restoring it before returning
+    # so a caught SystemExit's localized() text still displays normally.
+    global emit
+    original_emit = emit
+    emit = lambda _message: None
+    try:
+        active_manifest = active_model_manifest(project_root, args.model)
+        ensemble = (active_manifest or {}).get("ensemble") if active_manifest else None
+        if ensemble:
+            package_dir = (project_root / "models" / "library" / str(active_manifest["packageID"])).resolve()
+            member = next((item for item in ensemble.get("members", []) if ball_category in set(item.get("categories", []))), None)
+            if member is None:
+                raise SystemExit(localized(
+                    args.language,
+                    f"Kein Modell im aktiven kombinierten Modell kennt „{ball_category}“.",
+                    f"No model in the active combined model knows “{ball_category}”.",
+                ))
+            model = ensemble_member_model(package_dir, member, args.language)
+            model_size = str(member["modelSize"])
+        else:
+            model = model_instance(project_root, args.model, trained=True, language=args.language)
+            model_size = args.model
+    finally:
+        emit = original_emit
+
+    profile = training_profile(model_size, device)
+    batch_size = profile["batch_size"] if device != "cpu" else 1
+    threshold = min(0.95, max(0.01, float(args.threshold)))
+    results: list[dict[str, Any]] = []
+    for start in range(0, len(image_paths), batch_size):
+        batch = image_paths[start : start + batch_size]
+        detected_batch = normalize_detection_batch(model.predict([str(path) for path in batch], threshold=threshold), len(batch))
+        for path, detections in zip(batch, detected_batch):
+            detection_data = (getattr(detections, "data", {}) or {})
+            names = detection_data.get("class_name")
+            best: dict[str, float] | None = None
+            for index, box in enumerate(detections.xyxy):
+                if names is not None:
+                    detected_name = str(names[index])
+                else:
+                    class_id = int(detections.class_id[index]) if getattr(detections, "class_id", None) is not None else None
+                    detected_name = "sports ball" if class_id == 32 else ""
+                if category_map.get(detected_name) != ball_category:
+                    continue
+                confidence = float(detections.confidence[index])
+                if best is not None and confidence <= best["confidence"]:
+                    continue
+                x1, y1, x2, y2 = [float(value) for value in box]
+                best = {"x": (x1 + x2) / 2, "y": (y1 + y2) / 2, "confidence": confidence}
+            results.append({"file": path.name, "ball": best})
+
+    print(json.dumps({"frames": results}, ensure_ascii=False))
 
 
 def frame_has_category(frame: dict[str, Any], target_category: str) -> bool:
@@ -2766,6 +2874,14 @@ def build_parser() -> argparse.ArgumentParser:
     combine_parser.add_argument("--name", default="")
     combine_parser.add_argument("--language", choices=["de", "en", "es", "fr"], default="de")
     combine_parser.set_defaults(func=combine_models)
+
+    simulate_parser = commands.add_parser("simulate-ball-tracking")
+    simulate_parser.add_argument("--project", required=True)
+    simulate_parser.add_argument("--frames-dir", required=True)
+    simulate_parser.add_argument("--model", choices=MODEL_CLASSES, default="nano")
+    simulate_parser.add_argument("--threshold", type=float, default=0.25)
+    simulate_parser.add_argument("--language", choices=["de", "en", "es", "fr"], default="de")
+    simulate_parser.set_defaults(func=simulate_ball_tracking)
 
     list_models_parser = commands.add_parser("list-models")
     list_models_parser.add_argument("--project", required=True)

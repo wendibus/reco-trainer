@@ -1,5 +1,12 @@
 # Änderungen
 
+## 0.13.0
+
+- Neuer Bereich „Balltracking simulieren“: ein kurzes Video wählen und die Ballerkennung des aktiven Modells Bild für Bild abspielen - erkannt, interpoliert, gehalten oder verloren, mit einem Live-Regler für den Vorhersage-Horizont.
+- Windows: „ML einrichten“ erkennt jetzt automatisch eine NVIDIA-Grafikkarte und installiert PyTorch mit CUDA-Unterstützung - vorher landete dort standardmäßig die CPU-only-Version. Abschaltbar über einen neuen Schalter, falls das Probleme macht.
+- Die Hardware-Anzeige zeigt unter Windows/Linux jetzt korrekt an, ob CUDA genutzt wird, statt immer nur „CPU“ - unabhängig von der obigen automatischen Einrichtung.
+- Beim Vorbereiten vieler Videos (z. B. GoPro-Aufnahmen mit mehreren Kapitel-Dateien) zeigt die Weboberfläche jetzt den Fortschritt beim Einlesen der Videometadaten an, statt scheinbar zu hängen.
+
 ## 0.12.15
 
 - Neuer Bereich „Unabhängiger Modelltest“: einen Videoordner prüfen, der nie zum Training verwendet wurde, und daraus - mit Unterstützung über alle Kategorien hinweg - ein echtes, unabhängiges Testset erstellen.

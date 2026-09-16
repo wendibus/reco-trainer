@@ -14,6 +14,7 @@ struct ContentView: View {
     @State private var showLanguagePicker = false
     @State private var walkthroughIndex = 0
     @State private var showBenchmark = false
+    @State private var showBallTracking = false
     @State private var confirmFrameRemoval = false
     @State private var frameIDsPendingRemoval: Set<UUID> = []
     @State private var showReleaseNotes = false
@@ -101,12 +102,26 @@ struct ContentView: View {
             ToolbarItem(placement: .primaryAction) {
                 Button {
                     showBenchmark.toggle()
+                    if showBenchmark { showBallTracking = false }
                 } label: {
                     Label(
                         showBenchmark
                             ? app.tr("Training", "Training", "Entrenamiento", "Entraînement")
                             : app.tr("Modelle testen", "Test models", "Probar modelos", "Tester les modèles"),
                         systemImage: showBenchmark ? "arrow.left" : "chart.bar.xaxis"
+                    )
+                }
+            }
+            ToolbarItem(placement: .primaryAction) {
+                Button {
+                    showBallTracking.toggle()
+                    if showBallTracking { showBenchmark = false }
+                } label: {
+                    Label(
+                        showBallTracking
+                            ? app.tr("Training", "Training", "Entrenamiento", "Entraînement")
+                            : app.tr("Balltracking simulieren", "Simulate ball tracking", "Simular seguimiento del balón", "Simuler le suivi du ballon"),
+                        systemImage: showBallTracking ? "arrow.left" : "scope"
                     )
                 }
             }
@@ -391,11 +406,14 @@ struct ContentView: View {
                 purpose: purpose,
                 language: app.language,
                 initialURL: app.pickerInitialURL(for: purpose),
+                knownVideoIDs: Set((app.project?.frames ?? []).map(\.videoID)),
                 select: app.completeLocalPicker,
                 cancel: app.cancelLocalPicker
             )
         } else if showBenchmark {
             benchmarkPanel
+        } else if showBallTracking {
+            ballTrackingPanel
         } else if app.selectedFrameIDs.count > 1 {
             multiFrameSelectionPanel
         } else if let frame = app.selectedFrame, let store = app.store {
@@ -450,6 +468,74 @@ struct ContentView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .padding(18)
+    }
+
+    private var ballTrackingPanel: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 18) {
+                VStack(alignment: .leading, spacing: 5) {
+                    Label(app.tr("Balltracking-Simulation", "Ball-tracking simulation", "Simulación de seguimiento del balón", "Simulation de suivi du ballon"), systemImage: "scope")
+                        .font(.largeTitle.bold())
+                    Text(app.tr(
+                        "Kurzes Video wählen und die Ballerkennung des aktiven Modells Bild für Bild abspielen. Das Video wird nur lokal verarbeitet, nie gespeichert oder trainiert.",
+                        "Pick a short clip and play back the active model's ball detection frame by frame. The video is only processed locally, never saved or trained on.",
+                        "Elige un vídeo corto y reproduce la detección del balón del modelo activo cuadro a cuadro. El vídeo solo se procesa localmente, nunca se guarda ni se entrena con él.",
+                        "Choisissez une courte vidéo et regardez la détection du ballon du modèle actif image par image. La vidéo n’est traitée que localement, jamais enregistrée ni utilisée pour l’entraînement."
+                    ))
+                    .foregroundStyle(.secondary)
+                }
+
+                HStack(spacing: 10) {
+                    Button {
+                        app.startBallTrackingSimulation()
+                    } label: {
+                        Label(app.tr("Video auswählen", "Select video", "Seleccionar vídeo", "Sélectionner une vidéo"), systemImage: "film")
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(app.store == nil || app.isWorking)
+
+                    Picker(app.tr("Modell", "Model"), selection: $app.modelSize) {
+                        ForEach(ModelSize.allCases) { Text($0.title(language: app.language)).tag($0) }
+                    }
+                    .fixedSize()
+                    .disabled(app.isWorking)
+
+                    if app.isWorking {
+                        ProgressView(value: app.progress)
+                        Text(app.status).font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+
+                if let simulation = app.ballTrackingSimulation {
+                    BallTrackingPlayer(
+                        simulation: simulation,
+                        fieldGeometry: app.project?.fieldGeometry,
+                        language: app.language,
+                        lookaheadFrames: $app.ballTrackingLookaheadFrames
+                    )
+                    .id(simulation.id)
+                } else if !app.isWorking {
+                    ContentUnavailableView(
+                        app.tr("Noch keine Simulation", "No simulation yet", "Aún no hay simulación", "Aucune simulation pour l’instant"),
+                        systemImage: "scope",
+                        description: Text(app.tr(
+                            "Wähle oben ein kurzes Video aus, um zu starten.",
+                            "Select a short video above to get started.",
+                            "Selecciona un vídeo corto arriba para empezar.",
+                            "Sélectionnez une courte vidéo ci-dessus pour commencer."
+                        ))
+                    )
+                    .frame(minHeight: 200)
+                }
+
+                if let errorMessage = app.errorMessage {
+                    Label(errorMessage, systemImage: "exclamationmark.triangle")
+                        .foregroundStyle(.orange)
+                        .font(.caption)
+                }
+            }
+            .padding(24)
+        }
     }
 
     private var benchmarkPanel: some View {
@@ -1083,6 +1169,12 @@ struct ContentView: View {
 private struct LocalFileEntry: Identifiable, Sendable {
     let url: URL
     let isDirectory: Bool
+    /// True when this is a folder whose videos (checked recursively) were
+    /// already extracted into the current project - "Unabhängiger
+    /// Modelltest" only, so the folder browser can tell already-used
+    /// folders apart from genuinely fresh ones instead of listing them
+    /// indistinguishably.
+    var isAlreadyUsed: Bool = false
     var id: String { url.path }
 }
 
@@ -1096,6 +1188,10 @@ private struct LocalFilePicker: View {
     let language: AppLanguage
     let select: (URL) -> Void
     let cancel: () -> Void
+    /// videoIDs already present in the current project's frames - used only
+    /// for .independentValidationFolder, to mark subfolders whose videos
+    /// were already extracted so they're not confused with fresh ones.
+    let knownVideoIDs: Set<String>
 
     @State private var currentURL: URL
     @State private var pathText: String
@@ -1108,11 +1204,13 @@ private struct LocalFilePicker: View {
         purpose: LocalPickerPurpose,
         language: AppLanguage,
         initialURL: URL,
+        knownVideoIDs: Set<String> = [],
         select: @escaping (URL) -> Void,
         cancel: @escaping () -> Void
     ) {
         self.purpose = purpose
         self.language = language
+        self.knownVideoIDs = knownVideoIDs
         self.select = select
         self.cancel = cancel
         let normalized = initialURL.standardizedFileURL
@@ -1130,7 +1228,15 @@ private struct LocalFilePicker: View {
             language.text("Ordner mit nie trainierten Videos auswählen", "Select folder with never-trained videos", "Seleccionar carpeta con vídeos nunca entrenados", "Sélectionner le dossier des vidéos jamais entraînées")
         case .modelPackage:
             language.text("Reco-Modellpaket auswählen", "Select Reco model package", "Seleccionar paquete de modelo Reco", "Sélectionner le paquet de modèle Reco")
+        case .simulationVideo:
+            language.text("Kurzes Video für die Balltracking-Simulation auswählen", "Select a short clip for the ball-tracking simulation", "Seleccionar un vídeo corto para la simulación de seguimiento del balón", "Sélectionner une courte vidéo pour la simulation de suivi du ballon")
         }
+    }
+
+    /// Purposes where the confirm button accepts a chosen file (not the
+    /// current folder) - currently .recomodel packages and simulation clips.
+    private var isFileSelection: Bool {
+        purpose == .modelPackage || purpose == .simulationVideo
     }
 
     private var shortcuts: [(String, String, URL)] {
@@ -1147,7 +1253,7 @@ private struct LocalFilePicker: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack {
-                Label(title, systemImage: purpose == .modelPackage ? "shippingbox" : "folder")
+                Label(title, systemImage: purpose == .modelPackage ? "shippingbox" : purpose == .simulationVideo ? "film" : "folder")
                     .font(.title2.bold())
                 Spacer()
                 Button(language.text("Abbrechen", "Cancel", "Cancelar", "Annuler"), action: cancel)
@@ -1216,6 +1322,8 @@ private struct LocalFilePicker: View {
                             systemImage: "folder",
                             description: Text(purpose == .modelPackage
                                 ? language.text("Keine .recomodel-Datei in diesem Ordner.", "No .recomodel file in this folder.", "No hay ningún archivo .recomodel.", "Aucun fichier .recomodel dans ce dossier.")
+                                : purpose == .simulationVideo
+                                ? language.text("Kein Video in diesem Ordner.", "No video in this folder.", "No hay ningún vídeo en esta carpeta.", "Aucune vidéo dans ce dossier.")
                                 : language.text("Dieser Ordner kann trotzdem ausgewählt werden.", "This folder can still be selected.", "Esta carpeta se puede seleccionar igualmente.", "Ce dossier peut tout de même être sélectionné."))
                         )
                     } else {
@@ -1227,8 +1335,17 @@ private struct LocalFilePicker: View {
                                     selectedFile = entry.url
                                 }
                             } label: {
-                                Label(entry.url.lastPathComponent, systemImage: entry.isDirectory ? "folder.fill" : "shippingbox.fill")
-                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                HStack {
+                                    Label(entry.url.lastPathComponent, systemImage: entry.isDirectory ? "folder.fill" : purpose == .simulationVideo ? "film.fill" : "shippingbox.fill")
+                                        .foregroundStyle(entry.isAlreadyUsed ? .secondary : .primary)
+                                    if entry.isAlreadyUsed {
+                                        Spacer()
+                                        Label(language.text("bereits verwendet", "already used", "ya usado", "déjà utilisé"), systemImage: "checkmark.circle")
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                }
+                                .frame(maxWidth: .infinity, alignment: .leading)
                             }
                             .buttonStyle(.plain)
                             .tag(entry.isDirectory ? nil as URL? : entry.url)
@@ -1244,14 +1361,14 @@ private struct LocalFilePicker: View {
                 Text(currentURL.path).font(.caption).foregroundStyle(.secondary).lineLimit(2)
                 Spacer()
                 Button(selectionTitle) {
-                    if purpose == .modelPackage {
+                    if isFileSelection {
                         if let selectedFile { select(selectedFile) }
                     } else {
                         select(currentURL)
                     }
                 }
                 .buttonStyle(.borderedProminent)
-                .disabled(purpose == .modelPackage && selectedFile == nil)
+                .disabled(isFileSelection && selectedFile == nil)
             }
         }
         .padding(22)
@@ -1259,9 +1376,13 @@ private struct LocalFilePicker: View {
     }
 
     private var selectionTitle: String {
-        purpose == .modelPackage
-            ? language.text("Modell importieren", "Import model", "Importar modelo", "Importer le modèle")
-            : language.text("Diesen Ordner verwenden", "Use this folder", "Usar esta carpeta", "Utiliser ce dossier")
+        if purpose == .modelPackage {
+            return language.text("Modell importieren", "Import model", "Importar modelo", "Importer le modèle")
+        }
+        if purpose == .simulationVideo {
+            return language.text("Video verwenden", "Use this video", "Usar este vídeo", "Utiliser cette vidéo")
+        }
+        return language.text("Diesen Ordner verwenden", "Use this folder", "Usar esta carpeta", "Utiliser ce dossier")
     }
 
     private func navigate(to url: URL) {
@@ -1277,8 +1398,9 @@ private struct LocalFilePicker: View {
         isLoading = true
         loadError = nil
         let requestedPurpose = purpose
+        let requestedKnownIDs = knownVideoIDs
         let snapshot = await Task.detached(priority: .userInitiated) {
-            Self.readDirectory(at: requestedURL, purpose: requestedPurpose)
+            Self.readDirectory(at: requestedURL, purpose: requestedPurpose, knownVideoIDs: requestedKnownIDs)
         }.value
         guard currentURL == requestedURL else { return }
         entries = snapshot.entries
@@ -1286,7 +1408,7 @@ private struct LocalFilePicker: View {
         isLoading = false
     }
 
-    nonisolated private static func readDirectory(at url: URL, purpose: LocalPickerPurpose) -> LocalDirectorySnapshot {
+    nonisolated private static func readDirectory(at url: URL, purpose: LocalPickerPurpose, knownVideoIDs: Set<String>) -> LocalDirectorySnapshot {
         do {
             let urls = try FileManager.default.contentsOfDirectory(
                 at: url,
@@ -1295,17 +1417,44 @@ private struct LocalFilePicker: View {
             )
             let entries = urls.compactMap { candidate -> LocalFileEntry? in
                 let isDirectory = (try? candidate.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false
-                if isDirectory { return LocalFileEntry(url: candidate, isDirectory: true) }
-                guard purpose == .modelPackage, candidate.pathExtension.lowercased() == "recomodel" else { return nil }
-                return LocalFileEntry(url: candidate, isDirectory: false)
+                if isDirectory {
+                    let isAlreadyUsed = purpose == .independentValidationFolder && !knownVideoIDs.isEmpty
+                        && containsAlreadyUsedVideo(in: candidate, knownVideoIDs: knownVideoIDs)
+                    return LocalFileEntry(url: candidate, isDirectory: true, isAlreadyUsed: isAlreadyUsed)
+                }
+                if purpose == .modelPackage, candidate.pathExtension.lowercased() == "recomodel" {
+                    return LocalFileEntry(url: candidate, isDirectory: false)
+                }
+                if purpose == .simulationVideo, FrameExtractor.supportedExtensions.contains(candidate.pathExtension.lowercased()) {
+                    return LocalFileEntry(url: candidate, isDirectory: false)
+                }
+                return nil
             }.sorted {
                 if $0.isDirectory != $1.isDirectory { return $0.isDirectory }
+                if $0.isAlreadyUsed != $1.isAlreadyUsed { return !$0.isAlreadyUsed }
                 return $0.url.lastPathComponent.localizedStandardCompare($1.url.lastPathComponent) == .orderedAscending
             }
             return LocalDirectorySnapshot(entries: entries, error: nil)
         } catch {
             return LocalDirectorySnapshot(entries: [], error: error.localizedDescription)
         }
+    }
+
+    /// Recursively checks whether any video under `folder` matches an
+    /// already-extracted videoID (see FrameExtractor.stableID, which hashes
+    /// a video's absolute path) - so "Unabhängiger Modelltest" can mark a
+    /// subfolder as already used without re-extracting anything.
+    nonisolated private static func containsAlreadyUsedVideo(in folder: URL, knownVideoIDs: Set<String>) -> Bool {
+        guard let enumerator = FileManager.default.enumerator(
+            at: folder,
+            includingPropertiesForKeys: [.isRegularFileKey],
+            options: [.skipsHiddenFiles, .skipsPackageDescendants]
+        ) else { return false }
+        while let candidate = enumerator.nextObject() as? URL {
+            guard FrameExtractor.supportedExtensions.contains(candidate.pathExtension.lowercased()) else { continue }
+            if knownVideoIDs.contains(FrameExtractor.stableID(for: candidate.path)) { return true }
+        }
+        return false
     }
 }
 
@@ -1369,6 +1518,14 @@ private struct WhatsNewSheet: View {
 
     private var changes: [(String, String)] {
         [
+            (
+                language.text("Balltracking-Simulation", "Ball-tracking simulation", "Simulación de seguimiento del balón", "Simulation de suivi du ballon"),
+                language.text("Neuer Bereich „Balltracking simulieren“: ein kurzes Video wählen und die Ballerkennung des aktiven Modells Bild für Bild abspielen - erkannt (grün), zwischen zwei echten Erkennungen interpoliert (orange), auf der letzten bekannten Position gehalten (gelb) oder verloren. Ein Regler bestimmt live, wie viele Bilder weit nach vorn und zurück geschaut werden darf, ohne dass die Erkennung neu laufen muss. Das Video wird nur lokal verarbeitet, nie gespeichert oder trainiert.", "New „Simulate ball tracking“ section: pick a short clip and play back the active model's ball detection frame by frame - detected (green), interpolated between two real detections (orange), held at the last known position (yellow), or lost. A live slider controls how many frames ahead and behind it's allowed to look, without rerunning detection. The video is only processed locally, never saved or trained on.", "Nueva sección „Simular seguimiento del balón“: elige un vídeo corto y reproduce la detección del balón del modelo activo cuadro a cuadro - detectado (verde), interpolado entre dos detecciones reales (naranja), mantenido en la última posición conocida (amarillo) o perdido. Un control deslizante en vivo determina cuántos cuadros hacia delante y atrás se puede mirar, sin volver a ejecutar la detección. El vídeo solo se procesa localmente, nunca se guarda ni se entrena con él.", "Nouvelle section « Simuler le suivi du ballon » : choisissez une courte vidéo et regardez la détection du ballon du modèle actif image par image - détecté (vert), interpolé entre deux détections réelles (orange), maintenu à la dernière position connue (jaune) ou perdu. Un curseur en direct détermine de combien d’images on peut regarder en avant et en arrière, sans relancer la détection. La vidéo n’est traitée que localement, jamais enregistrée ni utilisée pour l’entraînement.")
+            ),
+            (
+                language.text("Windows: automatische GPU-Einrichtung", "Windows: automatic GPU setup", "Windows: configuración automática de GPU", "Windows : configuration GPU automatique"),
+                language.text("„ML einrichten“ erkennt unter Windows jetzt eine vorhandene NVIDIA-Grafikkarte und installiert PyTorch automatisch mit CUDA-Unterstützung - vorher landete dort standardmäßig die CPU-only-Version, ohne dass die App das erkennen oder anzeigen konnte. Ein neuer Schalter („GPU-Beschleunigung automatisch einrichten“) erlaubt es, das bei Problemen auszuschalten. Die Hardware-Anzeige zeigt jetzt korrekt an, ob CUDA genutzt wird, statt immer nur „CPU“.", "„Set up ML“ now detects an NVIDIA GPU on Windows and installs PyTorch with CUDA support automatically - previously the CPU-only build was installed by default there, with no way for the app to detect or show that. A new switch („Automatically set up GPU acceleration“) lets you turn this off if it causes trouble. The hardware display now correctly shows whether CUDA is being used, instead of always just „CPU“.", "„Configurar ML“ ahora detecta una GPU NVIDIA en Windows e instala PyTorch con soporte CUDA automáticamente - antes se instalaba allí la versión solo para CPU por defecto, sin que la app pudiera detectarlo ni mostrarlo. Un nuevo interruptor („Configurar automáticamente la aceleración por GPU“) permite desactivarlo si causa problemas. La indicación de hardware ahora muestra correctamente si se usa CUDA, en lugar de mostrar siempre „CPU“.", "« Configurer le ML » détecte désormais une GPU NVIDIA sous Windows et installe PyTorch avec le support CUDA automatiquement - auparavant, la version CPU uniquement y était installée par défaut, sans que l’application puisse le détecter ni l’afficher. Un nouvel interrupteur (« Configurer automatiquement l’accélération GPU ») permet de le désactiver en cas de problème. L’affichage matériel indique désormais correctement si CUDA est utilisé, au lieu d’afficher toujours « CPU ».")
+            ),
             (
                 language.text("Unabhängiger Modelltest", "Independent model test", "Prueba de modelo independiente", "Test de modèle indépendant"),
                 language.text("Neuer Bereich „Unabhängiger Modelltest“: einen Videoordner prüfen, der nie zum Training verwendet wurde, und daraus - mit Unterstützung über alle Kategorien hinweg - ein echtes, unabhängiges Testset erstellen. Der Modellvergleich verlangt jetzt genau solche unabhängigen Bilder für die Referenz, statt beliebiger geprüfter Trainingsbilder - damit ein Modell nicht einfach gut abschneidet, weil es genau diese Aufnahmen schon kannte.", "New „Independent model test“ section: review a video folder that was never used for training, and turn it - with app assistance across every category - into a genuinely independent test set. The model benchmark now requires exactly this kind of independent images for its reference instead of any reviewed training images, so a model can't simply score well because it already knew that exact footage.", "Nueva sección „Prueba de modelo independiente“: revisa una carpeta de vídeos que nunca se usó para entrenar y conviértela - con ayuda en todas las categorías - en un conjunto de prueba realmente independiente. La comparación de modelos ahora exige precisamente este tipo de imágenes independientes como referencia, en lugar de cualquier imagen de entrenamiento revisada, para que un modelo no puntúe bien solo por conocer ya exactamente ese material.", "Nouvelle section « Test de modèle indépendant » : vérifiez un dossier vidéo jamais utilisé pour l’entraînement et transformez-le - avec l’aide de l’appli sur toutes les catégories - en un vrai jeu de test indépendant. La comparaison de modèles exige désormais ce type d’images indépendantes comme référence, plutôt que n’importe quelle image d’entraînement vérifiée, pour qu’un modèle ne réussisse pas simplement parce qu’il connaissait déjà exactement ces images.")

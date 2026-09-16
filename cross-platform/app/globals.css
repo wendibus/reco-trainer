@@ -140,6 +140,8 @@ select { height:34px; padding:0 9px; border:1px solid #cbd3df; border-radius:7px
 .auto-label-categories { display:flex; flex-wrap:wrap; align-items:center; gap:8px; }
 .auto-label-category-toggle { display:flex; align-items:center; gap:4px; padding:4px 7px; border:1px solid #cbd4df; border-radius:6px; background:#fff; color:#40506a; font-size:9px; font-weight:700; }
 .auto-label-category-toggle input { width:auto; accent-color:var(--accent); }
+.cuda-toggle { display:flex; align-items:center; gap:5px; padding:4px 7px; color:#657287; font-size:8px; cursor:help; }
+.cuda-toggle input { width:auto; accent-color:var(--accent); }
 .training-actions { flex:1; flex-wrap:wrap; justify-content:flex-end; margin-top:0; }
 .training-actions button { min-height:30px; padding-block:5px; }
 .exchange-status { margin-top:8px; overflow:hidden; color:#657286; font-size:8px; text-overflow:ellipsis; white-space:nowrap; }
@@ -215,6 +217,21 @@ select { height:34px; padding:0 9px; border:1px solid #cbd3df; border-radius:7px
 .combine-category-row { display:flex; flex-direction:column; gap:4px; min-width:130px; font-size:8px; color:#4a5872; }
 .combine-category-row select { padding:6px 7px; border:1px solid #d8e0ea; border-radius:7px; background:#fff; font-size:8px; }
 .combine-name-input { flex:1 1 180px; min-width:150px; padding:7px 9px; border:1px solid #d8e0ea; border-radius:7px; font-size:8px; }
+
+.ball-tracking-workspace { min-width:0; min-height:0; display:flex; flex-direction:column; gap:13px; padding:20px 22px; overflow:auto; background:#f7f9fc; }
+.ball-tracking-controls { display:flex; align-items:center; gap:12px; }
+.ball-tracking-stage { position:relative; width:100%; min-height:360px; border-radius:10px; overflow:hidden; background:#0b0e14; }
+.ball-marker { position:absolute; width:18px; height:18px; margin-left:-9px; margin-top:-9px; border-radius:50%; border:2.5px solid transparent; pointer-events:none; }
+.ball-marker-interpolated,.ball-marker-coasting { border-style:dashed; }
+.ball-tracking-legend { display:flex; gap:16px; font-size:9px; color:#657287; }
+.ball-tracking-legend span { display:inline-flex; align-items:center; gap:5px; }
+.ball-tracking-legend i { display:inline-block; width:9px; height:9px; border-radius:50%; border:2px solid transparent; }
+.ball-tracking-legend i.lost { border-color:#c3ccd8; }
+.ball-tracking-transport { display:flex; align-items:center; gap:10px; }
+.ball-tracking-transport input[type="range"] { flex:1; accent-color:var(--accent); }
+.ball-tracking-frame-count { font-size:9px; color:#657287; min-width:60px; text-align:right; }
+.ball-tracking-lookahead { display:flex; flex-direction:column; gap:5px; font-size:10px; color:#4a5872; }
+.ball-tracking-lookahead input[type="range"] { accent-color:var(--accent); }
 
 .model-library { margin-top:9px; padding:9px; border:1px solid #d8e0ea; border-radius:9px; background:#f8fafc; }
 .model-library > strong { display:block; margin-bottom:7px; color:#34445b; font-size:9px; }

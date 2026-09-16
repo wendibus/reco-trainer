@@ -195,6 +195,23 @@ struct MLWorker: Sendable {
         )
     }
 
+    func simulateBallTracking(
+        framesDirectory: URL,
+        modelSize: ModelSize,
+        threshold: Double,
+        language: AppLanguage
+    ) async throws -> BallSimulationResponse {
+        let output = try await runPython(
+            arguments: [
+                try workerURL.path, "simulate-ball-tracking", "--project", projectRoot.path,
+                "--frames-dir", framesDirectory.path, "--model", modelSize.rawValue,
+                "--threshold", String(threshold), "--language", language.rawValue
+            ],
+            preferVenv: true
+        )
+        return try JSONDecoder().decode(BallSimulationResponse.self, from: Data(output.utf8))
+    }
+
     func installModelPackage(
         fileURL: URL,
         language: AppLanguage
