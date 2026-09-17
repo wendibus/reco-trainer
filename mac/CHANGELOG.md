@@ -1,5 +1,9 @@
 # Änderungen
 
+## 0.13.2
+
+- Die Balltracking-Simulation konnte mit „Die Daten konnten nicht geöffnet werden, da sie nicht das korrekte Format haben“ fehlschlagen: Warnungen von PyTorch/RF-DETR beim Laden des Modells landeten in derselben Ausgabe wie das Ergebnis. Nur noch die letzte Zeile der Ausgabe wird dafür verwendet.
+
 ## 0.13.1
 
 - Der Ordner-Browser für „Unabhängiger Modelltest“ hing bei vielen Videos (z. B. GoPro-Aufnahmen mit mehreren Kapitel-Dateien): die neue „bereits verwendet“-Markierung durchsuchte jeden sichtbaren Unterordner vollständig rekursiv statt nur die direkte Ebene.

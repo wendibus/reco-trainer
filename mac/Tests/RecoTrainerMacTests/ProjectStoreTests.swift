@@ -572,3 +572,38 @@ import Testing
     #expect(resolved[1].state == .lost)
     #expect(resolved[2].state == .detected)
 }
+
+// MARK: - MLWorker.decodeLastJSONLine
+
+// Regression coverage for a real report: simulateBallTracking() decoded the
+// *entire* captured subprocess output as one JSON blob, but that output is
+// stdout+stderr merged (see MLWorker.run's Pipe setup) - real RF-DETR/PyTorch
+// model loading can print warnings to stderr, which broke the decode with a
+// generic Cocoa "data isn't in the correct format" error. Only the last
+// non-empty line is guaranteed to be the final print(json.dumps(...)).
+
+@Test func decodeLastJSONLineIgnoresPrecedingWarningsOnOtherLines() throws {
+    let output = "UserWarning: MPS backend is experimental\nLoading trained model: checkpoint_best.pth\n{\"frames\":[{\"file\":\"one.jpg\",\"ball\":{\"x\":1.5,\"y\":2.5,\"confidence\":0.9}}]}"
+    let decoded = try MLWorker.decodeLastJSONLine(BallSimulationResponse.self, from: output)
+    #expect(decoded.frames.count == 1)
+    #expect(decoded.frames[0].file == "one.jpg")
+    #expect(decoded.frames[0].ball?.x == 1.5)
+}
+
+@Test func decodeLastJSONLineDecodesCleanSingleLineOutput() throws {
+    let output = "{\"frames\":[]}"
+    let decoded = try MLWorker.decodeLastJSONLine(BallSimulationResponse.self, from: output)
+    #expect(decoded.frames.isEmpty)
+}
+
+@Test func decodeLastJSONLineThrowsOnEmptyOutput() {
+    #expect(throws: (any Error).self) {
+        try MLWorker.decodeLastJSONLine(BallSimulationResponse.self, from: "")
+    }
+}
+
+@Test func decodeLastJSONLineThrowsWhenTheLastLineIsNotValidJSON() {
+    #expect(throws: (any Error).self) {
+        try MLWorker.decodeLastJSONLine(BallSimulationResponse.self, from: "some warning\nnot json at all")
+    }
+}

@@ -209,7 +209,29 @@ struct MLWorker: Sendable {
             ],
             preferVenv: true
         )
-        return try JSONDecoder().decode(BallSimulationResponse.self, from: Data(output.utf8))
+        do {
+            return try Self.decodeLastJSONLine(BallSimulationResponse.self, from: output)
+        } catch {
+            throw MLWorkerError.failed(-1, output)
+        }
+    }
+
+    /// Unlike installModelPackage/activateModel below (system Python, no ML
+    /// libraries touched), simulateBallTracking loads the real RF-DETR/PyTorch
+    /// stack - which can print its own warnings/notices to stderr during model
+    /// loading. run(...) merges stdout+stderr into one stream (by design, so
+    /// streaming actions can show everything), so decoding the *entire*
+    /// captured output as one JSON blob broke the moment any such stray line
+    /// appeared before the final print(json.dumps(...)) in
+    /// simulate_ball_tracking() - surfacing as a generic "data isn't in the
+    /// correct format" error with no indication why. Only the last non-empty
+    /// line is guaranteed to be that final JSON print. Static and pure (no I/O)
+    /// so it's unit-testable independent of actually spawning a process.
+    static func decodeLastJSONLine<T: Decodable>(_ type: T.Type, from output: String) throws -> T {
+        guard let lastLine = output.split(separator: "\n", omittingEmptySubsequences: true).last else {
+            throw MLWorkerError.failed(-1, output)
+        }
+        return try JSONDecoder().decode(type, from: Data(lastLine.utf8))
     }
 
     func installModelPackage(
