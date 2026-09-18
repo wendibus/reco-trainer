@@ -1,5 +1,9 @@
 # Änderungen
 
+## 0.14.0
+
+- Neue Prüf-Priorität für automatisch beschriftete Bilder: ein optionaler zweiter Modelldurchlauf markiert Bilder, bei denen sich zwei installierte Modelle uneinig sind (Schalter „Zweites Modell zur Unsicherheits-Prüfung nutzen“), und eine kostenlose Prüfung markiert Bilder, deren Position stark von den Nachbar-Bildern desselben Videos abweicht. Markierte Bilder erscheinen zuerst in der Prüfwarteschlange, mit Warnsymbol und Begründung. Betrifft nur die Reihenfolge der Prüfung, nie das Training selbst.
+
 ## 0.13.2
 
 - Die Balltracking-Simulation konnte mit „Die Daten konnten nicht geöffnet werden, da sie nicht das korrekte Format haben“ fehlschlagen: Warnungen von PyTorch/RF-DETR beim Laden des Modells landeten in derselben Ausgabe wie das Ergebnis. Nur noch die letzte Zeile der Ausgabe wird dafür verwendet.

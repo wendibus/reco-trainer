@@ -75,6 +75,27 @@ struct FrameRecord: Codable, Identifiable, Equatable, Sendable {
     /// truth may be frozen from, so a model can't be validated on footage it
     /// was trained on.
     var heldOut: Bool?
+    /// Review-priority hints computed after auto-labeling: "ensemble-disagreement"
+    /// (a second installed model disagreed with this frame's boxes) and/or
+    /// "temporal-outlier" (this frame's single-instance box sits far from where
+    /// its temporal neighbors in the same video would put it). Never affects
+    /// training - only which candidate frames get reviewed first. Optional so
+    /// older project.json files without this key decode unchanged.
+    var reviewFlags: [String]?
+
+    var isFlaggedForReview: Bool {
+        !(reviewFlags?.isEmpty ?? true)
+    }
+}
+
+extension Array where Element == FrameRecord {
+    /// Frames flagged by flag_ensemble_disagreement()/flag_temporal_outliers()
+    /// (see ml_worker.py) sort first so a reviewer sees the frames most likely
+    /// to need a second look before the rest. Array.sorted(by:) is a stable
+    /// sort (Swift 5+), so frames within each group keep their existing order.
+    func sortedByReviewPriority() -> [FrameRecord] {
+        sorted { $0.isFlaggedForReview && !$1.isFlaggedForReview }
+    }
 }
 
 struct ProjectDocument: Codable, Equatable, Sendable {

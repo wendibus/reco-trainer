@@ -30,7 +30,7 @@ final class AppState: ObservableObject {
     /// CFBundleShortVersionString (Info.plist) and VERSION (package-platforms.sh)
     /// at every release. Used both for the "what's new" sheet and for deciding
     /// whether a fetched GitHub release is actually newer than what's running.
-    static let appVersion = "0.13.2"
+    static let appVersion = "0.14.0"
 
     @Published var language: AppLanguage = .de
     @Published var sport: Sport = .football
@@ -75,6 +75,11 @@ final class AppState: ObservableObject {
     @Published var modelSize: ModelSize = .nano
     @Published var epochs = 20
     @Published var confidenceThreshold = 0.35
+    /// Opt-in: run a second installed model as a comparison-only pass during
+    /// auto-labeling and flag frames where the two disagree, so those get
+    /// reviewed first (see flag_ensemble_disagreement() in ml_worker.py). Off
+    /// by default since it roughly doubles auto-label inference time.
+    @Published var useEnsembleDisagreement = false
     @Published var framesPerVideo = 240
     @Published var progress = 0.0
     @Published var status = "Videoordner auswählen, um zu beginnen."
@@ -105,7 +110,7 @@ final class AppState: ObservableObject {
     }
 
     var reviewCandidates: [FrameRecord] {
-        project?.frames.filter { $0.reviewStatus == "candidate" } ?? []
+        (project?.frames.filter { $0.reviewStatus == "candidate" } ?? []).sortedByReviewPriority()
     }
 
     /// Mirrors freezeBenchmarkGroundTruth()'s own frame filter: only held-out
@@ -119,7 +124,7 @@ final class AppState: ObservableObject {
     }
 
     var independentValidationCandidates: [FrameRecord] {
-        project?.frames.filter { $0.reviewStatus == "candidate" && $0.heldOut == true } ?? []
+        (project?.frames.filter { $0.reviewStatus == "candidate" && $0.heldOut == true } ?? []).sortedByReviewPriority()
     }
 
     var hasReviewedHeldOutFrames: Bool {
@@ -186,6 +191,21 @@ final class AppState: ObservableObject {
 
     func tr(_ german: String, _ english: String, _ spanish: String? = nil, _ french: String? = nil) -> String {
         language.text(german, english, spanish, french)
+    }
+
+    /// Localized, human-readable reason for a frame's reviewFlags entry (see
+    /// flag_ensemble_disagreement()/flag_temporal_outliers() in ml_worker.py).
+    /// Unknown values pass through unchanged so a newer worker's flag never
+    /// crashes an older client, it just shows as-is.
+    func reviewFlagLabel(_ flag: String) -> String {
+        switch flag {
+        case "ensemble-disagreement":
+            return tr("Modelle uneinig", "Models disagree", "Modelos en desacuerdo", "Modèles en désaccord")
+        case "temporal-outlier":
+            return tr("Position weicht ab", "Position deviates", "La posición se desvía", "La position dévie")
+        default:
+            return flag
+        }
     }
 
     func chooseFolder() {
@@ -657,6 +677,7 @@ final class AppState: ObservableObject {
                 modelSize: self.modelSize,
                 categories: categories,
                 threshold: self.confidenceThreshold,
+                compareModels: self.useEnsembleDisagreement,
                 language: self.language,
                 onOutput: output
             )
@@ -711,7 +732,7 @@ final class AppState: ObservableObject {
                 project = document
                 status = tr("Lokale Ballerkennung läuft …", "Running local ball detection …", "Ejecutando detección local …", "Détection locale du ballon …")
                 let worker = MLWorker(projectRoot: store.rootURL)
-                try await worker.autoLabel(modelSize: modelSize, categories: [selectedCategory], threshold: 0.12, candidateOnly: true, language: language) { chunk in
+                try await worker.autoLabel(modelSize: modelSize, categories: [selectedCategory], threshold: 0.12, candidateOnly: true, compareModels: useEnsembleDisagreement, language: language) { chunk in
                     await MainActor.run { self.log += chunk }
                 }
                 let loaded = try store.load()
@@ -769,7 +790,7 @@ final class AppState: ObservableObject {
                 project = document
                 status = tr("Lokale Erkennung für alle Kategorien läuft …", "Running local detection for every category …", "Ejecutando detección local para todas las categorías …", "Détection locale pour toutes les catégories …")
                 let worker = MLWorker(projectRoot: store.rootURL)
-                try await worker.autoLabel(modelSize: modelSize, categories: sport.categories, threshold: 0.12, candidateOnly: true, language: language) { chunk in
+                try await worker.autoLabel(modelSize: modelSize, categories: sport.categories, threshold: 0.12, candidateOnly: true, compareModels: useEnsembleDisagreement, language: language) { chunk in
                     await MainActor.run { self.log += chunk }
                 }
                 let loaded = try store.load()

@@ -1197,6 +1197,238 @@ def refine_boxes(args: argparse.Namespace) -> None:
     ))
 
 
+def predict_boxes(
+    model: Any,
+    project_root: Path,
+    frames: list[dict[str, Any]],
+    target_categories: list[str],
+    category_map: dict[str, str],
+    threshold: float,
+    batch_size: int,
+) -> dict[str, list[dict[str, Any]]]:
+    """Run model over frames' images, returning each frame's raw detected boxes
+    for target_categories (category/x/y/width/height/confidence, keyed by frame
+    id) without writing anything to the frame itself. Used by the
+    ensemble-disagreement comparison pass (see flag_ensemble_disagreement),
+    which only compares a second model's boxes against the ones the primary
+    pass already wrote and never persists them as annotations.
+    """
+    wanted = set(target_categories)
+    boxes_by_frame: dict[str, list[dict[str, Any]]] = {}
+    for start in range(0, len(frames), batch_size):
+        batch = frames[start : start + batch_size]
+        paths = [str(project_root / frame["relativePath"]) for frame in batch]
+        detections_batch = normalize_detection_batch(model.predict(paths, threshold=threshold), len(batch))
+        for frame, detections in zip(batch, detections_batch):
+            names = detections.data.get("class_name") if hasattr(detections, "data") else None
+            found: list[dict[str, Any]] = []
+            for index, box in enumerate(detections.xyxy):
+                if names is not None:
+                    detected_name = str(names[index])
+                else:
+                    class_id = int(detections.class_id[index])
+                    detected_name = "person" if class_id == 0 else "sports ball" if class_id == 32 else ""
+                category = category_map.get(detected_name)
+                if not category or category not in wanted:
+                    continue
+                x1, y1, x2, y2 = [float(value) for value in box]
+                found.append({
+                    "category": category,
+                    "x": max(x1, 0.0),
+                    "y": max(y1, 0.0),
+                    "width": max(x2 - x1, 1.0),
+                    "height": max(y2 - y1, 1.0),
+                    "confidence": float(detections.confidence[index]),
+                })
+            boxes_by_frame[frame["id"]] = found
+    return boxes_by_frame
+
+
+def compute_disagreement(
+    primary_boxes: list[dict[str, Any]],
+    secondary_boxes: list[dict[str, Any]],
+    iou_threshold: float = 0.3,
+) -> float:
+    """Fraction of boxes (across both sets) that have no matching counterpart in
+    the other set, greedily matched per category by best IoU. 0.0 means full
+    agreement (or both sets empty); 1.0 means total disagreement.
+    """
+    total = len(primary_boxes) + len(secondary_boxes)
+    if total == 0:
+        return 0.0
+    matched_secondary: set[int] = set()
+    unmatched_primary = 0
+    for primary in primary_boxes:
+        primary_box = [primary["x"], primary["y"], primary["x"] + primary["width"], primary["y"] + primary["height"]]
+        best_index = -1
+        best_iou = 0.0
+        for index, secondary in enumerate(secondary_boxes):
+            if index in matched_secondary or secondary["category"] != primary["category"]:
+                continue
+            secondary_box = [secondary["x"], secondary["y"], secondary["x"] + secondary["width"], secondary["y"] + secondary["height"]]
+            overlap = box_iou(primary_box, secondary_box)
+            if overlap > best_iou:
+                best_index, best_iou = index, overlap
+        if best_index >= 0 and best_iou >= iou_threshold:
+            matched_secondary.add(best_index)
+        else:
+            unmatched_primary += 1
+    unmatched_secondary = len(secondary_boxes) - len(matched_secondary)
+    return (unmatched_primary + unmatched_secondary) / total
+
+
+def flag_ensemble_disagreement(
+    project_root: Path,
+    frames: list[dict[str, Any]],
+    target_categories: list[str],
+    category_map: dict[str, str],
+    active_manifest: dict[str, Any] | None,
+    threshold: float,
+    batch_size: int,
+    sport: str,
+    language: str,
+) -> None:
+    """Run a second, comparison-only model over the same frames/categories the
+    primary pass just auto-labeled, and flag frames where the two disagree
+    (compute_disagreement). Never writes the secondary model's boxes as
+    annotations. No-op when no second compatible model is installed. Prefers
+    the second-ranked model from the last benchmark run when one exists (see
+    benchmark()), otherwise the first other compatible library model found -
+    same library-glob discovery pattern benchmark() itself uses.
+    """
+    library_root = (project_root / "models" / "library").resolve()
+    if not library_root.is_dir():
+        return
+    active_package_id = str((active_manifest or {}).get("packageID") or "")
+    ranked_ids: list[str] = []
+    latest_report_path = project_root / "benchmarks" / "latest.json"
+    if latest_report_path.is_file():
+        try:
+            report = load_json(latest_report_path)
+            if report.get("sport") == sport:
+                ranked_ids = [
+                    str(item.get("packageID"))
+                    for item in sorted(
+                        (item for item in report.get("results", []) if item.get("status") == "completed"),
+                        key=lambda item: item.get("rank") or math.inf,
+                    )
+                ]
+        except (OSError, ValueError, TypeError, json.JSONDecodeError):
+            ranked_ids = []
+
+    candidates: list[tuple[Path, dict[str, Any]]] = []
+    for manifest_path in sorted(library_root.glob("*/manifest.json")):
+        try:
+            manifest = load_json(manifest_path)
+        except (OSError, ValueError, TypeError, json.JSONDecodeError):
+            continue
+        package_id = str(manifest.get("packageID") or manifest_path.parent.name)
+        if manifest.get("sport") != sport or package_id == active_package_id:
+            continue
+        if not set(manifest.get("classes", [])).intersection(target_categories):
+            continue
+        candidates.append((manifest_path.parent, manifest))
+    if not candidates:
+        return
+    candidates.sort(key=lambda item: ranked_ids.index(str(item[1].get("packageID"))) if str(item[1].get("packageID")) in ranked_ids else math.inf)
+    package_dir, manifest = candidates[0]
+    package_classes = [category for category in target_categories if category in set(manifest.get("classes", []))]
+    if not package_classes:
+        return
+
+    device = detect_device()
+    secondary_boxes: dict[str, list[dict[str, Any]]] = {}
+    try:
+        ensemble = manifest.get("ensemble")
+        if ensemble:
+            for member in ensemble.get("members", []):
+                member_categories = [category for category in package_classes if category in set(member.get("categories", []))]
+                if not member_categories:
+                    continue
+                member_model = ensemble_member_model(package_dir, member, language)
+                member_profile = training_profile(str(member["modelSize"]), device)
+                member_batch_size = member_profile["batch_size"] if device != "cpu" else 1
+                member_boxes = predict_boxes(member_model, project_root, frames, member_categories, category_map, threshold, member_batch_size)
+                for frame_id, boxes in member_boxes.items():
+                    secondary_boxes.setdefault(frame_id, []).extend(boxes)
+                del member_model
+        else:
+            model_class = import_model_class(str(manifest["modelSize"]), language)
+            weight_path = (package_dir / "weights" / Path(str(manifest.get("weights", {}).get("file", ""))).name).resolve()
+            model = model_class(pretrain_weights=str(weight_path), device=device)
+            secondary_boxes = predict_boxes(model, project_root, frames, package_classes, category_map, threshold, batch_size)
+            del model
+    except Exception:
+        return
+
+    for frame in frames:
+        primary = [box for box in frame.get("annotations", []) if box.get("category") in package_classes and box.get("source") == "auto"]
+        secondary = secondary_boxes.get(frame["id"], [])
+        if not primary and not secondary:
+            continue
+        if compute_disagreement(primary, secondary) >= 0.3:
+            flags = frame.setdefault("reviewFlags", [])
+            if "ensemble-disagreement" not in flags:
+                flags.append("ensemble-disagreement")
+
+
+def flag_temporal_outliers(
+    frames: list[dict[str, Any]],
+    max_gap_seconds: float = 5.0,
+    deviation_fraction: float = 0.15,
+) -> None:
+    """Flag candidate frames whose single-instance category box (e.g. the ball)
+    sits far from where linear interpolation between its temporal neighbors in
+    the same video would put it - reusing the neighbor-interpolation idea
+    behind BallTrackingResolver.swift's trajectory reasoning, adapted for
+    sparse/unevenly-sampled training frames rather than a dense video. Mutates
+    frames in place, appending "temporal-outlier" to reviewFlags. A frame with
+    zero or multiple boxes of a category is skipped for that category
+    (ambiguous which instance to track) - mirrors how the ball-tracking
+    simulation already reduces to one detection per frame.
+    """
+    by_video: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for frame in frames:
+        if "videoID" not in frame or "timestamp" not in frame:
+            continue
+        by_video[frame["videoID"]].append(frame)
+    for video_frames in by_video.values():
+        ordered = sorted(video_frames, key=lambda frame: frame["timestamp"])
+        categories = {
+            annotation.get("category")
+            for frame in ordered
+            for annotation in frame.get("annotations", [])
+            if annotation.get("category")
+        }
+        for category in categories:
+            points: list[tuple[int, float, float, float]] = []
+            for index, frame in enumerate(ordered):
+                boxes = [item for item in frame.get("annotations", []) if item.get("category") == category]
+                if len(boxes) != 1:
+                    continue
+                box = boxes[0]
+                points.append((index, float(frame["timestamp"]), box["x"] + box["width"] / 2, box["y"] + box["height"] / 2))
+            for point_index in range(1, len(points) - 1):
+                frame_index, timestamp, cx, cy = points[point_index]
+                frame = ordered[frame_index]
+                if frame.get("reviewStatus") != "candidate":
+                    continue
+                _, prev_time, prev_x, prev_y = points[point_index - 1]
+                _, next_time, next_x, next_y = points[point_index + 1]
+                span = next_time - prev_time
+                if span <= 0 or span > max_gap_seconds:
+                    continue
+                weight = (timestamp - prev_time) / span
+                expected_x = prev_x + weight * (next_x - prev_x)
+                expected_y = prev_y + weight * (next_y - prev_y)
+                distance = math.hypot(cx - expected_x, cy - expected_y)
+                diagonal = math.hypot(float(frame.get("width", 0)), float(frame.get("height", 0)))
+                if diagonal > 0 and distance / diagonal > deviation_fraction:
+                    flags = frame.setdefault("reviewFlags", [])
+                    if "temporal-outlier" not in flags:
+                        flags.append("temporal-outlier")
+
+
 def run_autolabel_pass(
     model: Any,
     frames: list[dict[str, Any]],
@@ -1491,6 +1723,14 @@ def auto_label(args: argparse.Namespace) -> None:
         frames_with_detections += pass_with_detections
         boxes_added += pass_boxes
         del base_model
+
+    if getattr(args, "compare_models", False) and custom_categories:
+        flag_ensemble_disagreement(
+            project_root, frames, custom_categories, category_map,
+            active_model_manifest(project_root, args.model), args.threshold, batch_size,
+            sport, args.language,
+        )
+    flag_temporal_outliers(document.get("frames", []))
 
     document["updatedAt"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     atomic_json(project_file(project_root), document)
@@ -2828,6 +3068,7 @@ def build_parser() -> argparse.ArgumentParser:
     label_parser.add_argument("--threshold", type=float, default=0.25)
     label_parser.add_argument("--language", choices=["de", "en", "es", "fr"], default="de")
     label_parser.add_argument("--candidate-only", action="store_true")
+    label_parser.add_argument("--compare-models", action="store_true")
     label_parser.set_defaults(func=auto_label)
 
     refine_parser = commands.add_parser("refine-boxes")

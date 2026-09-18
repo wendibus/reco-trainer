@@ -67,7 +67,8 @@ select { height:34px; padding:0 9px; border:1px solid #cbd3df; border-radius:7px
 .frames-section { min-height:0; flex:1; margin-bottom:6px; }
 .frame-list { display:flex; min-height:0; flex-direction:column; gap:5px; overflow:auto; }
 .empty-frames { margin:4px 2px; padding:12px 9px; border:1px dashed #cbd4df; border-radius:8px; color:#7b8798; font-size:9px; line-height:1.4; }
-.frame { display:grid; grid-template-columns:54px 1fr; align-items:center; gap:9px; width:100%; padding:6px; border:1px solid transparent; border-radius:8px; background:transparent; color:#38465b; text-align:left; font-size:9px; }
+.frame { position:relative; display:grid; grid-template-columns:54px 1fr; align-items:center; gap:9px; width:100%; padding:6px; border:1px solid transparent; border-radius:8px; background:transparent; color:#38465b; text-align:left; font-size:9px; }
+.frame-flag { position:absolute; top:2px; left:2px; font-size:11px; line-height:1; filter:drop-shadow(0 0 1px rgba(0,0,0,.6)); }
 .frame.active { border-color:color-mix(in srgb,var(--accent) 30%,#d9e0ea); background:color-mix(in srgb,var(--accent) 9%,#fff); }
 .frame.candidate { border-color:#d9b66d; background:#fff9eb; }
 .frame small { display:block; margin-top:3px; color:#818b9a; }

@@ -81,6 +81,7 @@ struct MLWorker: Sendable {
         categories: [String],
         threshold: Double,
         candidateOnly: Bool = false,
+        compareModels: Bool = false,
         language: AppLanguage,
         onOutput: @escaping @Sendable (String) async -> Void
     ) async throws {
@@ -91,6 +92,7 @@ struct MLWorker: Sendable {
                 "--threshold", String(threshold), "--language", language.rawValue
             ]
         if candidateOnly { arguments.append("--candidate-only") }
+        if compareModels { arguments.append("--compare-models") }
         _ = try await runPython(
             arguments: arguments,
             preferVenv: true,

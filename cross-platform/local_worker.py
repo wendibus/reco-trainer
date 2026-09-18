@@ -1062,6 +1062,8 @@ def ml_action(action: str, payload: dict) -> None:
                 args = ["autolabel", "--project", str(root), "--model", model, "--category", *[str(item) for item in categories], "--threshold", str(threshold), "--language", language]
                 if payload.get("candidateOnly"):
                     args.append("--candidate-only")
+                if payload.get("compareModels"):
+                    args.append("--compare-models")
             elif action == "benchmark":
                 threshold = min(0.95, max(0.01, float(payload.get("threshold", 0.05))))
                 args = ["benchmark", "--project", str(root), "--threshold", str(threshold), "--language", language]

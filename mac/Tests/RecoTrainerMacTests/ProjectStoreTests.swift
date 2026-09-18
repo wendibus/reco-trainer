@@ -607,3 +607,41 @@ import Testing
         try MLWorker.decodeLastJSONLine(BallSimulationResponse.self, from: "some warning\nnot json at all")
     }
 }
+
+@Test func sortedByReviewPriorityMovesFlaggedFramesFirstWhileKeepingOtherOrderStable() {
+    func frame(_ id: String, flags: [String]? = nil) -> FrameRecord {
+        FrameRecord(relativePath: "frames/\(id).jpg", videoID: "video", videoName: "match.mov", timestamp: 0, width: 10, height: 10, reviewFlags: flags)
+    }
+    let ordered = [
+        frame("a"),
+        frame("b", flags: ["temporal-outlier"]),
+        frame("c"),
+        frame("d", flags: ["ensemble-disagreement"]),
+        frame("e"),
+    ]
+
+    let sorted = ordered.sortedByReviewPriority()
+
+    #expect(sorted.map(\.relativePath) == [
+        "frames/b.jpg", "frames/d.jpg", "frames/a.jpg", "frames/c.jpg", "frames/e.jpg",
+    ])
+}
+
+@Test func sortedByReviewPriorityLeavesAnUnflaggedListUnchanged() {
+    func frame(_ id: String) -> FrameRecord {
+        FrameRecord(relativePath: "frames/\(id).jpg", videoID: "video", videoName: "match.mov", timestamp: 0, width: 10, height: 10)
+    }
+    let ordered = [frame("a"), frame("b"), frame("c")]
+
+    #expect(ordered.sortedByReviewPriority().map(\.relativePath) == ordered.map(\.relativePath))
+}
+
+@Test func isFlaggedForReviewIsFalseForNilOrEmptyFlags() {
+    let noFlags = FrameRecord(relativePath: "frames/a.jpg", videoID: "video", videoName: "match.mov", timestamp: 0, width: 10, height: 10)
+    let emptyFlags = FrameRecord(relativePath: "frames/b.jpg", videoID: "video", videoName: "match.mov", timestamp: 0, width: 10, height: 10, reviewFlags: [])
+    let flagged = FrameRecord(relativePath: "frames/c.jpg", videoID: "video", videoName: "match.mov", timestamp: 0, width: 10, height: 10, reviewFlags: ["temporal-outlier"])
+
+    #expect(!noFlags.isFlaggedForReview)
+    #expect(!emptyFlags.isFlaggedForReview)
+    #expect(flagged.isFlaggedForReview)
+}

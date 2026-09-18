@@ -384,6 +384,11 @@ struct ContentView: View {
                         } else if frame.heldOut == true {
                             Image(systemName: "checkmark.shield.fill").foregroundStyle(.blue)
                         }
+                        if let flags = frame.reviewFlags, !flags.isEmpty {
+                            Image(systemName: "exclamationmark.triangle.fill")
+                                .foregroundStyle(.yellow)
+                                .help(flags.map(app.reviewFlagLabel).joined(separator: ", "))
+                        }
                     }
                     .tag(frame.id)
                 }
@@ -933,6 +938,21 @@ struct ContentView: View {
                 Text("\(Int(app.confidenceThreshold * 100)) %")
                     .font(.system(.caption, design: .monospaced))
             }
+
+            Toggle(isOn: $app.useEnsembleDisagreement) {
+                Text(app.tr(
+                    "Zweites Modell zur Unsicherheits-Prüfung nutzen (langsamer)",
+                    "Use a second model to flag uncertain frames (slower)",
+                    "Usar un segundo modelo para señalar cuadros inciertos (más lento)",
+                    "Utiliser un second modèle pour signaler les images incertaines (plus lent)"
+                ))
+            }
+            .help(app.tr(
+                "Führt zusätzlich ein weiteres installiertes Modell aus und markiert Bilder, bei denen sich die Modelle uneinig sind, zur bevorzugten Prüfung.",
+                "Also runs another installed model and flags frames where the models disagree for priority review.",
+                "Ejecuta además otro modelo instalado y marca para revisión prioritaria los cuadros en los que los modelos no coinciden.",
+                "Exécute aussi un autre modèle installé et signale pour une révision prioritaire les images où les modèles sont en désaccord."
+            ))
 
             if let packageID = app.activeModelPackageID {
                 VStack(alignment: .leading, spacing: 3) {
@@ -1528,6 +1548,10 @@ private struct WhatsNewSheet: View {
 
     private var changes: [(String, String)] {
         [
+            (
+                language.text("Prüf-Priorität: Modell-Uneinigkeit und zeitliche Ausreißer", "Review priority: model disagreement and temporal outliers", "Prioridad de revisión: desacuerdo entre modelos y valores atípicos temporales", "Priorité de révision : désaccord des modèles et anomalies temporelles"),
+                language.text("Zwei neue Signale markieren automatisch beschriftete Bilder zur bevorzugten Prüfung: ein optionaler zweiter Modelldurchlauf zeigt Bilder an, bei denen sich zwei installierte Modelle uneinig sind (Schalter „Zweites Modell zur Unsicherheits-Prüfung nutzen“, etwas langsamer), und eine kostenlose Prüfung erkennt Bilder, deren Position stark von den Nachbar-Bildern desselben Videos abweicht. Markierte Bilder erscheinen zuerst in der Prüfwarteschlange, mit einem Warnsymbol und Begründung. Betrifft nur die Reihenfolge der Prüfung, nie das Training selbst.", "Two new signals automatically flag auto-labeled frames for priority review: an optional second model pass shows frames where two installed models disagree (toggle „Use a second model to flag uncertain frames“, a bit slower), and a free check flags frames whose position deviates sharply from neighboring frames in the same video. Flagged frames appear first in the review queue, with a warning icon and reason. Only affects review order, never training itself.", "Dos nuevas señales marcan automáticamente los cuadros etiquetados para revisión prioritaria: un segundo paso de modelo opcional muestra cuadros en los que dos modelos instalados no coinciden (interruptor „Usar un segundo modelo para señalar cuadros inciertos“, algo más lento), y una comprobación gratuita detecta cuadros cuya posición se desvía mucho de los cuadros vecinos del mismo vídeo. Los cuadros marcados aparecen primero en la cola de revisión, con un icono de advertencia y el motivo. Solo afecta al orden de revisión, nunca al entrenamiento en sí.", "Deux nouveaux signaux marquent automatiquement les images auto-étiquetées pour une révision prioritaire : un second passage de modèle optionnel affiche les images où deux modèles installés sont en désaccord (interrupteur « Utiliser un second modèle pour signaler les images incertaines », un peu plus lent), et une vérification gratuite repère les images dont la position dévie fortement des images voisines de la même vidéo. Les images signalées apparaissent en premier dans la file de révision, avec une icône d’avertissement et le motif. N’affecte que l’ordre de révision, jamais l’entraînement lui-même.")
+            ),
             (
                 language.text("Balltracking-Simulation: Fehlermeldung beim Start behoben", "Ball-tracking simulation: fixed an error on start", "Simulación de seguimiento del balón: corregido un error al iniciar", "Simulation de suivi du ballon : correction d’une erreur au démarrage"),
                 language.text("Die Balltracking-Simulation konnte mit „Die Daten konnten nicht geöffnet werden, da sie nicht das korrekte Format haben“ fehlschlagen: Warnungen, die PyTorch/RF-DETR beim Laden des Modells manchmal ausgibt, landeten in derselben Ausgabe wie das Ergebnis und störten dessen Verarbeitung. Nur noch die letzte Zeile der Ausgabe wird dafür verwendet.", "The ball-tracking simulation could fail with “The data couldn’t be read because it isn’t in the correct format”: warnings PyTorch/RF-DETR sometimes print while loading the model ended up mixed into the same output as the result and interfered with reading it. Only the output’s last line is used for that now.", "La simulación de seguimiento del balón podía fallar con „Los datos no se pudieron abrir porque no tienen el formato correcto“: las advertencias que PyTorch/RF-DETR a veces muestra al cargar el modelo se mezclaban con la misma salida que el resultado e interferían con su lectura. Ahora solo se usa la última línea de la salida para eso.", "La simulation de suivi du ballon pouvait échouer avec « Les données n’ont pas pu être ouvertes, car leur format n’est pas correct » : les avertissements que PyTorch/RF-DETR affiche parfois lors du chargement du modèle se mélangeaient à la même sortie que le résultat et perturbaient sa lecture. Seule la dernière ligne de la sortie est désormais utilisée pour cela.")

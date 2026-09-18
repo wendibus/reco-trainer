@@ -1174,5 +1174,114 @@ class SimulateBallTrackingTests(unittest.TestCase):
                 ml_worker.simulate_ball_tracking(args)
 
 
+class ComputeDisagreementTests(unittest.TestCase):
+    """compute_disagreement() is the pure IoU-matching core of the
+    ensemble-disagreement review-priority signal (flag_ensemble_disagreement)."""
+
+    def test_identical_boxes_have_zero_disagreement(self):
+        box = {"category": "ball", "x": 10.0, "y": 10.0, "width": 20.0, "height": 20.0}
+        self.assertEqual(ml_worker.compute_disagreement([box], [dict(box)]), 0.0)
+
+    def test_both_empty_is_zero_disagreement(self):
+        self.assertEqual(ml_worker.compute_disagreement([], []), 0.0)
+
+    def test_one_sided_detection_is_total_disagreement(self):
+        box = {"category": "ball", "x": 10.0, "y": 10.0, "width": 20.0, "height": 20.0}
+        self.assertEqual(ml_worker.compute_disagreement([box], []), 1.0)
+        self.assertEqual(ml_worker.compute_disagreement([], [box]), 1.0)
+
+    def test_non_overlapping_boxes_of_the_same_category_both_count_as_unmatched(self):
+        primary = [{"category": "ball", "x": 0.0, "y": 0.0, "width": 10.0, "height": 10.0}]
+        secondary = [{"category": "ball", "x": 500.0, "y": 500.0, "width": 10.0, "height": 10.0}]
+        self.assertEqual(ml_worker.compute_disagreement(primary, secondary), 1.0)
+
+    def test_different_categories_never_match_even_with_identical_geometry(self):
+        primary = [{"category": "ball", "x": 10.0, "y": 10.0, "width": 20.0, "height": 20.0}]
+        secondary = [{"category": "player", "x": 10.0, "y": 10.0, "width": 20.0, "height": 20.0}]
+        self.assertEqual(ml_worker.compute_disagreement(primary, secondary), 1.0)
+
+    def test_partial_overlap_below_iou_threshold_counts_as_unmatched(self):
+        primary = [{"category": "ball", "x": 0.0, "y": 0.0, "width": 10.0, "height": 10.0}]
+        secondary = [{"category": "ball", "x": 8.0, "y": 8.0, "width": 10.0, "height": 10.0}]
+        self.assertEqual(ml_worker.compute_disagreement(primary, secondary, iou_threshold=0.3), 1.0)
+
+
+class FlagTemporalOutliersTests(unittest.TestCase):
+    """flag_temporal_outliers() adapts the neighbor-interpolation idea behind
+    BallTrackingResolver.swift to sparse, unevenly-sampled training frames."""
+
+    @staticmethod
+    def _frame(frame_id, timestamp, cx, cy, review_status="candidate", category="ball"):
+        return {
+            "id": frame_id,
+            "videoID": "video-1",
+            "timestamp": timestamp,
+            "width": 1000.0,
+            "height": 1000.0,
+            "reviewStatus": review_status,
+            "annotations": [{"id": f"ann-{frame_id}", "category": category, "x": cx - 5, "y": cy - 5, "width": 10.0, "height": 10.0, "source": "auto"}],
+        }
+
+    def test_flags_a_position_far_from_the_interpolated_line(self):
+        frames = [
+            self._frame("f1", 0.0, 100.0, 100.0),
+            self._frame("f2", 1.0, 900.0, 900.0),  # way off the line between f1 and f3
+            self._frame("f3", 2.0, 200.0, 200.0),
+        ]
+        ml_worker.flag_temporal_outliers(frames)
+        self.assertEqual(frames[0].get("reviewFlags", []), [])
+        self.assertIn("temporal-outlier", frames[1]["reviewFlags"])
+        self.assertEqual(frames[2].get("reviewFlags", []), [])
+
+    def test_a_position_on_the_interpolated_line_is_not_flagged(self):
+        frames = [
+            self._frame("f1", 0.0, 100.0, 100.0),
+            self._frame("f2", 1.0, 150.0, 150.0),
+            self._frame("f3", 2.0, 200.0, 200.0),
+        ]
+        ml_worker.flag_temporal_outliers(frames)
+        self.assertEqual(frames[1].get("reviewFlags", []), [])
+
+    def test_leading_and_trailing_frames_without_both_neighbors_are_never_flagged(self):
+        frames = [
+            self._frame("f1", 0.0, 900.0, 900.0),
+            self._frame("f2", 1.0, 100.0, 100.0),
+            self._frame("f3", 2.0, 110.0, 110.0),
+            self._frame("f4", 3.0, 900.0, 900.0),
+        ]
+        ml_worker.flag_temporal_outliers(frames)
+        self.assertEqual(frames[0].get("reviewFlags", []), [])
+        self.assertEqual(frames[3].get("reviewFlags", []), [])
+
+    def test_frames_with_zero_or_multiple_boxes_of_the_category_are_skipped(self):
+        multi = self._frame("f2", 1.0, 900.0, 900.0)
+        multi["annotations"].append({"id": "ann-extra", "category": "ball", "x": 1.0, "y": 1.0, "width": 5.0, "height": 5.0, "source": "auto"})
+        frames = [
+            self._frame("f1", 0.0, 100.0, 100.0),
+            multi,
+            self._frame("f3", 2.0, 200.0, 200.0),
+        ]
+        ml_worker.flag_temporal_outliers(frames)
+        self.assertEqual(multi.get("reviewFlags", []), [])
+
+    def test_a_gap_wider_than_the_max_is_never_bridged(self):
+        frames = [
+            self._frame("f1", 0.0, 100.0, 100.0),
+            self._frame("f2", 5.0, 900.0, 900.0),
+            self._frame("f3", 10.0, 200.0, 200.0),
+        ]
+        ml_worker.flag_temporal_outliers(frames, max_gap_seconds=5.0)
+        self.assertEqual(frames[1].get("reviewFlags", []), [])
+
+    def test_only_candidate_frames_get_flagged_even_when_a_reviewed_neighbor_is_the_outlier(self):
+        frames = [
+            self._frame("f1", 0.0, 100.0, 100.0),
+            self._frame("f2", 1.0, 900.0, 900.0, review_status="reviewed"),
+            self._frame("f3", 2.0, 200.0, 200.0),
+        ]
+        ml_worker.flag_temporal_outliers(frames)
+        self.assertEqual(frames[1].get("reviewFlags", []), [])
+
+
 if __name__ == "__main__":
     unittest.main()
