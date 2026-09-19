@@ -30,7 +30,7 @@ final class AppState: ObservableObject {
     /// CFBundleShortVersionString (Info.plist) and VERSION (package-platforms.sh)
     /// at every release. Used both for the "what's new" sheet and for deciding
     /// whether a fetched GitHub release is actually newer than what's running.
-    static let appVersion = "0.14.0"
+    static let appVersion = "0.14.1"
 
     @Published var language: AppLanguage = .de
     @Published var sport: Sport = .football
@@ -74,6 +74,13 @@ final class AppState: ObservableObject {
 
     @Published var modelSize: ModelSize = .nano
     @Published var epochs = 20
+    /// Opt-in: ignore any continuation checkpoint (and any interrupted run's own
+    /// checkpoint) for the next training run, guaranteeing a clean start from the
+    /// Apache-2.0 base model. Needed because RF-DETR silently keeps a continued
+    /// checkpoint's own (possibly smaller) class count instead of expanding it to
+    /// the project's current classes - see train()'s fresh_start handling in
+    /// ml_worker.py.
+    @Published var trainFreshStart = false
     @Published var confidenceThreshold = 0.35
     /// Opt-in: run a second installed model as a comparison-only pass during
     /// auto-labeling and flag frames where the two disagree, so those get
@@ -922,6 +929,7 @@ final class AppState: ObservableObject {
             modelSize: self.modelSize,
             epochs: self.epochs,
             categories: isRestricted ? Array(selected) : nil,
+            freshStart: self.trainFreshStart,
             language: self.language,
             onOutput: output
         )

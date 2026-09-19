@@ -104,6 +104,7 @@ struct MLWorker: Sendable {
         modelSize: ModelSize,
         epochs: Int,
         categories: [String]? = nil,
+        freshStart: Bool = false,
         language: AppLanguage,
         onOutput: @escaping @Sendable (String) async -> Void
     ) async throws {
@@ -114,6 +115,7 @@ struct MLWorker: Sendable {
         if let categories, !categories.isEmpty {
             arguments += ["--category"] + categories
         }
+        if freshStart { arguments.append("--fresh-start") }
         arguments += ["--language", language.rawValue]
         _ = try await runPython(
             arguments: arguments,

@@ -2263,11 +2263,20 @@ def train(args: argparse.Namespace) -> None:
     profile = training_profile(args.model, device)
     output_dir = project_root / "runs" / args.model
     output_dir.mkdir(parents=True, exist_ok=True)
+    # fresh_start means "guaranteed clean slate": ignore both an interrupted run's
+    # own last.ckpt and any completed continuation checkpoint, always starting
+    # from the Apache-2.0 base model. continuation_checkpoint itself is still
+    # computed below (unaffected) since the legacy-checkpoint archiving safety
+    # net just below needs to know whether one exists on disk regardless of
+    # whether this run actually starts from it - only use_continuation_checkpoint
+    # (and resume_checkpoint) reflect the fresh_start override.
+    fresh_start = bool(getattr(args, "fresh_start", False))
     continuation_checkpoint = newest_checkpoint(project_root, args.model)
-    resume_checkpoint = validate_resume_checkpoint(
+    resume_checkpoint = None if fresh_start else validate_resume_checkpoint(
         interrupted_run_checkpoint(project_root, args.model, document), dataset_root, args.language
     )
     resume_completed_epochs = checkpoint_completed_epochs(resume_checkpoint) if resume_checkpoint else None
+    use_continuation_checkpoint = None if fresh_start else continuation_checkpoint
     archived_logs = archive_run_logs(output_dir)
 
     if archived_logs is not None:
@@ -2359,14 +2368,22 @@ def train(args: argparse.Namespace) -> None:
             f"Reprise complète de l’entraînement interrompu : {resume_checkpoint.name}"
             + (f" (après {resume_completed_epochs} époques)" if resume_completed_epochs is not None else ""),
         ))
-    elif continuation_checkpoint is not None:
-        model_kwargs["pretrain_weights"] = str(continuation_checkpoint)
+    elif fresh_start:
         emit(localized(
             args.language,
-            f"Neuer Feinabstimmungslauf mit dem besten Modell: {continuation_checkpoint.name}",
-            f"Starting a new fine-tuning cycle from the best model: {continuation_checkpoint.name}",
-            f"Iniciando un nuevo ajuste fino desde el mejor modelo: {continuation_checkpoint.name}",
-            f"Nouveau cycle d’ajustement à partir du meilleur modèle : {continuation_checkpoint.name}",
+            "Von Grund auf neu trainieren angefordert: Training startet mit dem Apache-2.0-Basismodell, ohne einen vorhandenen Checkpoint fortzusetzen.",
+            "Training from scratch requested: training starts from the Apache-2.0 base model, without continuing from any existing checkpoint.",
+            "Se solicitó entrenar desde cero: el entrenamiento comienza con el modelo base Apache-2.0, sin continuar desde ningún checkpoint existente.",
+            "Entraînement à partir de zéro demandé : l’entraînement démarre avec le modèle de base Apache-2.0, sans reprendre un checkpoint existant.",
+        ))
+    elif use_continuation_checkpoint is not None:
+        model_kwargs["pretrain_weights"] = str(use_continuation_checkpoint)
+        emit(localized(
+            args.language,
+            f"Neuer Feinabstimmungslauf mit dem besten Modell: {use_continuation_checkpoint.name}",
+            f"Starting a new fine-tuning cycle from the best model: {use_continuation_checkpoint.name}",
+            f"Iniciando un nuevo ajuste fino desde el mejor modelo: {use_continuation_checkpoint.name}",
+            f"Nouveau cycle d’ajustement à partir du meilleur modèle : {use_continuation_checkpoint.name}",
         ))
     else:
         emit(localized(
@@ -2429,7 +2446,7 @@ def train(args: argparse.Namespace) -> None:
             "lr_scheduler_kwargs": {"min_factor": 0.1},
             "warmup_epochs": 0.5,
         })
-        if continuation_checkpoint is not None:
+        if use_continuation_checkpoint is not None:
             train_kwargs.update({"lr": 0.00005, "lr_encoder": 0.000075})
     _, ignored = call_with_supported_kwargs(model.train, train_kwargs)
     if ignored:
@@ -2480,9 +2497,9 @@ def train(args: argparse.Namespace) -> None:
         "checkpoint": trained_checkpoint.name if trained_checkpoint else None,
         "continuedFrom": (
             resume_checkpoint.name if resume_checkpoint else
-            continuation_checkpoint.name if continuation_checkpoint else None
+            use_continuation_checkpoint.name if use_continuation_checkpoint else None
         ),
-        "resumeMode": "full" if resume_checkpoint else "weights" if continuation_checkpoint else "base",
+        "resumeMode": "full" if resume_checkpoint else "weights" if use_continuation_checkpoint else "base",
         "performanceProfile": profile,
         "validationMetrics": validation_metrics,
         "testMetrics": test_metrics,
@@ -2509,8 +2526,15 @@ def train(args: argparse.Namespace) -> None:
                 current_manifest = None
         new_score = manifest_comparison_score(manifest)
         current_score = manifest_comparison_score(current_manifest)
+        # Aggregate quality scores average over a model's own classes, so a ball-only
+        # model and a ball+player+referee model are not comparable - never let the
+        # score alone swap between them; per-class comparison (Modellvergleich) decides.
+        comparable = current_manifest is None or (
+            {str(item) for item in manifest.get("classes", [])}
+            == {str(item) for item in current_manifest.get("classes", [])}
+        )
         promote = current_manifest is None or (
-            new_score is not None and (current_score is None or new_score > current_score)
+            comparable and new_score is not None and (current_score is None or new_score > current_score)
         )
         if promote:
             activate_library_model(project_root, manifest_path, manifest)
@@ -2518,6 +2542,16 @@ def train(args: argparse.Namespace) -> None:
                 args.language,
                 f"Neuer bester Modellstand aktiviert: {manifest['displayName']}",
                 f"New best model revision activated: {manifest['displayName']}",
+            ))
+        elif not comparable:
+            current_classes = ", ".join(sorted(str(item) for item in (current_manifest or {}).get("classes", [])))
+            new_classes = ", ".join(sorted(str(item) for item in manifest.get("classes", [])))
+            emit(localized(
+                args.language,
+                f"Modellstand archiviert, aber nicht automatisch aktiviert: Das aktive Modell kennt andere Klassen ({current_classes}) als das neue ({new_classes}); die Qualitätswerte sind nicht vergleichbar. Im Modellvergleich pro Kategorie prüfen und ggf. ein kombiniertes Modell erstellen.",
+                f"Model revision archived but not automatically activated: the active model knows different classes ({current_classes}) than the new one ({new_classes}), so their quality scores are not comparable. Compare per category in the model comparison and, if useful, create a combined model.",
+                f"Revisión del modelo archivada pero no activada automáticamente: el modelo activo conoce otras clases ({current_classes}) que el nuevo ({new_classes}), por lo que sus puntuaciones no son comparables. Compáralos por categoría en la comparación de modelos y, si conviene, crea un modelo combinado.",
+                f"Révision du modèle archivée mais non activée automatiquement : le modèle actif connaît d’autres classes ({current_classes}) que le nouveau ({new_classes}), leurs scores ne sont donc pas comparables. Comparez par catégorie dans la comparaison de modèles et créez au besoin un modèle combiné.",
             ))
         else:
             emit(localized(
@@ -3082,6 +3116,7 @@ def build_parser() -> argparse.ArgumentParser:
     train_parser.add_argument("--epochs", type=int, default=20)
     train_parser.add_argument("--category", nargs="+")
     train_parser.add_argument("--language", choices=["de", "en", "es", "fr"], default="de")
+    train_parser.add_argument("--fresh-start", action="store_true")
     train_parser.set_defaults(func=train)
 
     export_parser = commands.add_parser("export")

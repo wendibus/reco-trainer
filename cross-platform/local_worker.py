@@ -1070,6 +1070,8 @@ def ml_action(action: str, payload: dict) -> None:
             elif action == "train":
                 backup_project(root, "training")
                 args = ["train", "--project", str(root), "--model", model, "--epochs", str(int(payload.get("epochs", 20))), "--language", language]
+                if payload.get("freshStart"):
+                    args.append("--fresh-start")
             elif action == "export-coreml":
                 args = ["export", "--project", str(root), "--model", model, "--format", "coreml", "--language", language]
             elif action == "export-onnx":

@@ -1,5 +1,10 @@
 # Änderungen
 
+## 0.14.1
+
+- Neuer Schalter „Von Grund auf neu trainieren“: ignoriert für einen Lauf jeden vorhandenen Checkpoint und startet vom Basismodell. RF-DETR erweitert beim Fortsetzen von einem Checkpoint mit weniger Klassen (z. B. nur Ball) den Klassifikations-Kopf nicht auf neue Klassen.
+- Ein neues Modell mit anderen Klassen als das aktive wird nicht mehr allein wegen eines niedrigeren Gesamtwerts als schlechter behandelt (die Werte sind nicht vergleichbar); es wird archiviert, mit Hinweis auf den Modellvergleich pro Kategorie.
+
 ## 0.14.0
 
 - Neue Prüf-Priorität für automatisch beschriftete Bilder: ein optionaler zweiter Modelldurchlauf markiert Bilder, bei denen sich zwei installierte Modelle uneinig sind (Schalter „Zweites Modell zur Unsicherheits-Prüfung nutzen“), und eine kostenlose Prüfung markiert Bilder, deren Position stark von den Nachbar-Bildern desselben Videos abweicht. Markierte Bilder erscheinen zuerst in der Prüfwarteschlange, mit Warnsymbol und Begründung. Betrifft nur die Reihenfolge der Prüfung, nie das Training selbst.
