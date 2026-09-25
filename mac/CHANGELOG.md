@@ -1,5 +1,9 @@
 # Änderungen
 
+## 0.14.2
+
+- Modellpakete (.recomodel) werden beim Import (und beim Erstellen/Kombinieren) jetzt zusätzlich mit PyTorchs sicherem Lademodus (weights_only) geprüft: Gewichtsdateien, die mehr als reine Modelldaten enthalten - etwa ausführbaren Code -, werden erkannt und abgelehnt, nicht nur per Prüfsumme verglichen. Ohne eingerichtete ML-Umgebung wird weiterhin nur die Prüfsumme geprüft.
+
 ## 0.14.1
 
 - Neuer Schalter „Von Grund auf neu trainieren“: ignoriert für einen Lauf jeden vorhandenen Checkpoint und startet vom Basismodell. RF-DETR erweitert beim Fortsetzen von einem Checkpoint mit weniger Klassen (z. B. nur Ball) den Klassifikations-Kopf nicht auf neue Klassen.

@@ -20,6 +20,7 @@ import platform
 import re
 import shutil
 import sys
+import tempfile
 import time
 import uuid
 import zipfile
@@ -2672,6 +2673,7 @@ def combine_models(args: argparse.Namespace) -> None:
             destination_name = f"{package_file_slug(member['packageID'])}{member['sourceWeightPath'].suffix}"
             destination = staging / "weights" / destination_name
             shutil.copyfile(member["sourceWeightPath"], destination)
+            verify_weights_pickle_safety(destination, args.language, member["packageID"])
             manifest_members.append({
                 "packageID": member["packageID"],
                 "modelSize": member["modelSize"],
@@ -2720,6 +2722,79 @@ def sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
+def verify_weights_pickle_safety(weights_path: Path, language: str, label: str) -> None:
+    """Reject a weights file whose pickle stream references anything beyond
+    plain tensors and basic containers - the actual protection against a
+    maliciously crafted .pth/.ckpt executing arbitrary code on load, which a
+    checksum alone cannot catch (a bad actor controls both the file and its
+    own checksum, so a matching checksum only proves the file wasn't corrupted
+    in transit, not that it's safe).
+
+    torch.load(..., weights_only=True) enforces PyTorch's own allowlist of
+    safe global references during unpickling and raises for anything outside
+    it (custom classes with a __reduce__/__setstate__ payload, arbitrary
+    callables, etc.) - this is the standard, PyTorch-maintained mitigation for
+    untrusted checkpoints, not a bespoke scanner.
+
+    Silently skipped (checksum verification alone still applies) when torch
+    is not importable in the current interpreter - this can run from a system
+    Python that has no ML packages installed yet (e.g. importing a model
+    package before "Set up ML" has ever run). Callers should prefer the
+    project's ML venv when one exists so this actually executes; see
+    ml_action()'s venv-preferring dispatch for install-package/package/
+    combine-models.
+    """
+    try:
+        import torch
+    except ImportError:
+        emit(localized(
+            language,
+            f"Hinweis: Code-Sicherheitsprüfung für {label} übersprungen (ML-Umgebung noch nicht eingerichtet). Die Prüfsumme wurde trotzdem verifiziert.",
+            f"Note: code-safety check skipped for {label} (ML environment not set up yet). The checksum was still verified.",
+            f"Nota: la comprobación de seguridad del código para {label} se omitió (el entorno de ML aún no está configurado). La suma de verificación sí se comprobó.",
+            f"Remarque : la vérification de sécurité du code pour {label} a été ignorée (l’environnement ML n’est pas encore configuré). La somme de contrôle a tout de même été vérifiée.",
+        ))
+        return
+    try:
+        torch.load(str(weights_path), map_location="cpu", weights_only=True)
+    except Exception as error:
+        raise SystemExit(localized(
+            language,
+            f"Gewichtsdatei enthält nicht zulässigen Code und wurde abgelehnt: {label}",
+            f"Weights file contains disallowed code and was rejected: {label}",
+            f"El archivo de pesos contiene código no permitido y fue rechazado: {label}",
+            f"Le fichier de poids contient du code non autorisé et a été rejeté : {label}",
+        )) from error
+
+
+def verify_zip_weight_entry(archive: "zipfile.ZipFile", weight_name: str, expected_digest: str, language: str, label: str) -> None:
+    """Checksum-verify one weight entry from an opened .recomodel zip AND scan
+    its pickle content for anything beyond safe tensor data (see
+    verify_weights_pickle_safety), in a single read pass. Used by
+    validate_model_package_file() for both plain and ensemble packages.
+    """
+    checksum = hashlib.sha256()
+    scratch_fd, scratch_name = tempfile.mkstemp(prefix="reco-weights-scan-")
+    scratch_path = Path(scratch_name)
+    try:
+        with os.fdopen(scratch_fd, "wb") as scratch, archive.open(weight_name) as weights:
+            for chunk in iter(lambda: weights.read(1024 * 1024), b""):
+                checksum.update(chunk)
+                scratch.write(chunk)
+        if checksum.hexdigest() != expected_digest:
+            message_label = f": {label}" if label else "."
+            raise SystemExit(localized(
+                language,
+                f"Prüfsumme stimmt nicht{message_label}",
+                f"Checksum does not match{message_label}",
+                f"La suma de verificación no coincide{message_label}",
+                f"La somme de contrôle ne correspond pas{message_label}",
+            ))
+        verify_weights_pickle_safety(scratch_path, language, label or weight_name)
+    finally:
+        scratch_path.unlink(missing_ok=True)
+
+
 def package_file_slug(name: str) -> str:
     """Create a portable file-name component without exposing local paths."""
     slug = re.sub(r"[^A-Za-z0-9._-]+", "-", name.strip()).strip("-._")
@@ -2737,6 +2812,7 @@ def package_model(args: argparse.Namespace) -> None:
             "Kein trainiertes Modell gefunden. Zuerst lokal trainieren.",
             "No trained model was found. Train locally first.",
         ))
+    verify_weights_pickle_safety(checkpoint, args.language, checkpoint.name)
     reviewed_frames = [frame for frame in document.get("frames", []) if frame.get("reviewStatus") != "candidate"]
     annotations = [annotation for frame in reviewed_frames for annotation in frame.get("annotations", [])]
     created = datetime.now(timezone.utc)
@@ -2837,12 +2913,7 @@ def validate_model_package_file(package: Path, language: str = "de") -> dict[str
                 weight_info = archive.getinfo(weight_name)
                 if weight_info.file_size > 4 * 1024**3:
                     raise SystemExit(localized(language, "Gewichtsdatei ist zu groß.", "Weights file is too large."))
-                checksum = hashlib.sha256()
-                with archive.open(weight_name) as weights:
-                    for chunk in iter(lambda: weights.read(1024 * 1024), b""):
-                        checksum.update(chunk)
-                if checksum.hexdigest() != member.get("sha256"):
-                    raise SystemExit(localized(language, f"Prüfsumme stimmt nicht: {member.get('packageID')}", f"Checksum does not match: {member.get('packageID')}"))
+                verify_zip_weight_entry(archive, weight_name, str(member.get("sha256")), language, str(member.get("packageID") or weight_name))
         else:
             if len(names) != 2:
                 raise SystemExit(localized(language, "Modellpaket muss genau Manifest und Gewichte enthalten.", "The model package must contain exactly a manifest and weights.", "El paquete debe contener exactamente el manifiesto y los pesos.", "Le paquet doit contenir exactement le manifeste et les poids."))
@@ -2852,13 +2923,7 @@ def validate_model_package_file(package: Path, language: str = "de") -> dict[str
             weight_info = archive.getinfo(weight_name)
             if weight_info.file_size > 4 * 1024**3:
                 raise SystemExit(localized(language, "Gewichtsdatei ist zu groß.", "Weights file is too large."))
-            checksum = hashlib.sha256()
-            with archive.open(weight_name) as weights:
-                for chunk in iter(lambda: weights.read(1024 * 1024), b""):
-                    checksum.update(chunk)
-            digest = checksum.hexdigest()
-            if digest != manifest.get("weights", {}).get("sha256"):
-                raise SystemExit(localized(language, "Prüfsumme stimmt nicht.", "Checksum does not match.", "La suma de verificación no coincide.", "La somme de contrôle ne correspond pas."))
+            verify_zip_weight_entry(archive, weight_name, str(manifest.get("weights", {}).get("sha256")), language, "")
     return manifest
 
 

@@ -1027,13 +1027,17 @@ def ml_action(action: str, payload: dict) -> None:
                 package_file = Path(str(payload.get("file", ""))).resolve()
                 if not package_file.is_file() or package_file.suffix.lower() != ".recomodel":
                     raise RuntimeError("Das ausgewählte Modellpaket ist nicht verfügbar.")
-                executable = system_python()
+                # Prefer the venv (not required, unlike autolabel/train/benchmark
+                # below) so validate_model_package_file()'s torch.load(weights_only=True)
+                # code-safety scan can actually run when a venv exists; it degrades
+                # to checksum-only validation via the system Python otherwise.
+                executable = venv_python if venv_python.is_file() else system_python()
                 args = ["install-package", "--project", str(root), "--file", str(package_file), "--language", language]
             elif action == "package-model":
-                executable = system_python()
+                executable = venv_python if venv_python.is_file() else system_python()
                 args = ["package", "--project", str(root), "--model", model, "--name", str(payload.get("name", "")), "--language", language]
             elif action == "combine-models":
-                executable = system_python()
+                executable = venv_python if venv_python.is_file() else system_python()
                 members = payload.get("members") or []
                 if not isinstance(members, list) or not members:
                     raise RuntimeError("Mindestens zwei Modelle für ein kombiniertes Modell auswählen.")

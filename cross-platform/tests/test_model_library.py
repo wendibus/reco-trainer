@@ -1009,6 +1009,106 @@ class EnsemblePackageValidationTests(unittest.TestCase):
                 ml_worker.validate_model_package_file(package, "en")
 
 
+class WeightsPickleSafetyTests(unittest.TestCase):
+    """A matching checksum only proves a weights file matches what its own
+    manifest claims - it does not prove the file is safe, since an attacker
+    controls both the file and its checksum. verify_weights_pickle_safety()
+    is the actual protection: it requires torch.load(..., weights_only=True),
+    PyTorch's own allowlist-based safe loader, to accept the file before it is
+    trusted. Real torch is not a test dependency here (matches the existing
+    DoctorCudaDetectionTests pattern above), so a fake "torch" module is
+    injected to test both outcomes of that call, and the ImportError path is
+    tested by simply *not* injecting one - torch is not installed in this
+    test environment either, so that path runs for real.
+    """
+
+    def _install_fake_torch(self, *, accepts: bool):
+        import importlib.machinery
+        module = types.ModuleType("torch")
+        module.__spec__ = importlib.machinery.ModuleSpec("torch", loader=None)
+        def fake_load(*_args, **_kwargs):
+            if not accepts:
+                raise RuntimeError("Weights only load failed: disallowed global found")
+            return {}
+        module.load = fake_load
+        sys.modules["torch"] = module
+        self.addCleanup(sys.modules.pop, "torch", None)
+
+    def test_accepts_a_file_torch_reports_as_safe(self):
+        self._install_fake_torch(accepts=True)
+        with tempfile.TemporaryDirectory() as temporary:
+            weights = Path(temporary) / "model.pth"
+            weights.write_bytes(b"looks-like-tensor-data")
+            ml_worker.verify_weights_pickle_safety(weights, "en", "model.pth")
+
+    def test_rejects_a_file_torch_reports_as_unsafe(self):
+        self._install_fake_torch(accepts=False)
+        with tempfile.TemporaryDirectory() as temporary:
+            weights = Path(temporary) / "model.pth"
+            weights.write_bytes(b"pickled-exploit-payload")
+            with self.assertRaises(SystemExit):
+                ml_worker.verify_weights_pickle_safety(weights, "en", "model.pth")
+
+    def test_skips_gracefully_when_torch_is_not_installed(self):
+        sys.modules.pop("torch", None)
+        with tempfile.TemporaryDirectory() as temporary:
+            weights = Path(temporary) / "model.pth"
+            weights.write_bytes(b"anything")
+            # Must not raise - checksum validation (tested separately) is the
+            # only guarantee available without torch, and that is acceptable
+            # degraded behavior, not a silent bypass of the checksum check.
+            ml_worker.verify_weights_pickle_safety(weights, "en", "model.pth")
+
+    def test_verify_zip_weight_entry_rejects_a_checksum_mismatch_before_scanning_content(self):
+        self._install_fake_torch(accepts=True)
+        with tempfile.TemporaryDirectory() as temporary:
+            package = Path(temporary) / "one.zip"
+            with zipfile.ZipFile(package, "w") as archive:
+                archive.writestr("weights/one.pth", b"real-bytes")
+            with zipfile.ZipFile(package) as archive:
+                with self.assertRaises(SystemExit):
+                    ml_worker.verify_zip_weight_entry(archive, "weights/one.pth", "0" * 64, "en", "one")
+
+    def test_verify_zip_weight_entry_rejects_unsafe_content_with_a_correct_checksum(self):
+        self._install_fake_torch(accepts=False)
+        payload = b"real-bytes"
+        digest = ml_worker.hashlib.sha256(payload).hexdigest()
+        with tempfile.TemporaryDirectory() as temporary:
+            package = Path(temporary) / "one.zip"
+            with zipfile.ZipFile(package, "w") as archive:
+                archive.writestr("weights/one.pth", payload)
+            with zipfile.ZipFile(package) as archive:
+                with self.assertRaises(SystemExit):
+                    ml_worker.verify_zip_weight_entry(archive, "weights/one.pth", digest, "en", "one")
+
+    def test_verify_zip_weight_entry_accepts_matching_checksum_and_safe_content(self):
+        self._install_fake_torch(accepts=True)
+        payload = b"real-bytes"
+        digest = ml_worker.hashlib.sha256(payload).hexdigest()
+        with tempfile.TemporaryDirectory() as temporary:
+            package = Path(temporary) / "one.zip"
+            with zipfile.ZipFile(package, "w") as archive:
+                archive.writestr("weights/one.pth", payload)
+            with zipfile.ZipFile(package) as archive:
+                ml_worker.verify_zip_weight_entry(archive, "weights/one.pth", digest, "en", "one")
+
+    def test_validate_model_package_file_rejects_a_package_whose_weights_are_unsafe(self):
+        self._install_fake_torch(accepts=False)
+        payload = b"real-bytes"
+        manifest = {
+            "schemaVersion": 1, "packageID": "reco-basketball-nano-1", "sport": "basketball",
+            "modelSize": "nano", "classes": ["ball"],
+            "weights": {"file": "weights/checkpoint.pth", "sha256": ml_worker.hashlib.sha256(payload).hexdigest()},
+        }
+        with tempfile.TemporaryDirectory() as temporary:
+            package = Path(temporary) / "model.recomodel"
+            with zipfile.ZipFile(package, "w") as archive:
+                archive.writestr("manifest.json", json.dumps(manifest))
+                archive.writestr("weights/checkpoint.pth", payload)
+            with self.assertRaises(SystemExit):
+                ml_worker.validate_model_package_file(package, "en")
+
+
 class AutoLabelEnsembleDispatchTests(unittest.TestCase):
     """Using a combined/ensemble model: auto_label() must run each member only
     for the categories it was assigned when the model was combined, not the

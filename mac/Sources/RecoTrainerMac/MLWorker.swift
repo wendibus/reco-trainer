@@ -242,14 +242,21 @@ struct MLWorker: Sendable {
         fileURL: URL,
         language: AppLanguage
     ) async throws -> InstalledModelResponse {
+        // preferVenv so validate_model_package_file()'s torch.load(weights_only=True)
+        // code-safety scan can actually run (it needs torch); runPython already
+        // falls back to the system Python when no venv exists yet, in which case
+        // that scan degrades to checksum-only validation, same as before. Real
+        // torch (or the scan's own graceful-skip note) can now print to the same
+        // merged stdout+stderr stream ahead of the final JSON - decodeLastJSONLine
+        // is required here for the same reason simulateBallTracking needs it.
         let output = try await runPython(
             arguments: [
                 try workerURL.path, "install-package", "--project", projectRoot.path,
                 "--file", fileURL.path, "--language", language.rawValue
             ],
-            preferVenv: false
+            preferVenv: true
         )
-        return try JSONDecoder().decode(InstalledModelResponse.self, from: Data(output.utf8))
+        return try Self.decodeLastJSONLine(InstalledModelResponse.self, from: output)
     }
 
     func activateModel(packageID: String, language: AppLanguage) async throws -> ActivatedModelResponse {
