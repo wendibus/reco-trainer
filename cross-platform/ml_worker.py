@@ -19,6 +19,7 @@ import os
 import platform
 import re
 import shutil
+import stat
 import sys
 import tempfile
 import time
@@ -365,6 +366,14 @@ def ensemble_member_model(package_dir: Path, member: dict[str, Any], language: s
             f"Gewichtsdatei für kombiniertes Modell fehlt: {member.get('packageID')}",
             f"Weights file for combined model is missing: {member.get('packageID')}",
         ))
+    # Unconditional, regardless of whether this exact file was already scanned
+    # at install time (it may not have been, if torch wasn't set up yet back
+    # then, or the file reached the library some other way) - this is the
+    # actual gate that stands between an untrusted weights file and RF-DETR's
+    # own unsafe (non-weights_only) torch.load() below. torch is guaranteed
+    # importable here already (model_class itself required it), so this never
+    # silently degrades at this call site the way it can at install time.
+    verify_weights_pickle_safety(weight_path, language, str(member.get("packageID") or weight_path.name))
     return model_class(pretrain_weights=str(weight_path), device=detect_device())
 
 
@@ -373,6 +382,7 @@ def model_instance(project_root: Path, size: str, trained: bool, language: str =
     checkpoint = newest_checkpoint(project_root, size) if trained else None
     kwargs: dict[str, Any] = {"device": detect_device()}
     if checkpoint:
+        verify_weights_pickle_safety(checkpoint, language, checkpoint.name)
         kwargs["pretrain_weights"] = str(checkpoint)
         emit(localized(language, f"Lade trainiertes Modell: {checkpoint.name}", f"Loading trained model: {checkpoint.name}"))
     else:
@@ -689,6 +699,7 @@ def benchmark(args: argparse.Namespace) -> None:
                     inference_seconds += member_seconds
             else:
                 model_class = import_model_class(str(manifest["modelSize"]), args.language)
+                verify_weights_pickle_safety(weight_path, args.language, package_id)
                 model = model_class(pretrain_weights=str(weight_path), device=device)
                 loaded_models.append(model)
                 profile = training_profile(str(manifest["modelSize"]), device)
@@ -1356,6 +1367,7 @@ def flag_ensemble_disagreement(
         else:
             model_class = import_model_class(str(manifest["modelSize"]), language)
             weight_path = (package_dir / "weights" / Path(str(manifest.get("weights", {}).get("file", ""))).name).resolve()
+            verify_weights_pickle_safety(weight_path, language, str(manifest.get("packageID") or weight_path.name))
             model = model_class(pretrain_weights=str(weight_path), device=device)
             secondary_boxes = predict_boxes(model, project_root, frames, package_classes, category_map, threshold, batch_size)
             del model
@@ -2897,6 +2909,14 @@ def validate_model_package_file(package: Path, language: str = "de") -> dict[str
                 raise SystemExit(localized(language, "Unsicherer Pfad im Modellpaket.", "Unsafe path in model package.", "Ruta no segura en el paquete.", "Chemin non sécurisé dans le paquet."))
             if name != "manifest.json" and not (name.startswith("weights/") and path.suffix in {".pth", ".ckpt"}):
                 raise SystemExit(localized(language, f"Unzulässige Datei im Modellpaket: {name}", f"Disallowed file in model package: {name}"))
+            # Defense in depth: reject anything that isn't a plain regular file
+            # entry (e.g. a symlink) even though the extraction path below reads
+            # entry bytes directly rather than following filesystem links, so
+            # this isn't a live traversal exploit today - it closes the door on
+            # that ever becoming one if the extraction method changes later.
+            unix_mode = archive.getinfo(name).external_attr >> 16
+            if unix_mode and stat.S_ISLNK(unix_mode):
+                raise SystemExit(localized(language, f"Unzulässiger Symlink im Modellpaket: {name}", f"Disallowed symlink in model package: {name}"))
 
         ensemble = manifest.get("ensemble") if schema_version == 2 else None
         if ensemble:
@@ -3097,6 +3117,7 @@ def export_model(args: argparse.Namespace) -> None:
         ))
 
     model_class = import_model_class(args.model, args.language)
+    verify_weights_pickle_safety(checkpoint, args.language, checkpoint.name)
     model = model_class(pretrain_weights=str(checkpoint), device="cpu")
     export_dir = project_root / "exports" / args.format
     export_dir.mkdir(parents=True, exist_ok=True)

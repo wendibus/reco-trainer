@@ -1108,6 +1108,89 @@ class WeightsPickleSafetyTests(unittest.TestCase):
             with self.assertRaises(SystemExit):
                 ml_worker.validate_model_package_file(package, "en")
 
+    def test_rejects_a_symlink_entry_even_with_a_correct_checksum(self):
+        payload = b"real-bytes"
+        manifest = {
+            "schemaVersion": 1, "packageID": "reco-basketball-nano-1", "sport": "basketball",
+            "modelSize": "nano", "classes": ["ball"],
+            "weights": {"file": "weights/checkpoint.pth", "sha256": ml_worker.hashlib.sha256(payload).hexdigest()},
+        }
+        with tempfile.TemporaryDirectory() as temporary:
+            package = Path(temporary) / "model.recomodel"
+            with zipfile.ZipFile(package, "w") as archive:
+                archive.writestr("manifest.json", json.dumps(manifest))
+                info = zipfile.ZipInfo("weights/checkpoint.pth")
+                info.external_attr = (0o120777 << 16)  # S_IFLNK
+                archive.writestr(info, payload)
+            with self.assertRaises(SystemExit):
+                ml_worker.validate_model_package_file(package, "en")
+
+
+class ModelInstanceSafetyGateTests(unittest.TestCase):
+    """model_instance() is the single place almost every real model-loading
+    call site funnels through - the mandatory verify_weights_pickle_safety()
+    call added there (alongside equivalent ones in ensemble_member_model(),
+    benchmark(), flag_ensemble_disagreement(), and export_model()) is the
+    actual gate between an on-disk weights file and RF-DETR's own unsafe
+    (non-weights_only) torch.load() - regardless of whether that exact file
+    was already scanned once at install time (it may not have been, e.g. if
+    torch wasn't set up yet back then, or the file reached the library some
+    other way).
+    """
+
+    def _install_fake_torch(self, *, accepts: bool):
+        import importlib.machinery
+        module = types.ModuleType("torch")
+        module.__spec__ = importlib.machinery.ModuleSpec("torch", loader=None)
+        module.backends = types.SimpleNamespace(mps=types.SimpleNamespace(is_available=lambda: False))
+        module.cuda = types.SimpleNamespace(is_available=lambda: False)
+        def fake_load(*_args, **_kwargs):
+            if not accepts:
+                raise RuntimeError("Weights only load failed: disallowed global found")
+            return {}
+        module.load = fake_load
+        sys.modules["torch"] = module
+        self.addCleanup(sys.modules.pop, "torch", None)
+
+    def _project_with_checkpoint(self, root: Path) -> Path:
+        ml_worker.atomic_json(root / "project.json", {"sport": "basketball", "frames": []})
+        checkpoint = root / "runs" / "nano" / "checkpoint_best_total.pth"
+        checkpoint.parent.mkdir(parents=True)
+        checkpoint.write_bytes(b"pretend-checkpoint-bytes")
+        return checkpoint
+
+    def test_rejects_an_unsafe_checkpoint_before_constructing_the_model(self):
+        self._install_fake_torch(accepts=False)
+        class FakeModel:
+            def __init__(self, **_kwargs):
+                raise AssertionError("must not construct the model for a rejected checkpoint")
+        original = ml_worker.import_model_class
+        ml_worker.import_model_class = lambda *_a, **_k: FakeModel
+        try:
+            with tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                self._project_with_checkpoint(root)
+                with self.assertRaises(SystemExit):
+                    ml_worker.model_instance(root, "nano", trained=True, language="en")
+        finally:
+            ml_worker.import_model_class = original
+
+    def test_constructs_the_model_when_the_checkpoint_is_safe(self):
+        self._install_fake_torch(accepts=True)
+        class FakeModel:
+            def __init__(self, **kwargs):
+                self.kwargs = kwargs
+        original = ml_worker.import_model_class
+        ml_worker.import_model_class = lambda *_a, **_k: FakeModel
+        try:
+            with tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                checkpoint = self._project_with_checkpoint(root)
+                model = ml_worker.model_instance(root, "nano", trained=True, language="en")
+                self.assertEqual(model.kwargs["pretrain_weights"], str(checkpoint))
+        finally:
+            ml_worker.import_model_class = original
+
 
 class AutoLabelEnsembleDispatchTests(unittest.TestCase):
     """Using a combined/ensemble model: auto_label() must run each member only

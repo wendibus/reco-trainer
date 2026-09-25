@@ -1,5 +1,9 @@
 # Änderungen
 
+## 0.14.3
+
+- Die Code-Sicherheitsprüfung für Modellpakete läuft jetzt zusätzlich verpflichtend unmittelbar vor jeder tatsächlichen Nutzung einer Gewichtsdatei (Training, automatisches Markieren, Modellvergleich, Export) - nicht mehr nur beim Import, wo sie bei fehlender ML-Umgebung übersprungen werden konnte. Zip-Einträge, die als Symlink markiert sind, werden jetzt ebenfalls grundsätzlich abgelehnt.
+
 ## 0.14.2
 
 - Modellpakete (.recomodel) werden beim Import (und beim Erstellen/Kombinieren) jetzt zusätzlich mit PyTorchs sicherem Lademodus (weights_only) geprüft: Gewichtsdateien, die mehr als reine Modelldaten enthalten - etwa ausführbaren Code -, werden erkannt und abgelehnt, nicht nur per Prüfsumme verglichen. Ohne eingerichtete ML-Umgebung wird weiterhin nur die Prüfsumme geprüft.

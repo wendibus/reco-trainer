@@ -30,7 +30,7 @@ final class AppState: ObservableObject {
     /// CFBundleShortVersionString (Info.plist) and VERSION (package-platforms.sh)
     /// at every release. Used both for the "what's new" sheet and for deciding
     /// whether a fetched GitHub release is actually newer than what's running.
-    static let appVersion = "0.14.2"
+    static let appVersion = "0.14.3"
 
     @Published var language: AppLanguage = .de
     @Published var sport: Sport = .football
