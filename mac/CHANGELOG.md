@@ -1,5 +1,10 @@
 # Änderungen
 
+## 0.15.1
+
+- Der in 0.15.0 neu eingeführte Video-Einführung konnte im gepackten App-Bundle nicht gefunden werden ("Video nicht gefunden") - die Ressourcen-Suche prüfte den falschen Pfad innerhalb des Bundles. Behoben.
+- Der Dialog „Neu in Reco Trainer“ zeigte bei jedem Versions-Update die gesamte Änderungshistorie vergangener Versionen statt nur der aktuellen - jetzt wirklich nur die Neuerungen der jeweils installierten Version.
+
 ## 0.15.0
 
 - Neue Video-Einführung beim ersten Start: Nach der Sprachwahl kannst du zwischen einem rund einminütigen Video und der bisherigen Schritt-für-Schritt-Anleitung wählen. Das Video liegt in allen vier Sprachen mit passenden Untertiteln vor, läuft vollständig lokal und zeigt bewusst KI-generiertes Beispielmaterial statt echter Aufnahmen. Jederzeit erneut über „Ablauf erklären“ aufrufbar.
