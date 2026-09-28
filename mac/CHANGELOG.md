@@ -1,5 +1,9 @@
 # Änderungen
 
+## 0.15.2
+
+- Die Video-Einführung stürzte beim Start des Videos ab (SIGABRT in Apples privatem _AVKit_SwiftUI-Framework, einer bekannten Schwachstelle von SwiftUIs `VideoPlayer` unter macOS 27). Die Wiedergabe läuft jetzt über AVKits klassische `AVPlayerView` statt über SwiftUIs `VideoPlayer` und umgeht damit das betroffene Framework vollständig.
+
 ## 0.15.1
 
 - Der in 0.15.0 neu eingeführte Video-Einführung konnte im gepackten App-Bundle nicht gefunden werden ("Video nicht gefunden") - die Ressourcen-Suche prüfte den falschen Pfad innerhalb des Bundles. Behoben.

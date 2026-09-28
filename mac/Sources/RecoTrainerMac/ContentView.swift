@@ -1571,8 +1571,8 @@ private struct WhatsNewSheet: View {
     private var changes: [(String, String)] {
         [
             (
-                language.text("Video-Einführung beim ersten Start", "Video walkthrough on first launch", "Vídeo introductorio al primer inicio", "Vidéo d’introduction au premier lancement"),
-                language.text("Nach der Sprachwahl fragt Reco Trainer jetzt, ob du lieber ein rund einminütiges Video ansehen oder die bisherige Schritt-für-Schritt-Anleitung durchklicken möchtest - beides zeigt denselben Ablauf. Das Video ist in allen vier Sprachen mit passenden Untertiteln hinterlegt und läuft vollständig lokal, ohne Internetverbindung. Es zeigt bewusst KI-generiertes Beispielmaterial statt echter Aufnahmen - Reco Trainer nimmt Datenhoheit ernst, auch bei der eigenen Einführung. Über „Ablauf erklären“ jederzeit erneut aufrufbar.", "After choosing a language, Reco Trainer now asks whether you'd rather watch a roughly one-minute video or click through the existing step-by-step guide - both cover the same workflow. The video has matching captions in all four languages and plays entirely locally, with no internet connection needed. It deliberately uses AI-generated sample footage instead of real recordings - Reco Trainer takes data ownership seriously, even for its own introduction. Reachable again any time via „Show workflow“.", "Tras elegir el idioma, Reco Trainer ahora pregunta si prefieres ver un vídeo de aproximadamente un minuto o recorrer la guía paso a paso ya existente - ambas opciones muestran el mismo proceso. El vídeo incluye subtítulos a juego en los cuatro idiomas y se reproduce completamente en local, sin necesidad de conexión a internet. Usa deliberadamente material de ejemplo generado por IA en lugar de grabaciones reales - Reco Trainer se toma en serio la soberanía de los datos, incluso en su propia introducción. Se puede volver a abrir en cualquier momento desde „Mostrar el flujo“.", "Après avoir choisi une langue, Reco Trainer demande désormais si vous préférez regarder une vidéo d’environ une minute ou parcourir le guide étape par étape existant - les deux présentent le même parcours. La vidéo dispose de sous-titres correspondants dans les quatre langues et se lit entièrement en local, sans connexion internet. Elle utilise volontairement des images d’exemple générées par IA plutôt que de vrais enregistrements - Reco Trainer prend la souveraineté des données au sérieux, même pour sa propre introduction. Accessible à nouveau à tout moment via « Afficher le parcours ».")
+                language.text("Video-Einführung: Absturz beim Start behoben", "Video walkthrough: fixed a crash on start", "Vídeo introductorio: corregido un fallo al iniciar", "Vidéo d’introduction : correction d’un plantage au démarrage"),
+                language.text("Die in der letzten Version neu hinzugekommene Video-Einführung konnte abstürzen, sobald das Video startete - verursacht durch einen Fehler in Apples privatem Video-Framework, den SwiftUIs Standardkomponente für Videowiedergabe auf neueren macOS-Versionen auslösen kann. Die Wiedergabe läuft jetzt über AVKits altbewährte, eigenständige Videoansicht statt über diese SwiftUI-Komponente und umgeht damit den betroffenen Code vollständig.", "The video walkthrough added in the previous version could crash as soon as the video started - caused by a bug in Apple's private video framework that SwiftUI's standard video-playback component can trigger on newer macOS versions. Playback now goes through AVKit's long-established, standalone video view instead of that SwiftUI component, sidestepping the affected code entirely.", "El vídeo introductorio añadido en la versión anterior podía fallar en cuanto arrancaba el vídeo - causado por un error en el framework de vídeo privado de Apple que el componente estándar de reproducción de vídeo de SwiftUI puede provocar en versiones más recientes de macOS. La reproducción ahora pasa por la vista de vídeo independiente y consolidada de AVKit en lugar de ese componente de SwiftUI, evitando por completo el código afectado.", "La vidéo d’introduction ajoutée dans la version précédente pouvait planter dès que la vidéo démarrait - causé par un bug dans le framework vidéo privé d’Apple que le composant standard de lecture vidéo de SwiftUI peut déclencher sur les versions récentes de macOS. La lecture passe désormais par la vue vidéo autonome et éprouvée d’AVKit plutôt que par ce composant SwiftUI, évitant entièrement le code concerné.")
             )
         ]
     }
@@ -1732,7 +1732,7 @@ private struct VideoWalkthroughSheet: View {
                     .buttonStyle(.borderedProminent)
             }
             if let player {
-                VideoPlayer(player: player)
+                AVPlayerContainerView(player: player)
                     .frame(width: 720, height: 405)
                     .clipShape(RoundedRectangle(cornerRadius: 12))
             } else {
@@ -1755,6 +1755,26 @@ private struct VideoWalkthroughSheet: View {
         .onDisappear {
             player?.pause()
         }
+    }
+}
+
+/// Wraps AVKit's AppKit AVPlayerView instead of SwiftUI's VideoPlayer, which
+/// crashes on launch (EXC_CRASH/SIGABRT inside _AVKit_SwiftUI's Swift metadata
+/// resolution) on this machine's macOS 27 beta. AVPlayerView doesn't go
+/// through that bridging framework at all.
+private struct AVPlayerContainerView: NSViewRepresentable {
+    let player: AVPlayer
+
+    func makeNSView(context: Context) -> AVPlayerView {
+        let view = AVPlayerView()
+        view.player = player
+        view.controlsStyle = .floating
+        view.showsFullScreenToggleButton = true
+        return view
+    }
+
+    func updateNSView(_ nsView: AVPlayerView, context: Context) {
+        nsView.player = player
     }
 }
 
