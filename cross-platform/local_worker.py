@@ -53,6 +53,24 @@ def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
+def localized(german: str, english: str, spanish: str | None = None, french: str | None = None) -> str:
+    """Pick the right translation for STATE's current language (see
+    LocalState.language, set from each request's "language" field in
+    do_POST()). Mirrors ml_worker.py's localized() helper, which every
+    subprocess action already uses via its own --language argument - this is
+    the equivalent for status/error text generated directly in this file
+    rather than by a ml_worker.py subprocess.
+    """
+    language = STATE.language
+    if language == "en":
+        return english
+    if language == "es":
+        return spanish or english
+    if language == "fr":
+        return french or english
+    return german
+
+
 def atomic_json(path: Path, value: dict) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_suffix(path.suffix + ".tmp")
@@ -75,7 +93,7 @@ def backup_project(root: Path, reason: str) -> Path | None:
     return target
 
 
-_ACCELERATOR_CACHE: dict[str, str] = {}
+_ACCELERATOR_CACHE: dict[str, dict] = {}
 
 
 def hardware_summary() -> dict:
@@ -89,7 +107,12 @@ def hardware_summary() -> dict:
         "machine": machine,
         "cpuCores": os.cpu_count() or 1,
         "memoryGB": round(memory / (1024 ** 3)) if memory else None,
-        "accelerator": "Apple GPU · Metal/MPS" if sys.platform == "darwin" and machine == "arm64" else non_apple_accelerator(),
+        # A structured {"kind": ..., "gpuName": ...} rather than a pre-rendered
+        # label - this used to be a hardcoded German (or English, for the Apple
+        # case) string baked in here regardless of the UI's selected language,
+        # since this function has no idea which language the client is using.
+        # The frontend renders the actual localized label from "kind".
+        "accelerator": {"kind": "apple-gpu"} if sys.platform == "darwin" and machine == "arm64" else non_apple_accelerator(),
     }
 
 
@@ -112,8 +135,10 @@ def detect_nvidia_gpu_name() -> str | None:
     return result.stdout.strip().splitlines()[0] if result.returncode == 0 and result.stdout.strip() else None
 
 
-def non_apple_accelerator() -> str:
-    """Best-effort accelerator label for Windows/Linux.
+def non_apple_accelerator() -> dict:
+    """Best-effort accelerator info for Windows/Linux, as {"kind": ..., "gpuName": ...}
+    rather than a rendered label (see hardware_summary()) - "kind" is one of
+    "cuda", "cpu-no-cuda", "cuda-pending", "cpu".
 
     Previously this branch was hardcoded to "CPU" unconditionally, so Windows
     users with a working NVIDIA GPU had no way to tell from the app whether
@@ -143,13 +168,13 @@ def non_apple_accelerator() -> str:
                 )
                 if result.returncode == 0 and result.stdout.strip():
                     payload = json.loads(result.stdout.strip().splitlines()[-1])
-                    label = (
-                        f"NVIDIA-GPU · CUDA ({payload['name']})" if payload.get("cuda") and payload.get("name")
-                        else "NVIDIA-GPU · CUDA" if payload.get("cuda")
-                        else "CPU (PyTorch ohne CUDA-Unterstützung installiert)"
+                    info = (
+                        {"kind": "cuda", "gpuName": payload["name"]} if payload.get("cuda") and payload.get("name")
+                        else {"kind": "cuda"} if payload.get("cuda")
+                        else {"kind": "cpu-no-cuda"}
                     )
-                    _ACCELERATOR_CACHE[cache_key] = label
-                    return label
+                    _ACCELERATOR_CACHE[cache_key] = info
+                    return info
             except (OSError, subprocess.TimeoutExpired, ValueError, json.JSONDecodeError, KeyError):
                 pass
     # No venv yet (or its torch probe failed) - fall back to raw GPU presence
@@ -160,9 +185,9 @@ def non_apple_accelerator() -> str:
     if pre_setup_cached is not None:
         return pre_setup_cached
     name = detect_nvidia_gpu_name()
-    label = f"NVIDIA-GPU erkannt ({name}) · ML noch nicht eingerichtet" if name else "CPU"
-    _ACCELERATOR_CACHE["pre-setup"] = label
-    return label
+    info = {"kind": "cuda-pending", "gpuName": name} if name else {"kind": "cpu"}
+    _ACCELERATOR_CACHE["pre-setup"] = info
+    return info
 
 
 def safe_name(value: str) -> str:
@@ -182,6 +207,12 @@ class LocalState:
         self.busy = False
         self.error: str | None = None
         self.simulation: dict | None = None
+        # Updated from the "language" field of every request body (see
+        # do_POST()) - every status/error message this file itself generates
+        # (as opposed to ml_worker.py subprocess output, which already gets an
+        # explicit --language argument per call) reads this via localized()
+        # rather than being threaded through as an explicit parameter.
+        self.language = "de"
 
     def update(self, **values) -> None:
         with self.lock:
@@ -347,13 +378,23 @@ def freeze_ground_truth() -> dict:
     root = STATE.project_root
     project = STATE.project
     if root is None or project is None:
-        raise RuntimeError("Kein lokales Projekt geöffnet.")
+        raise RuntimeError(localized("Kein lokales Projekt geöffnet.", "No local project is open.", "No hay ningún proyecto local abierto.", "Aucun projet local n’est ouvert."))
     frames = [frame for frame in project.get("frames", []) if frame.get("reviewStatus") != "candidate" and frame.get("heldOut")]
     if not frames:
-        raise RuntimeError("Das Projekt enthält keine unabhängigen Testbilder. Zuerst unter „Unabhängiger Modelltest“ einen Videoordner prüfen, der nicht zum Training verwendet wurde.")
+        raise RuntimeError(localized(
+            "Das Projekt enthält keine unabhängigen Testbilder. Zuerst unter „Unabhängiger Modelltest“ einen Videoordner prüfen, der nicht zum Training verwendet wurde.",
+            "The project contains no independent test images yet. First review a video folder that was never used for training under “Independent model test”.",
+            "El proyecto todavía no tiene imágenes de prueba independientes. Primero revisa una carpeta de vídeos nunca usada para entrenar en “Prueba de modelo independiente”.",
+            "Le projet ne contient pas encore d’images de test indépendantes. Vérifiez d’abord un dossier vidéo jamais utilisé pour l’entraînement sous « Test de modèle indépendant ».",
+        ))
     pending = sum(annotation.get("source") == "auto" for frame in frames for annotation in frame.get("annotations", []))
     if pending:
-        raise RuntimeError("Vor dem Modelltest alle automatischen Vorschläge übernehmen, korrigieren oder verwerfen.")
+        raise RuntimeError(localized(
+            "Vor dem Modelltest alle automatischen Vorschläge übernehmen, korrigieren oder verwerfen.",
+            "Accept, correct, or reject every automatic suggestion before the model test.",
+            "Antes de la prueba del modelo, acepta, corrige o rechaza cada sugerencia automática.",
+            "Avant le test du modèle, acceptez, corrigez ou rejetez chaque suggestion automatique.",
+        ))
     allowed = set(SPORT_CATEGORIES.get(project.get("sport"), []))
     reference_frames = []
     for frame in frames:
@@ -378,7 +419,10 @@ def freeze_ground_truth() -> dict:
         })
     annotation_count = sum(len(frame["annotations"]) for frame in reference_frames)
     if annotation_count == 0:
-        raise RuntimeError("Mindestens eine richtige Box muss vor dem Modelltest festgelegt sein.")
+        raise RuntimeError(localized(
+            "Mindestens eine richtige Box muss vor dem Modelltest festgelegt sein.", "At least one correct box must be set before the model test.",
+            "Debe haber al menos un cuadro correcto antes de la prueba del modelo.", "Au moins une boîte correcte doit être définie avant le test du modèle.",
+        ))
     canonical = json.dumps({"sport": project.get("sport"), "frames": reference_frames}, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     reference = {
         "schemaVersion": 1,
@@ -389,7 +433,10 @@ def freeze_ground_truth() -> dict:
         "reviewStatement": "Every frame was explicitly frozen as ground truth; frames without boxes are intentional negatives.",
     }
     atomic_json(root / "benchmarks" / "ground-truth.json", reference)
-    STATE.update(message=f"Referenz mit {len(reference_frames)} Bildern und {annotation_count} Boxen festgelegt.")
+    STATE.update(message=localized(
+        f"Referenz mit {len(reference_frames)} Bildern und {annotation_count} Boxen festgelegt.", f"Reference frozen with {len(reference_frames)} images and {annotation_count} boxes.",
+        f"Referencia fijada con {len(reference_frames)} imágenes y {annotation_count} cuadros.", f"Référence figée avec {len(reference_frames)} images et {annotation_count} boîtes.",
+    ))
     return benchmark_snapshot(root)
 
 
@@ -399,19 +446,24 @@ def choose_video_folder(*, expansion: bool = False) -> Path:
         if expansion else
         os.environ.get("RECO_VIDEO_FOLDER") or os.environ.get("RECO_TEST_FOLDER")
     )
-    prompt = "Ordner mit neuen, noch nicht verwendeten Sportvideos auswählen" if expansion else "Ordner mit Sportvideos auswählen"
+    prompt = localized(
+        "Ordner mit neuen, noch nicht verwendeten Sportvideos auswählen" if expansion else "Ordner mit Sportvideos auswählen",
+        "Select a folder with new, not yet used sports videos" if expansion else "Select a folder with sports videos",
+        "Selecciona una carpeta con vídeos deportivos nuevos aún no usados" if expansion else "Selecciona una carpeta con vídeos deportivos",
+        "Sélectionnez un dossier contenant de nouvelles vidéos sportives pas encore utilisées" if expansion else "Sélectionnez un dossier contenant des vidéos sportives",
+    )
     if configured_folder:
         selected = Path(configured_folder).expanduser().resolve()
     elif sys.platform == "darwin":
         script = f'POSIX path of (choose folder with prompt "{prompt}")'
         result = subprocess.run(["/usr/bin/osascript", "-e", script], capture_output=True, text=True, check=False)
         if result.returncode != 0:
-            raise RuntimeError("Ordnerauswahl wurde abgebrochen.")
+            raise RuntimeError(localized("Ordnerauswahl wurde abgebrochen.", "Folder selection was cancelled.", "Se canceló la selección de carpeta.", "La sélection du dossier a été annulée."))
         selected = Path(result.stdout.strip()).resolve()
     elif sys.platform == "win32":
         powershell = shutil.which("powershell") or shutil.which("pwsh")
         if not powershell:
-            raise RuntimeError("PowerShell wurde für die native Ordnerauswahl nicht gefunden.")
+            raise RuntimeError(localized("PowerShell wurde für die native Ordnerauswahl nicht gefunden.", "PowerShell was not found for the native folder picker.", "No se encontró PowerShell para el selector de carpetas nativo.", "PowerShell est introuvable pour le sélecteur de dossier natif."))
         script = (
             "Add-Type -AssemblyName System.Windows.Forms; "
             "$dialog = New-Object System.Windows.Forms.FolderBrowserDialog; "
@@ -420,7 +472,7 @@ def choose_video_folder(*, expansion: bool = False) -> Path:
         )
         result = subprocess.run([powershell, "-NoProfile", "-Command", script], capture_output=True, text=True, check=False)
         if result.returncode != 0 or not result.stdout.strip():
-            raise RuntimeError("Ordnerauswahl wurde abgebrochen.")
+            raise RuntimeError(localized("Ordnerauswahl wurde abgebrochen.", "Folder selection was cancelled.", "Se canceló la selección de carpeta.", "La sélection du dossier a été annulée."))
         selected = Path(result.stdout.strip()).resolve()
     else:
         dialog = shutil.which("zenity")
@@ -428,13 +480,13 @@ def choose_video_folder(*, expansion: bool = False) -> Path:
         if command is None and shutil.which("kdialog"):
             command = [shutil.which("kdialog"), "--getexistingdirectory", str(Path.home())]
         if command is None:
-            raise RuntimeError("Für die Ordnerauswahl bitte Zenity oder KDialog installieren oder RECO_VIDEO_FOLDER setzen.")
+            raise RuntimeError(localized("Für die Ordnerauswahl bitte Zenity oder KDialog installieren oder RECO_VIDEO_FOLDER setzen.", "Please install Zenity or KDialog for folder selection, or set RECO_VIDEO_FOLDER.", "Instala Zenity o KDialog para seleccionar carpetas, o configura RECO_VIDEO_FOLDER.", "Veuillez installer Zenity ou KDialog pour la sélection de dossier, ou définir RECO_VIDEO_FOLDER."))
         result = subprocess.run(command, capture_output=True, text=True, check=False)
         if result.returncode != 0 or not result.stdout.strip():
-            raise RuntimeError("Ordnerauswahl wurde abgebrochen.")
+            raise RuntimeError(localized("Ordnerauswahl wurde abgebrochen.", "Folder selection was cancelled.", "Se canceló la selección de carpeta.", "La sélection du dossier a été annulée."))
         selected = Path(result.stdout.strip()).resolve()
     if not selected.is_dir():
-        raise RuntimeError("Der ausgewählte Ordner ist nicht verfügbar.")
+        raise RuntimeError(localized("Der ausgewählte Ordner ist nicht verfügbar.", "The selected folder is not available.", "La carpeta seleccionada no está disponible.", "Le dossier sélectionné n’est pas disponible."))
     return selected
 
 
@@ -448,7 +500,20 @@ def select_folder() -> Path:
         project=project,
         operation="selected",
         progress=0.0,
-        message=(f"Vorhandenes Projekt mit {len(project.get('frames', []))} Frames geöffnet." if project else "Ordner gewählt. Videos können jetzt lokal vorbereitet werden."),
+        message=(
+            localized(
+                f"Vorhandenes Projekt mit {len(project.get('frames', []))} Frames geöffnet.",
+                f"Existing project with {len(project.get('frames', []))} frames opened.",
+                f"Proyecto existente abierto con {len(project.get('frames', []))} fotogramas.",
+                f"Projet existant ouvert avec {len(project.get('frames', []))} images.",
+            ) if project else
+            localized(
+                "Ordner gewählt. Videos können jetzt lokal vorbereitet werden.",
+                "Folder selected. Videos can now be prepared locally.",
+                "Carpeta seleccionada. Ahora puedes preparar los vídeos localmente.",
+                "Dossier sélectionné. Les vidéos peuvent maintenant être préparées localement.",
+            )
+        ),
         error=None,
     )
     return selected
@@ -459,15 +524,16 @@ def select_model_package() -> Path:
     if configured:
         selected = Path(configured).expanduser().resolve()
     elif sys.platform == "darwin":
-        script = 'POSIX path of (choose file with prompt "Reco-Modellpaket auswählen")'
+        prompt = localized("Reco-Modellpaket auswählen", "Select Reco model package", "Selecciona un paquete de modelo de Reco", "Sélectionnez un paquet de modèle Reco")
+        script = f'POSIX path of (choose file with prompt "{prompt}")'
         result = subprocess.run(["/usr/bin/osascript", "-e", script], capture_output=True, text=True, check=False)
         if result.returncode != 0:
-            raise RuntimeError("Modellauswahl wurde abgebrochen.")
+            raise RuntimeError(localized("Modellauswahl wurde abgebrochen.", "Model selection was cancelled.", "Se canceló la selección del modelo.", "La sélection du modèle a été annulée."))
         selected = Path(result.stdout.strip()).resolve()
     elif sys.platform == "win32":
         powershell = shutil.which("powershell") or shutil.which("pwsh")
         if not powershell:
-            raise RuntimeError("PowerShell wurde für die Modellauswahl nicht gefunden.")
+            raise RuntimeError(localized("PowerShell wurde für die Modellauswahl nicht gefunden.", "PowerShell was not found for model selection.", "No se encontró PowerShell para seleccionar el modelo.", "PowerShell est introuvable pour la sélection du modèle."))
         script = (
             "Add-Type -AssemblyName System.Windows.Forms; "
             "$dialog = New-Object System.Windows.Forms.OpenFileDialog; "
@@ -476,7 +542,7 @@ def select_model_package() -> Path:
         )
         result = subprocess.run([powershell, "-NoProfile", "-Command", script], capture_output=True, text=True, check=False)
         if result.returncode != 0 or not result.stdout.strip():
-            raise RuntimeError("Modellauswahl wurde abgebrochen.")
+            raise RuntimeError(localized("Modellauswahl wurde abgebrochen.", "Model selection was cancelled.", "Se canceló la selección del modelo.", "La sélection du modèle a été annulée."))
         selected = Path(result.stdout.strip()).resolve()
     else:
         dialog = shutil.which("zenity")
@@ -492,13 +558,18 @@ def select_model_package() -> Path:
             candidates = sorted({path.resolve() for path in inboxes if path.is_file()})
             if len(candidates) == 1:
                 return candidates[0]
-            raise RuntimeError("Für die Modellauswahl bitte genau ein .recomodel-Paket in den Videoordner oder .reco-training/inbox legen, Zenity/KDialog installieren oder RECO_MODEL_PACKAGE setzen.")
+            raise RuntimeError(localized(
+                "Für die Modellauswahl bitte genau ein .recomodel-Paket in den Videoordner oder .reco-training/inbox legen, Zenity/KDialog installieren oder RECO_MODEL_PACKAGE setzen.",
+                "For model selection, place exactly one .recomodel package in the video folder or .reco-training/inbox, install Zenity/KDialog, or set RECO_MODEL_PACKAGE.",
+                "Para seleccionar el modelo, coloca exactamente un paquete .recomodel en la carpeta de vídeos o en .reco-training/inbox, instala Zenity/KDialog, o configura RECO_MODEL_PACKAGE.",
+                "Pour la sélection du modèle, placez exactement un paquet .recomodel dans le dossier vidéo ou .reco-training/inbox, installez Zenity/KDialog, ou définissez RECO_MODEL_PACKAGE.",
+            ))
         result = subprocess.run(command, capture_output=True, text=True, check=False)
         if result.returncode != 0 or not result.stdout.strip():
-            raise RuntimeError("Modellauswahl wurde abgebrochen.")
+            raise RuntimeError(localized("Modellauswahl wurde abgebrochen.", "Model selection was cancelled.", "Se canceló la selección del modelo.", "La sélection du modèle a été annulée."))
         selected = Path(result.stdout.strip()).resolve()
     if not selected.is_file() or selected.suffix.lower() != ".recomodel":
-        raise RuntimeError("Bitte eine vorhandene .recomodel-Datei auswählen.")
+        raise RuntimeError(localized("Bitte eine vorhandene .recomodel-Datei auswählen.", "Please select an existing .recomodel file.", "Selecciona un archivo .recomodel existente.", "Veuillez sélectionner un fichier .recomodel existant."))
     return selected
 
 
@@ -507,15 +578,19 @@ def select_video_file() -> Path:
     if configured:
         selected = Path(configured).expanduser().resolve()
     elif sys.platform == "darwin":
-        script = 'POSIX path of (choose file with prompt "Kurzes Video für die Balltracking-Simulation auswählen")'
+        prompt = localized(
+            "Kurzes Video für die Balltracking-Simulation auswählen", "Select a short video for the ball-tracking simulation",
+            "Selecciona un vídeo corto para la simulación de seguimiento del balón", "Sélectionnez une courte vidéo pour la simulation de suivi du ballon",
+        )
+        script = f'POSIX path of (choose file with prompt "{prompt}")'
         result = subprocess.run(["/usr/bin/osascript", "-e", script], capture_output=True, text=True, check=False)
         if result.returncode != 0:
-            raise RuntimeError("Videoauswahl wurde abgebrochen.")
+            raise RuntimeError(localized("Videoauswahl wurde abgebrochen.", "Video selection was cancelled.", "Se canceló la selección del vídeo.", "La sélection de la vidéo a été annulée."))
         selected = Path(result.stdout.strip()).resolve()
     elif sys.platform == "win32":
         powershell = shutil.which("powershell") or shutil.which("pwsh")
         if not powershell:
-            raise RuntimeError("PowerShell wurde für die Videoauswahl nicht gefunden.")
+            raise RuntimeError(localized("PowerShell wurde für die Videoauswahl nicht gefunden.", "PowerShell was not found for video selection.", "No se encontró PowerShell para seleccionar el vídeo.", "PowerShell est introuvable pour la sélection de la vidéo."))
         script = (
             "Add-Type -AssemblyName System.Windows.Forms; "
             "$dialog = New-Object System.Windows.Forms.OpenFileDialog; "
@@ -524,7 +599,7 @@ def select_video_file() -> Path:
         )
         result = subprocess.run([powershell, "-NoProfile", "-Command", script], capture_output=True, text=True, check=False)
         if result.returncode != 0 or not result.stdout.strip():
-            raise RuntimeError("Videoauswahl wurde abgebrochen.")
+            raise RuntimeError(localized("Videoauswahl wurde abgebrochen.", "Video selection was cancelled.", "Se canceló la selección del vídeo.", "La sélection de la vidéo a été annulée."))
         selected = Path(result.stdout.strip()).resolve()
     else:
         dialog = shutil.which("zenity")
@@ -532,13 +607,13 @@ def select_video_file() -> Path:
         if command is None and shutil.which("kdialog"):
             command = [shutil.which("kdialog"), "--getopenfilename", str(Path.home()), "*.mp4 *.mov *.m4v"]
         if command is None:
-            raise RuntimeError("Für die Videoauswahl bitte Zenity/KDialog installieren oder RECO_SIMULATION_VIDEO setzen.")
+            raise RuntimeError(localized("Für die Videoauswahl bitte Zenity/KDialog installieren oder RECO_SIMULATION_VIDEO setzen.", "Please install Zenity/KDialog for video selection, or set RECO_SIMULATION_VIDEO.", "Instala Zenity/KDialog para seleccionar el vídeo, o configura RECO_SIMULATION_VIDEO.", "Veuillez installer Zenity/KDialog pour la sélection de la vidéo, ou définir RECO_SIMULATION_VIDEO."))
         result = subprocess.run(command, capture_output=True, text=True, check=False)
         if result.returncode != 0 or not result.stdout.strip():
-            raise RuntimeError("Videoauswahl wurde abgebrochen.")
+            raise RuntimeError(localized("Videoauswahl wurde abgebrochen.", "Video selection was cancelled.", "Se canceló la selección del vídeo.", "La sélection de la vidéo a été annulée."))
         selected = Path(result.stdout.strip()).resolve()
     if not selected.is_file() or selected.suffix.lower() not in VIDEO_EXTENSIONS:
-        raise RuntimeError("Bitte eine vorhandene Videodatei auswählen.")
+        raise RuntimeError(localized("Bitte eine vorhandene Videodatei auswählen.", "Please select an existing video file.", "Selecciona un archivo de vídeo existente.", "Veuillez sélectionner un fichier vidéo existant."))
     return selected
 
 
@@ -553,10 +628,10 @@ def media_info(path: Path, apple_extractor: Path | None = None) -> tuple[float, 
     ffprobe = shutil.which("ffprobe")
     if not ffprobe:
         if apple_extractor is None:
-            raise RuntimeError("Video-Metadaten können lokal nicht gelesen werden.")
+            raise RuntimeError(localized("Video-Metadaten können lokal nicht gelesen werden.", "Video metadata could not be read locally.", "No se pudieron leer los metadatos del vídeo localmente.", "Les métadonnées vidéo n’ont pas pu être lues localement."))
         result = subprocess.run([str(apple_extractor), "--probe", str(path)], capture_output=True, text=True, check=False)
         if result.returncode != 0:
-            raise RuntimeError(f"Video konnte nicht gelesen werden: {path.name}\n{result.stderr.strip()}")
+            raise RuntimeError(localized(f"Video konnte nicht gelesen werden: {path.name}", f"Video could not be read: {path.name}", f"No se pudo leer el vídeo: {path.name}", f"La vidéo n’a pas pu être lue : {path.name}") + f"\n{result.stderr.strip()}")
         payload = json.loads(result.stdout)
         return float(payload["duration"]), int(payload["width"]), int(payload["height"])
     command = [
@@ -569,22 +644,22 @@ def media_info(path: Path, apple_extractor: Path | None = None) -> tuple[float, 
     ]
     result = subprocess.run(command, capture_output=True, text=True, check=False)
     if result.returncode != 0:
-        raise RuntimeError(f"Video konnte nicht gelesen werden: {path.name}\n{result.stderr.strip()}")
+        raise RuntimeError(localized(f"Video konnte nicht gelesen werden: {path.name}", f"Video could not be read: {path.name}", f"No se pudo leer el vídeo: {path.name}", f"La vidéo n’a pas pu être lue : {path.name}") + f"\n{result.stderr.strip()}")
     payload = json.loads(result.stdout)
     streams = payload.get("streams") or []
     duration = float((payload.get("format") or {}).get("duration") or 0)
     if not streams or duration <= 0:
-        raise RuntimeError(f"Video enthält keine lesbare Bildspur: {path.name}")
+        raise RuntimeError(localized(f"Video enthält keine lesbare Bildspur: {path.name}", f"Video has no readable video track: {path.name}", f"El vídeo no tiene una pista de vídeo legible: {path.name}", f"La vidéo ne contient aucune piste vidéo lisible : {path.name}"))
     return duration, int(streams[0].get("width") or 0), int(streams[0].get("height") or 0)
 
 
 def native_frame_extractor(root: Path) -> Path:
     source = BASE_DIR / "frame_extractor.swift"
     if sys.platform != "darwin" or not source.is_file():
-        raise RuntimeError("FFmpeg wurde nicht gefunden.")
+        raise RuntimeError(localized("FFmpeg wurde nicht gefunden.", "FFmpeg was not found.", "No se encontró FFmpeg.", "FFmpeg est introuvable."))
     compiler = shutil.which("swiftc") or "/usr/bin/swiftc"
     if not Path(compiler).exists():
-        raise RuntimeError("Weder FFmpeg noch die Xcode Command Line Tools wurden gefunden.")
+        raise RuntimeError(localized("Weder FFmpeg noch die Xcode Command Line Tools wurden gefunden.", "Neither FFmpeg nor the Xcode Command Line Tools were found.", "No se encontraron ni FFmpeg ni las Herramientas de línea de comandos de Xcode.", "Ni FFmpeg ni les outils en ligne de commande Xcode n’ont été trouvés."))
     binary = root / ".runtime" / "bin" / "reco-frame-extractor"
     binary.parent.mkdir(parents=True, exist_ok=True)
     if not binary.is_file() or binary.stat().st_mtime < source.stat().st_mtime:
@@ -592,7 +667,7 @@ def native_frame_extractor(root: Path) -> Path:
         module_cache.mkdir(parents=True, exist_ok=True)
         result = subprocess.run([compiler, "-module-cache-path", str(module_cache), str(source), "-o", str(binary)], capture_output=True, text=True, check=False)
         if result.returncode != 0:
-            raise RuntimeError(f"Lokaler Apple-Frame-Extraktor konnte nicht erstellt werden.\n{result.stderr.strip()}")
+            raise RuntimeError(localized("Lokaler Apple-Frame-Extraktor konnte nicht erstellt werden.", "The local Apple frame extractor could not be built.", "No se pudo compilar el extractor de fotogramas local de Apple.", "L’extracteur d’images Apple local n’a pas pu être compilé.") + f"\n{result.stderr.strip()}")
     return binary
 
 
@@ -653,9 +728,9 @@ def extract_project(sport: str, requested_frames_per_video: int = DEFAULT_FRAMES
         folder = STATE.selected_folder
         root = STATE.project_root
         if folder is None or root is None:
-            raise RuntimeError("Zuerst einen Videoordner auswählen.")
+            raise RuntimeError(localized("Zuerst einen Videoordner auswählen.", "Select a video folder first.", "Primero selecciona una carpeta de vídeos.", "Sélectionnez d’abord un dossier vidéo."))
         if sport not in SPORT_CATEGORIES:
-            raise RuntimeError("Unbekannte Sportart.")
+            raise RuntimeError(localized("Unbekannte Sportart.", "Unknown sport.", "Deporte desconocido.", "Sport inconnu."))
         count_per_video = frames_per_video(requested_frames_per_video)
         existing_project = load_project(root)
         existing_annotations = {
@@ -668,17 +743,17 @@ def extract_project(sport: str, requested_frames_per_video: int = DEFAULT_FRAMES
         backup_project(root, "vorbereitung")
         ffmpeg = shutil.which("ffmpeg")
         apple_extractor = native_frame_extractor(root) if not ffmpeg or not shutil.which("ffprobe") else None
-        STATE.update(operation="scanning", busy=True, progress=0.01, message="Suche lokale Videos …", error=None, log=[])
+        STATE.update(operation="scanning", busy=True, progress=0.01, message=localized("Suche lokale Videos …", "Searching for local videos …", "Buscando vídeos locales …", "Recherche de vidéos locales …"), error=None, log=[])
         videos = discover_videos(folder)
         if not videos:
-            raise RuntimeError("Im gewählten Ordner wurden keine MP4-, MOV- oder M4V-Videos gefunden.")
+            raise RuntimeError(localized("Im gewählten Ordner wurden keine MP4-, MOV- oder M4V-Videos gefunden.", "No MP4, MOV, or M4V videos were found in the selected folder.", "No se encontraron vídeos MP4, MOV o M4V en la carpeta seleccionada.", "Aucune vidéo MP4, MOV ou M4V n’a été trouvée dans le dossier sélectionné."))
         # Reading each video's metadata (ffprobe) is a separate subprocess call
         # per file, done before any extraction starts - with many files (e.g.
         # a GoPro game split into a dozen+ chapter files), this alone can take
         # a while with no visible movement otherwise, looking like a hang.
         infos = []
         for index, video in enumerate(videos, start=1):
-            STATE.update(message=f"Prüfe Video {index}/{len(videos)}: {video.name}")
+            STATE.update(message=localized(f"Prüfe Video {index}/{len(videos)}: {video.name}", f"Checking video {index}/{len(videos)}: {video.name}", f"Comprobando vídeo {index}/{len(videos)}: {video.name}", f"Vérification de la vidéo {index}/{len(videos)} : {video.name}"))
             infos.append((video, *media_info(video, apple_extractor)))
         total_duration = max(sum(item[1] for item in infos), 1.0)
         temporary_frames = root / f"frames.next-{uuid.uuid4().hex[:8]}"
@@ -689,10 +764,11 @@ def extract_project(sport: str, requested_frames_per_video: int = DEFAULT_FRAMES
             for video, duration, width, height in infos:
                 target = count_per_video
                 video_id = hashlib.sha256(str(video).encode("utf-8")).hexdigest()[:12]
-                STATE.update(operation="extracting", message=f"Extrahiere Trainingsbilder: {video.name}")
+                STATE.update(operation="extracting", message=localized(f"Extrahiere Trainingsbilder: {video.name}", f"Extracting training images: {video.name}", f"Extrayendo imágenes de entrenamiento: {video.name}", f"Extraction des images d’entraînement : {video.name}"))
                 generated, rate, output_width, output_height = extract_frames_for_video(
                     video, duration, width, height, target, temporary_frames, video_id,
-                    ffmpeg, apple_extractor, "Frame-Extraktion fehlgeschlagen",
+                    ffmpeg, apple_extractor,
+                    localized("Frame-Extraktion fehlgeschlagen", "Frame extraction failed", "La extracción de fotogramas falló", "L’extraction des images a échoué"),
                 )
                 for index, image_path in enumerate(generated, start=1):
                     frame_id = str(uuid.uuid5(uuid.NAMESPACE_URL, f"{video_id}:{index}"))
@@ -733,12 +809,15 @@ def extract_project(sport: str, requested_frames_per_video: int = DEFAULT_FRAMES
             if existing_project and existing_project.get("trainingHistory"):
                 project["trainingHistory"] = existing_project["trainingHistory"]
             atomic_json(root / "project.json", project)
-            STATE.update(project=project, operation="ready", busy=False, progress=1.0, message=f"{len(project['frames'])} echte Frames lokal erstellt.")
+            STATE.update(project=project, operation="ready", busy=False, progress=1.0, message=localized(
+                f"{len(project['frames'])} echte Frames lokal erstellt.", f"{len(project['frames'])} real frames created locally.",
+                f"{len(project['frames'])} fotogramas reales creados localmente.", f"{len(project['frames'])} images réelles créées localement.",
+            ))
         except Exception:
             if temporary_frames.exists(): shutil.rmtree(temporary_frames)
             raise
     except Exception as error:
-        STATE.update(operation="error", busy=False, error=str(error), message="Lokale Vorbereitung fehlgeschlagen.")
+        STATE.update(operation="error", busy=False, error=str(error), message=localized("Lokale Vorbereitung fehlgeschlagen.", "Local preparation failed.", "La preparación local falló.", "La préparation locale a échoué."))
         STATE.append_log(str(error))
 
 
@@ -757,9 +836,9 @@ def expand_dataset(folder: Path, payload: dict, held_out: bool = False) -> None:
         root = STATE.project_root
         project = STATE.project
         if root is None or project is None:
-            raise RuntimeError("Zuerst ein bestehendes Trainingsprojekt öffnen.")
+            raise RuntimeError(localized("Zuerst ein bestehendes Trainingsprojekt öffnen.", "Open an existing training project first.", "Primero abre un proyecto de entrenamiento existente.", "Ouvrez d’abord un projet d’entraînement existant."))
         if STATE.selected_folder and folder.resolve() == STATE.selected_folder.resolve():
-            raise RuntimeError("Für die Erweiterung bitte einen anderen Videoordner wählen.")
+            raise RuntimeError(localized("Für die Erweiterung bitte einen anderen Videoordner wählen.", "Please choose a different video folder for the expansion.", "Elige una carpeta de vídeos distinta para la ampliación.", "Veuillez choisir un autre dossier vidéo pour l’extension."))
         count_per_video = min(500, frames_per_video(payload.get("framesPerVideo", 100)))
         backup_project(root, "active-learning")
         ffmpeg = shutil.which("ffmpeg")
@@ -769,13 +848,13 @@ def expand_dataset(folder: Path, payload: dict, held_out: bool = False) -> None:
         # while videos are being discovered/probed, which for many files (a
         # GoPro game split into a dozen+ chapter files) can itself take a
         # visible moment.
-        STATE.update(operation="active-learning-scan", busy=True, progress=0.01, error=None, log=[], message="Suche lokale Videos …")
+        STATE.update(operation="active-learning-scan", busy=True, progress=0.01, error=None, log=[], message=localized("Suche lokale Videos …", "Searching for local videos …", "Buscando vídeos locales …", "Recherche de vidéos locales …"))
         videos = discover_videos(folder)
         if not videos:
-            raise RuntimeError("Im gewählten Erweiterungsordner wurden keine Videos gefunden.")
+            raise RuntimeError(localized("Im gewählten Erweiterungsordner wurden keine Videos gefunden.", "No videos were found in the selected expansion folder.", "No se encontraron vídeos en la carpeta de ampliación seleccionada.", "Aucune vidéo n’a été trouvée dans le dossier d’extension sélectionné."))
         infos = []
         for index, video in enumerate(videos, start=1):
-            STATE.update(message=f"Prüfe Video {index}/{len(videos)}: {video.name}")
+            STATE.update(message=localized(f"Prüfe Video {index}/{len(videos)}: {video.name}", f"Checking video {index}/{len(videos)}: {video.name}", f"Comprobando vídeo {index}/{len(videos)}: {video.name}", f"Vérification de la vidéo {index}/{len(videos)} : {video.name}"))
             infos.append((video, *media_info(video, apple_extractor)))
         total_duration = max(sum(item[1] for item in infos), 1.0)
         frames_dir = root / "frames"
@@ -783,18 +862,19 @@ def expand_dataset(folder: Path, payload: dict, held_out: bool = False) -> None:
         new_frames: list[dict] = []
         known_video_ids = {str(frame.get("videoID")) for frame in project.get("frames", [])}
         completed = 0.0
-        STATE.update(operation="active-learning-extract", busy=True, progress=0.01, error=None, log=[], message="Extrahiere lokale Prüfkandidaten …")
+        STATE.update(operation="active-learning-extract", busy=True, progress=0.01, error=None, log=[], message=localized("Extrahiere lokale Prüfkandidaten …", "Extracting local review candidates …", "Extrayendo candidatos de revisión locales …", "Extraction des candidats de révision locaux …"))
         for video, duration, width, height in infos:
             target = count_per_video
             video_id = hashlib.sha256(str(video).encode("utf-8")).hexdigest()[:12]
             if video_id in known_video_ids:
                 completed += duration
-                STATE.update(progress=min(completed / total_duration * 0.45, 0.45), message=f"Bereits verwendetes Video übersprungen: {video.name}")
+                STATE.update(progress=min(completed / total_duration * 0.45, 0.45), message=localized(f"Bereits verwendetes Video übersprungen: {video.name}", f"Already-used video skipped: {video.name}", f"Vídeo ya usado omitido: {video.name}", f"Vidéo déjà utilisée ignorée : {video.name}"))
                 continue
             prefix = f"al-{video_id}"
             generated, rate, output_width, output_height = extract_frames_for_video(
                 video, duration, width, height, target, frames_dir, prefix,
-                ffmpeg, apple_extractor, "Kandidaten-Extraktion fehlgeschlagen",
+                ffmpeg, apple_extractor,
+                localized("Kandidaten-Extraktion fehlgeschlagen", "Candidate extraction failed", "La extracción de candidatos falló", "L’extraction des candidats a échoué"),
             )
             for index, image_path in enumerate(generated, start=1):
                 new_frame = {
@@ -808,21 +888,24 @@ def expand_dataset(folder: Path, payload: dict, held_out: bool = False) -> None:
                     new_frame["heldOut"] = True
                 new_frames.append(new_frame)
             completed += duration
-            STATE.update(progress=min(completed / total_duration * 0.45, 0.45), message=f"Neue Videos werden geprüft: {video.name}")
+            STATE.update(progress=min(completed / total_duration * 0.45, 0.45), message=localized(f"Neue Videos werden geprüft: {video.name}", f"Checking new videos: {video.name}", f"Comprobando vídeos nuevos: {video.name}", f"Vérification des nouvelles vidéos : {video.name}"))
 
         if not new_frames:
-            raise RuntimeError("Alle gewählten Videos wurden bereits verwendet. Bitte neue Videos auswählen.")
+            raise RuntimeError(localized("Alle gewählten Videos wurden bereits verwendet. Bitte neue Videos auswählen.", "All selected videos were already used. Please choose new videos.", "Todos los vídeos seleccionados ya se usaron. Elige vídeos nuevos.", "Toutes les vidéos sélectionnées ont déjà été utilisées. Veuillez choisir de nouvelles vidéos."))
         project["frames"] = [*project.get("frames", []), *new_frames]
         project["updatedAt"] = utc_now()
         atomic_json(root / "project.json", project)
-        STATE.update(project=project, busy=False, progress=0.5, message=f"{len(new_frames)} Kandidaten extrahiert. Lokale Erkennung startet …")
+        STATE.update(project=project, busy=False, progress=0.5, message=localized(
+            f"{len(new_frames)} Kandidaten extrahiert. Lokale Erkennung startet …", f"{len(new_frames)} candidates extracted. Local detection starting …",
+            f"{len(new_frames)} candidatos extraídos. Iniciando la detección local …", f"{len(new_frames)} candidats extraits. Démarrage de la détection locale …",
+        ))
         autolabel_payload = {**payload, "candidateOnly": True, "threshold": payload.get("threshold", 0.12)}
         if held_out:
             autolabel_payload["categories"] = list(SPORT_CATEGORIES.get(project.get("sport"), []))
         ml_action("autolabel", autolabel_payload)
     except Exception as error:
         STATE.append_log(str(error))
-        STATE.update(operation="error", busy=False, error=str(error), message="Datensatzerweiterung fehlgeschlagen.")
+        STATE.update(operation="error", busy=False, error=str(error), message=localized("Datensatzerweiterung fehlgeschlagen.", "Dataset expansion failed.", "La ampliación del conjunto de datos falló.", "L’extension du jeu de données a échoué."))
 
 
 def simulate_ball_tracking(video: Path, payload: dict) -> None:
@@ -839,7 +922,7 @@ def simulate_ball_tracking(video: Path, payload: dict) -> None:
         root = STATE.project_root
         project = STATE.project
         if root is None or project is None:
-            raise RuntimeError("Zuerst ein bestehendes Trainingsprojekt öffnen.")
+            raise RuntimeError(localized("Zuerst ein bestehendes Trainingsprojekt öffnen.", "Open an existing training project first.", "Primero abre un proyecto de entrenamiento existente.", "Ouvrez d’abord un projet d’entraînement existant."))
         model = str(payload.get("model", "nano"))
         language = payload.get("language", "de")
         if language not in {"de", "en", "es", "fr"}:
@@ -847,9 +930,9 @@ def simulate_ball_tracking(video: Path, payload: dict) -> None:
         threshold = min(0.95, max(0.01, float(payload.get("threshold", 0.25))))
         venv_python = venv_python_path(root / ".runtime" / "venv")
         if not venv_python.is_file():
-            raise RuntimeError("ML-Umgebung fehlt. Zuerst „ML einrichten“ anklicken.")
+            raise RuntimeError(localized("ML-Umgebung fehlt. Zuerst „ML einrichten“ anklicken.", "The ML environment is missing. Click “Set up ML” first.", "Falta el entorno de ML. Primero haz clic en “Configurar ML”.", "L’environnement ML est manquant. Cliquez d’abord sur « Configurer le ML »."))
 
-        STATE.update(operation="simulation-extract", busy=True, progress=0.01, error=None, log=[], message="Extrahiere Bilder für die Simulation …")
+        STATE.update(operation="simulation-extract", busy=True, progress=0.01, error=None, log=[], message=localized("Extrahiere Bilder für die Simulation …", "Extracting images for the simulation …", "Extrayendo imágenes para la simulación …", "Extraction des images pour la simulation …"))
         ffmpeg = shutil.which("ffmpeg")
         apple_extractor = native_frame_extractor(root) if not ffmpeg or not shutil.which("ffprobe") else None
         duration, width, height = media_info(video, apple_extractor)
@@ -860,12 +943,13 @@ def simulate_ball_tracking(video: Path, payload: dict) -> None:
         frames_dir.mkdir(parents=True, exist_ok=True)
         generated, rate, output_width, output_height = extract_frames_for_video(
             video, duration, width, height, target_count, frames_dir, "sim",
-            ffmpeg, apple_extractor, "Extraktion für die Simulation fehlgeschlagen",
+            ffmpeg, apple_extractor,
+            localized("Extraktion für die Simulation fehlgeschlagen", "Extraction for the simulation failed", "La extracción para la simulación falló", "L’extraction pour la simulation a échoué"),
         )
         if not generated:
-            raise RuntimeError("Es konnten keine Bilder aus dem Video extrahiert werden.")
+            raise RuntimeError(localized("Es konnten keine Bilder aus dem Video extrahiert werden.", "No images could be extracted from the video.", "No se pudieron extraer imágenes del vídeo.", "Aucune image n’a pu être extraite de la vidéo."))
 
-        STATE.update(operation="simulation-detect", progress=0.4, message="Ballerkennung läuft …")
+        STATE.update(operation="simulation-detect", progress=0.4, message=localized("Ballerkennung läuft …", "Ball detection running …", "Detección del balón en curso …", "Détection du ballon en cours …"))
         worker = find_ml_worker()
         detections = run_json([
             str(venv_python), str(worker), "simulate-ball-tracking",
@@ -885,11 +969,11 @@ def simulate_ball_tracking(video: Path, payload: dict) -> None:
         STATE.update(
             simulation={"fps": rate, "frames": frames},
             operation="ready", busy=False, progress=1.0,
-            message=f"{len(frames)} Bilder simuliert.",
+            message=localized(f"{len(frames)} Bilder simuliert.", f"{len(frames)} images simulated.", f"{len(frames)} imágenes simuladas.", f"{len(frames)} images simulées."),
         )
     except Exception as error:
         STATE.append_log(str(error))
-        STATE.update(operation="error", busy=False, error=str(error), message="Balltracking-Simulation fehlgeschlagen.")
+        STATE.update(operation="error", busy=False, error=str(error), message=localized("Balltracking-Simulation fehlgeschlagen.", "Ball-tracking simulation failed.", "La simulación de seguimiento del balón falló.", "La simulation de suivi du ballon a échoué."))
 
 
 def find_ml_worker() -> Path:
@@ -900,7 +984,7 @@ def find_ml_worker() -> Path:
     for candidate in candidates:
         if candidate.is_file():
             return candidate
-    raise RuntimeError("Der lokale RF-DETR-Worker wurde nicht gefunden.")
+    raise RuntimeError(localized("Der lokale RF-DETR-Worker wurde nicht gefunden.", "The local RF-DETR worker was not found.", "No se encontró el proceso local de RF-DETR.", "Le processus RF-DETR local est introuvable."))
 
 
 def venv_python_path(venv: Path) -> Path:
@@ -923,7 +1007,7 @@ def system_python() -> Path:
     for candidate in candidates:
         if candidate.is_file() and os.access(candidate, os.X_OK):
             return candidate
-    raise RuntimeError("Python 3.11 oder 3.12 wurde nicht gefunden.")
+    raise RuntimeError(localized("Python 3.11 oder 3.12 wurde nicht gefunden.", "Python 3.11 or 3.12 was not found.", "No se encontró Python 3.11 o 3.12.", "Python 3.11 ou 3.12 est introuvable."))
 
 
 def run_logged(command: list[str]) -> None:
@@ -951,7 +1035,7 @@ def run_logged(command: list[str]) -> None:
         STATE.update(**values)
     code = process.wait()
     if code != 0:
-        raise RuntimeError(f"Lokaler ML-Worker wurde mit Code {code} beendet.")
+        raise RuntimeError(localized(f"Lokaler ML-Worker wurde mit Code {code} beendet.", f"The local ML worker exited with code {code}.", f"El proceso local de ML terminó con el código {code}.", f"Le processus ML local s’est terminé avec le code {code}."))
 
 
 def run_json(command: list[str]) -> dict:
@@ -966,7 +1050,7 @@ def run_json(command: list[str]) -> dict:
         check=False,
     )
     if result.returncode != 0:
-        raise RuntimeError(result.stderr.strip() or result.stdout.strip() or f"Lokaler ML-Worker wurde mit Code {result.returncode} beendet.")
+        raise RuntimeError(result.stderr.strip() or result.stdout.strip() or localized(f"Lokaler ML-Worker wurde mit Code {result.returncode} beendet.", f"The local ML worker exited with code {result.returncode}.", f"El proceso local de ML terminó con el código {result.returncode}.", f"Le processus ML local s’est terminé avec le code {result.returncode}."))
     return json.loads(result.stdout.strip())
 
 
@@ -974,12 +1058,12 @@ def ml_action(action: str, payload: dict) -> None:
     try:
         root = STATE.project_root
         if root is None or not (root / "project.json").is_file():
-            raise RuntimeError("Zuerst Videos lokal vorbereiten.")
+            raise RuntimeError(localized("Zuerst Videos lokal vorbereiten.", "Prepare videos locally first.", "Primero prepara los vídeos localmente.", "Préparez d’abord les vidéos localement."))
         language = payload.get("language", "de")
         if language not in {"de", "en", "es", "fr"}:
             language = "de"
         model = payload.get("model", "nano")
-        STATE.update(operation=action, busy=True, progress=0.0, error=None, log=[], message="Lokaler ML-Vorgang startet …")
+        STATE.update(operation=action, busy=True, progress=0.0, error=None, log=[], message=localized("Lokaler ML-Vorgang startet …", "Local ML operation starting …", "Iniciando la operación local de ML …", "Démarrage de l’opération ML locale …"))
         venv = root / ".runtime" / "venv"
         venv_python = venv_python_path(venv)
         if action == "setup":
@@ -999,15 +1083,18 @@ def ml_action(action: str, payload: dict) -> None:
             cuda_index_url = "https://download.pytorch.org/whl/cu121"
             gpu_name = detect_nvidia_gpu_name() if (os.name == "nt" and use_cuda) else None
             if gpu_name:
-                STATE.update(message=f"NVIDIA-GPU erkannt ({gpu_name}) - installiere PyTorch mit CUDA-Unterstützung …")
+                STATE.update(message=localized(
+                    f"NVIDIA-GPU erkannt ({gpu_name}) - installiere PyTorch mit CUDA-Unterstützung …", f"NVIDIA GPU detected ({gpu_name}) - installing PyTorch with CUDA support …",
+                    f"GPU NVIDIA detectada ({gpu_name}) - instalando PyTorch con soporte CUDA …", f"GPU NVIDIA détectée ({gpu_name}) - installation de PyTorch avec support CUDA …",
+                ))
                 try:
                     run_logged([str(venv_python), "-m", "pip", "install", "--upgrade", "pip"])
                     run_logged([str(venv_python), "-m", "pip", "install", "torch", "--index-url", cuda_index_url])
                 except RuntimeError as error:
                     # Not fatal - fall through to the normal install below,
                     # which still produces a working (CPU) setup.
-                    STATE.append_log(f"CUDA-PyTorch-Installation fehlgeschlagen, verwende CPU-Version: {error}")
-                    STATE.update(message="CUDA-Installation fehlgeschlagen, richte CPU-Version ein …")
+                    STATE.append_log(localized(f"CUDA-PyTorch-Installation fehlgeschlagen, verwende CPU-Version: {error}", f"CUDA PyTorch install failed, using the CPU version instead: {error}", f"Falló la instalación de PyTorch con CUDA, usando la versión de CPU: {error}", f"Échec de l’installation de PyTorch CUDA, utilisation de la version CPU : {error}"))
+                    STATE.update(message=localized("CUDA-Installation fehlgeschlagen, richte CPU-Version ein …", "CUDA install failed, setting up the CPU version …", "La instalación de CUDA falló, configurando la versión de CPU …", "L’installation CUDA a échoué, configuration de la version CPU …"))
             run_logged([
                 str(venv_python), "-m", "pip", "install", "--upgrade", "pip",
                 "rfdetr[train,onnx,coreml]>=1.9.0", "onnxruntime",
@@ -1026,7 +1113,7 @@ def ml_action(action: str, payload: dict) -> None:
             if action == "import-model":
                 package_file = Path(str(payload.get("file", ""))).resolve()
                 if not package_file.is_file() or package_file.suffix.lower() != ".recomodel":
-                    raise RuntimeError("Das ausgewählte Modellpaket ist nicht verfügbar.")
+                    raise RuntimeError(localized("Das ausgewählte Modellpaket ist nicht verfügbar.", "The selected model package is not available.", "El paquete de modelo seleccionado no está disponible.", "Le paquet de modèle sélectionné n’est pas disponible."))
                 # Prefer the venv (not required, unlike autolabel/train/benchmark
                 # below) so validate_model_package_file()'s torch.load(weights_only=True)
                 # code-safety scan can actually run when a venv exists; it degrades
@@ -1040,13 +1127,13 @@ def ml_action(action: str, payload: dict) -> None:
                 executable = venv_python if venv_python.is_file() else system_python()
                 members = payload.get("members") or []
                 if not isinstance(members, list) or not members:
-                    raise RuntimeError("Mindestens zwei Modelle für ein kombiniertes Modell auswählen.")
+                    raise RuntimeError(localized("Mindestens zwei Modelle für ein kombiniertes Modell auswählen.", "Select at least two models for a combined model.", "Selecciona al menos dos modelos para un modelo combinado.", "Sélectionnez au moins deux modèles pour un modèle combiné."))
                 member_args = []
                 for member in members:
                     package_id = str((member or {}).get("packageID", ""))
                     categories = (member or {}).get("categories") or []
                     if not package_id or not isinstance(categories, list) or not categories:
-                        raise RuntimeError("Ungültige Kategorie-Zuordnung für ein kombiniertes Modell.")
+                        raise RuntimeError(localized("Ungültige Kategorie-Zuordnung für ein kombiniertes Modell.", "Invalid category assignment for a combined model.", "Asignación de categorías no válida para un modelo combinado.", "Attribution de catégories non valide pour un modèle combiné."))
                     member_args.extend(["--member", f"{package_id}:{','.join(str(category) for category in categories)}"])
                 args = ["combine-models", "--project", str(root), *member_args, "--name", str(payload.get("name", "")), "--language", language]
             elif action in {"activate-model", "rename-model", "delete-model"}:
@@ -1056,13 +1143,13 @@ def ml_action(action: str, payload: dict) -> None:
                 if action == "rename-model":
                     args.extend(["--name", str(payload.get("name", ""))])
             elif not venv_python.is_file():
-                raise RuntimeError("ML-Umgebung fehlt. Zuerst „ML einrichten“ anklicken.")
+                raise RuntimeError(localized("ML-Umgebung fehlt. Zuerst „ML einrichten“ anklicken.", "The ML environment is missing. Click “Set up ML” first.", "Falta el entorno de ML. Primero haz clic en “Configurar ML”.", "L’environnement ML est manquant. Cliquez d’abord sur « Configurer le ML »."))
             elif action == "autolabel":
                 backup_project(root, "automatisch")
                 threshold = min(0.95, max(0.05, float(payload.get("threshold", 0.25))))
                 categories = payload.get("categories") or [payload.get("category", "ball")]
                 if not isinstance(categories, list) or not categories:
-                    raise RuntimeError("Mindestens eine Klasse für die automatische Markierung auswählen.")
+                    raise RuntimeError(localized("Mindestens eine Klasse für die automatische Markierung auswählen.", "Select at least one class for auto-labeling.", "Selecciona al menos una clase para el marcado automático.", "Sélectionnez au moins une classe pour le marquage automatique."))
                 args = ["autolabel", "--project", str(root), "--model", model, "--category", *[str(item) for item in categories], "--threshold", str(threshold), "--language", language]
                 if payload.get("candidateOnly"):
                     args.append("--candidate-only")
@@ -1081,27 +1168,27 @@ def ml_action(action: str, payload: dict) -> None:
             elif action == "export-onnx":
                 args = ["export", "--project", str(root), "--model", model, "--format", "onnx", "--language", language]
             else:
-                raise RuntimeError("Unbekannter ML-Vorgang.")
+                raise RuntimeError(localized("Unbekannter ML-Vorgang.", "Unknown ML operation.", "Operación de ML desconocida.", "Opération ML inconnue."))
             run_logged([str(executable), str(worker), *args])
         project = load_project(root)
-        STATE.update(project=project, operation="ready", busy=False, progress=1.0, message="Lokaler Vorgang abgeschlossen.")
+        STATE.update(project=project, operation="ready", busy=False, progress=1.0, message=localized("Lokaler Vorgang abgeschlossen.", "Local operation completed.", "Operación local completada.", "Opération locale terminée."))
     except Exception as error:
         STATE.append_log(str(error))
-        STATE.update(operation="error", busy=False, error=str(error), message="Lokaler ML-Vorgang fehlgeschlagen.")
+        STATE.update(operation="error", busy=False, error=str(error), message=localized("Lokaler ML-Vorgang fehlgeschlagen.", "Local ML operation failed.", "La operación local de ML falló.", "L’opération ML locale a échoué."))
 
 
 def save_annotations(payload: dict) -> None:
     root = STATE.project_root
     project = STATE.project
     if root is None or project is None:
-        raise RuntimeError("Kein lokales Projekt geöffnet.")
+        raise RuntimeError(localized("Kein lokales Projekt geöffnet.", "No local project is open.", "No hay ningún proyecto local abierto.", "Aucun projet local n’est ouvert."))
     frame_id = str(payload.get("frameId", ""))
     annotations = payload.get("annotations")
     if not isinstance(annotations, list):
-        raise RuntimeError("Ungültige Markierungen.")
+        raise RuntimeError(localized("Ungültige Markierungen.", "Invalid annotations.", "Anotaciones no válidas.", "Annotations non valides."))
     frame = next((item for item in project.get("frames", []) if item.get("id") == frame_id), None)
     if frame is None:
-        raise RuntimeError("Frame wurde nicht gefunden.")
+        raise RuntimeError(localized("Frame wurde nicht gefunden.", "Frame was not found.", "No se encontró el fotograma.", "L’image est introuvable."))
     backup_project(root, "markierung")
     allowed = set(SPORT_CATEGORIES.get(project.get("sport"), []))
     clean = []
@@ -1118,7 +1205,10 @@ def save_annotations(payload: dict) -> None:
     frame["annotations"] = clean
     project["updatedAt"] = utc_now()
     atomic_json(root / "project.json", project)
-    STATE.update(project=project, message=f"{len(clean)} Markierungen lokal gespeichert.")
+    STATE.update(project=project, message=localized(
+        f"{len(clean)} Markierungen lokal gespeichert.", f"{len(clean)} annotations saved locally.",
+        f"{len(clean)} anotaciones guardadas localmente.", f"{len(clean)} annotations enregistrées localement.",
+    ))
 
 
 def remove_training_frame(payload: dict) -> None:
@@ -1126,18 +1216,18 @@ def remove_training_frame(payload: dict) -> None:
     root = STATE.project_root
     project = STATE.project
     if root is None or project is None:
-        raise RuntimeError("Kein lokales Projekt geöffnet.")
+        raise RuntimeError(localized("Kein lokales Projekt geöffnet.", "No local project is open.", "No hay ningún proyecto local abierto.", "Aucun projet local n’est ouvert."))
     frame_id = str(payload.get("frameId", ""))
     frames = project.get("frames", [])
     index = next((number for number, item in enumerate(frames) if str(item.get("id")) == frame_id), None)
     if index is None:
-        raise RuntimeError("Frame wurde nicht gefunden.")
+        raise RuntimeError(localized("Frame wurde nicht gefunden.", "Frame was not found.", "No se encontró el fotograma.", "L’image est introuvable."))
     frame = frames[index]
     is_candidate = frame.get("reviewStatus") == "candidate"
     target = (root / str(frame.get("relativePath", ""))).resolve()
     frames_root = (root / "frames").resolve()
     if frames_root not in target.parents:
-        raise RuntimeError("Ungültiger Frame-Pfad.")
+        raise RuntimeError(localized("Ungültiger Frame-Pfad.", "Invalid frame path.", "Ruta de fotograma no válida.", "Chemin d’image non valide."))
 
     backup_project(root, "bild-entfernt")
     target.unlink(missing_ok=True)
@@ -1155,9 +1245,15 @@ def remove_training_frame(payload: dict) -> None:
             if benchmark_file.is_file():
                 benchmark_file.unlink()
                 benchmark_invalidated = True
-    message = "Trainingsbild lokal entfernt. Das Quellvideo bleibt unverändert."
+    message = localized(
+        "Trainingsbild lokal entfernt. Das Quellvideo bleibt unverändert.", "Training image removed locally. The source video remains unchanged.",
+        "Imagen de entrenamiento eliminada localmente. El vídeo de origen no cambia.", "Image d’entraînement supprimée localement. La vidéo source reste inchangée.",
+    )
     if benchmark_invalidated:
-        message += " Die Benchmark-Referenz muss neu festgelegt werden."
+        message += " " + localized(
+            "Die Benchmark-Referenz muss neu festgelegt werden.", "The benchmark reference must be frozen again.",
+            "Hay que volver a fijar la referencia de comparación.", "La référence de comparaison doit être refigée.",
+        )
     STATE.update(project=project, message=message)
 
 
@@ -1165,17 +1261,17 @@ def review_candidate(payload: dict) -> None:
     root = STATE.project_root
     project = STATE.project
     if root is None or project is None:
-        raise RuntimeError("Kein lokales Projekt geöffnet.")
+        raise RuntimeError(localized("Kein lokales Projekt geöffnet.", "No local project is open.", "No hay ningún proyecto local abierto.", "Aucun projet local n’est ouvert."))
     frame_id = str(payload.get("frameId", ""))
     decision = str(payload.get("decision", ""))
     frame = next((item for item in project.get("frames", []) if str(item.get("id")) == frame_id), None)
     if frame is None or frame.get("reviewStatus") != "candidate":
-        raise RuntimeError("Prüfkandidat wurde nicht gefunden.")
+        raise RuntimeError(localized("Prüfkandidat wurde nicht gefunden.", "Review candidate was not found.", "No se encontró el candidato de revisión.", "Le candidat de révision est introuvable."))
     target = str(payload.get("category") or "ball")
     if decision == "ball":
         matching = [item for item in frame.get("annotations", []) if item.get("category") == target]
         if not matching:
-            raise RuntimeError("Zuerst eine passende Ball-Box einzeichnen oder korrigieren.")
+            raise RuntimeError(localized("Zuerst eine passende Ball-Box einzeichnen oder korrigieren.", "Draw or correct a matching ball box first.", "Primero dibuja o corrige un cuadro de balón adecuado.", "Dessinez ou corrigez d’abord une boîte de ballon adaptée."))
         for annotation in matching:
             annotation["source"] = "manual"
     elif decision == "no-ball":
@@ -1188,12 +1284,15 @@ def review_candidate(payload: dict) -> None:
         for annotation in frame.get("annotations", []):
             annotation["source"] = "manual"
     else:
-        raise RuntimeError("Unbekannte Prüfentscheidung.")
+        raise RuntimeError(localized("Unbekannte Prüfentscheidung.", "Unknown review decision.", "Decisión de revisión desconocida.", "Décision de révision inconnue."))
     backup_project(root, "kandidat-geprueft")
     frame["reviewStatus"] = "reviewed"
     project["updatedAt"] = utc_now()
     atomic_json(root / "project.json", project)
-    STATE.update(project=project, message="Geprüftes Bild wurde in den Trainingssatz übernommen.")
+    STATE.update(project=project, message=localized(
+        "Geprüftes Bild wurde in den Trainingssatz übernommen.", "Reviewed image was added to the training set.",
+        "La imagen revisada se añadió al conjunto de entrenamiento.", "L’image vérifiée a été ajoutée au jeu d’entraînement.",
+    ))
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -1226,7 +1325,7 @@ class Handler(BaseHTTPRequestHandler):
     def read_json(self) -> dict:
         length = int(self.headers.get("Content-Length", "0"))
         if length > 1024 * 1024:
-            raise RuntimeError("Anfrage ist zu groß.")
+            raise RuntimeError(localized("Anfrage ist zu groß.", "The request is too large.", "La solicitud es demasiado grande.", "La requête est trop volumineuse."))
         return json.loads(self.rfile.read(length) or b"{}")
 
     def do_OPTIONS(self) -> None:
@@ -1288,34 +1387,42 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:
         if not self.allowed_origin():
-            self.json_response({"error": "Nur die lokale Reco-Oberfläche darf diesen Worker aufrufen."}, HTTPStatus.FORBIDDEN)
+            self.json_response({"error": localized(
+                "Nur die lokale Reco-Oberfläche darf diesen Worker aufrufen.",
+                "Only the local Reco interface is allowed to call this worker.",
+                "Solo la interfaz local de Reco puede llamar a este proceso.",
+                "Seule l’interface Reco locale est autorisée à appeler ce processus.",
+            )}, HTTPStatus.FORBIDDEN)
             return
         try:
             payload = self.read_json()
+            if language := payload.get("language"):
+                if language in {"de", "en", "es", "fr"}:
+                    STATE.language = language
             if self.path == "/api/select-folder":
                 folder = select_folder()
                 self.json_response({"ok": True, "folder": str(folder), "status": STATE.snapshot()})
             elif self.path == "/api/prepare":
                 if STATE.busy:
-                    raise RuntimeError("Ein lokaler Vorgang läuft bereits.")
+                    raise RuntimeError(localized("Ein lokaler Vorgang läuft bereits.", "A local operation is already running.", "Ya hay una operación local en curso.", "Une opération locale est déjà en cours."))
                 count = frames_per_video(payload.get("framesPerVideo"))
                 threading.Thread(target=extract_project, args=(payload.get("sport", "basketball"), count), daemon=True).start()
                 self.json_response({"ok": True})
             elif self.path == "/api/active-learning":
                 if STATE.busy:
-                    raise RuntimeError("Ein lokaler Vorgang läuft bereits.")
+                    raise RuntimeError(localized("Ein lokaler Vorgang läuft bereits.", "A local operation is already running.", "Ya hay una operación local en curso.", "Une opération locale est déjà en cours."))
                 folder = choose_video_folder(expansion=True)
                 threading.Thread(target=expand_dataset, args=(folder, payload), daemon=True).start()
                 self.json_response({"ok": True, "folder": str(folder)})
             elif self.path == "/api/independent-validation":
                 if STATE.busy:
-                    raise RuntimeError("Ein lokaler Vorgang läuft bereits.")
+                    raise RuntimeError(localized("Ein lokaler Vorgang läuft bereits.", "A local operation is already running.", "Ya hay una operación local en curso.", "Une opération locale est déjà en cours."))
                 folder = choose_video_folder(expansion=True)
                 threading.Thread(target=expand_dataset, args=(folder, payload), kwargs={"held_out": True}, daemon=True).start()
                 self.json_response({"ok": True, "folder": str(folder)})
             elif self.path == "/api/simulate-ball-tracking":
                 if STATE.busy:
-                    raise RuntimeError("Ein lokaler Vorgang läuft bereits.")
+                    raise RuntimeError(localized("Ein lokaler Vorgang läuft bereits.", "A local operation is already running.", "Ya hay una operación local en curso.", "Une opération locale est déjà en cours."))
                 video = select_video_file()
                 threading.Thread(target=simulate_ball_tracking, args=(video, payload), daemon=True).start()
                 self.json_response({"ok": True, "video": str(video)})
@@ -1324,27 +1431,27 @@ class Handler(BaseHTTPRequestHandler):
                 self.json_response({"ok": True, "status": STATE.snapshot()})
             elif self.path == "/api/remove-frame":
                 if STATE.busy:
-                    raise RuntimeError("Ein lokaler Vorgang läuft bereits.")
+                    raise RuntimeError(localized("Ein lokaler Vorgang läuft bereits.", "A local operation is already running.", "Ya hay una operación local en curso.", "Une opération locale est déjà en cours."))
                 remove_training_frame(payload)
                 self.json_response({"ok": True, "status": STATE.snapshot()})
             elif self.path == "/api/review-candidate":
                 if STATE.busy:
-                    raise RuntimeError("Ein lokaler Vorgang läuft bereits.")
+                    raise RuntimeError(localized("Ein lokaler Vorgang läuft bereits.", "A local operation is already running.", "Ya hay una operación local en curso.", "Une opération locale est déjà en cours."))
                 review_candidate(payload)
                 self.json_response({"ok": True, "status": STATE.snapshot()})
             elif self.path == "/api/benchmark-ground-truth":
                 if STATE.busy:
-                    raise RuntimeError("Ein lokaler Vorgang läuft bereits.")
+                    raise RuntimeError(localized("Ein lokaler Vorgang läuft bereits.", "A local operation is already running.", "Ya hay una operación local en curso.", "Une opération locale est déjà en cours."))
                 self.json_response({"ok": True, "benchmark": freeze_ground_truth()})
             elif self.path == "/api/import-model":
                 if STATE.busy:
-                    raise RuntimeError("Ein lokaler Vorgang läuft bereits.")
+                    raise RuntimeError(localized("Ein lokaler Vorgang läuft bereits.", "A local operation is already running.", "Ya hay una operación local en curso.", "Une opération locale est déjà en cours."))
                 package_file = select_model_package()
                 threading.Thread(target=ml_action, args=("import-model", {**payload, "file": str(package_file)}), daemon=True).start()
                 self.json_response({"ok": True, "fileName": package_file.name})
             elif self.path in {"/api/setup", "/api/autolabel", "/api/train", "/api/export-coreml", "/api/export-onnx", "/api/package-model", "/api/combine-models", "/api/benchmark", "/api/activate-model", "/api/rename-model", "/api/delete-model"}:
                 if STATE.busy:
-                    raise RuntimeError("Ein lokaler Vorgang läuft bereits.")
+                    raise RuntimeError(localized("Ein lokaler Vorgang läuft bereits.", "A local operation is already running.", "Ya hay una operación local en curso.", "Une opération locale est déjà en cours."))
                 action = self.path.removeprefix("/api/")
                 threading.Thread(target=ml_action, args=(action, payload), daemon=True).start()
                 self.json_response({"ok": True})

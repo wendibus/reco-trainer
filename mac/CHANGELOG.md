@@ -1,5 +1,10 @@
 # Änderungen
 
+## 0.14.4
+
+- Windows/Linux/Docker: neues Feld zum Einstellen der Trainings-Epochen (bisher fest auf 20) - Startwert jetzt 100, wie in der Mac-App, deren eigener Startwert ebenfalls angehoben wurde.
+- Windows/Linux/Docker: viele Status- und Fehlermeldungen, die bisher unabhängig von der gewählten Sprache fest auf Deutsch standen, sind jetzt korrekt in allen vier Sprachen - unter anderem die Hardware-Anzeige, Modell-Testwerte, die Paketbeschreibung eines aktiven Modells und praktisch jede Statuszeile während eines Vorgangs.
+
 ## 0.14.3
 
 - Die Code-Sicherheitsprüfung für Modellpakete läuft jetzt zusätzlich verpflichtend unmittelbar vor jeder tatsächlichen Nutzung einer Gewichtsdatei (Training, automatisches Markieren, Modellvergleich, Export) - nicht mehr nur beim Import, wo sie bei fehlender ML-Umgebung übersprungen werden konnte. Zip-Einträge, die als Symlink markiert sind, werden jetzt ebenfalls grundsätzlich abgelehnt.

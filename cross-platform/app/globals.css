@@ -130,6 +130,8 @@ select { height:34px; padding:0 9px; border:1px solid #cbd3df; border-radius:7px
 .training-topline { justify-content:space-between; font-size:11px; }
 .model-pill { margin-left:9px; padding:4px 7px; border-radius:6px; background:#edf1f6; color:#57657a; font-size:9px; }
 .model-select { width:128px; height:26px; margin-left:9px; border-color:#d9e0e9; background:#f3f5f8; font-size:9px; }
+.epochs-field { display:inline-flex; align-items:center; gap:5px; margin-left:9px; font-size:9px; color:#57657a; }
+.epochs-field input { width:52px; height:26px; border:1px solid #d9e0e9; border-radius:6px; background:#f3f5f8; font-size:9px; padding:0 6px; }
 .hardware-pill { color:var(--green); font-size:9px; font-weight:700; }
 .dataset-summary { display:grid; grid-template-columns:repeat(3,minmax(70px,.7fr)) minmax(180px,2fr); gap:6px; margin-top:9px; }
 .dataset-summary span { min-width:0; padding:6px 8px; border-radius:7px; background:#f4f6f9; color:#6c7787; font-size:8px; line-height:1.25; }

@@ -30,7 +30,7 @@ final class AppState: ObservableObject {
     /// CFBundleShortVersionString (Info.plist) and VERSION (package-platforms.sh)
     /// at every release. Used both for the "what's new" sheet and for deciding
     /// whether a fetched GitHub release is actually newer than what's running.
-    static let appVersion = "0.14.3"
+    static let appVersion = "0.14.4"
 
     @Published var language: AppLanguage = .de
     @Published var sport: Sport = .football
@@ -73,7 +73,12 @@ final class AppState: ObservableObject {
     }
 
     @Published var modelSize: ModelSize = .nano
-    @Published var epochs = 20
+    // 100 rather than the RF-DETR-default 20: early stopping (see train()'s
+    // patience in ml_worker.py - half the requested epochs, capped at 20
+    // epochs with no improvement) already cuts a run short once it plateaus,
+    // so a higher ceiling only gives it room to keep improving instead of
+    // being cut off arbitrarily at epoch 20.
+    @Published var epochs = 100
     /// Opt-in: ignore any continuation checkpoint (and any interrupted run's own
     /// checkpoint) for the next training run, guaranteeing a clean start from the
     /// Apache-2.0 base model. Needed because RF-DETR silently keeps a continued
