@@ -98,6 +98,8 @@ Point Reco Trainer at a folder of video files. It extracts individual frames loc
 
 Once you have at least a base model to work with, "Analyze videos locally" runs it over your extracted frames and proposes boxes. These proposals land in a review queue as **candidates** — nothing is added to your actual training set until you've looked at it.
 
+![A labeled frame, with the class selector, drawing tools, and the "Improve model" training panel](screenshots/annotation-and-training.png)
+
 Reviewing a candidate frame means one of:
 
 - **Accepting** the model's boxes as-is, because they're correct.
@@ -149,6 +151,8 @@ If one model is your best performer for the ball and a different one is your bes
 ### Ball-tracking simulation
 
 This panel plays back a short clip frame by frame, running the active model's ball detection live and color-coding the result: detected (green), interpolated between two real detections (orange), held at the last known position (yellow), or lost entirely. A slider controls how far ahead/behind the interpolation is allowed to look. It's a fast, visual way to sanity-check a model's real-world tracking behavior — including its failure modes — without setting up a full pipeline. Nothing here is saved or used for training; it's purely for your own inspection.
+
+![The ball-tracking simulation panel, ready to play back a selected clip](screenshots/ball-tracking-simulation.png)
 
 ### Field geometry editor
 
