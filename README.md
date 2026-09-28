@@ -88,6 +88,8 @@ Requirements: Node.js 22, Python 3.11 or 3.12, FFmpeg, and Zenity or KDialog for
 9. Review the ranking and detailed error counts.
 10. Export a `.recomodel` package only when you deliberately want to exchange a model.
 
+For a friendlier, more thorough walkthrough of this same workflow — including why labeling and training work the way they do, and how to use the advanced features — see the [User Guide](docs/USER-GUIDE.md).
+
 ## Privacy and security
 
 - The local worker binds to `127.0.0.1` only.
