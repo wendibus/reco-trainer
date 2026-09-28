@@ -1,5 +1,9 @@
 # Änderungen
 
+## 0.15.0
+
+- Neue Video-Einführung beim ersten Start: Nach der Sprachwahl kannst du zwischen einem rund einminütigen Video und der bisherigen Schritt-für-Schritt-Anleitung wählen. Das Video liegt in allen vier Sprachen mit passenden Untertiteln vor, läuft vollständig lokal und zeigt bewusst KI-generiertes Beispielmaterial statt echter Aufnahmen. Jederzeit erneut über „Ablauf erklären“ aufrufbar.
+
 ## 0.14.4
 
 - Windows/Linux/Docker: neues Feld zum Einstellen der Trainings-Epochen (bisher fest auf 20) - Startwert jetzt 100, wie in der Mac-App, deren eigener Startwert ebenfalls angehoben wurde.

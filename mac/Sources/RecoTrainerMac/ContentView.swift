@@ -1,4 +1,5 @@
 import AppKit
+import AVKit
 import SwiftUI
 
 struct ContentView: View {
@@ -12,6 +13,8 @@ struct ContentView: View {
     @AppStorage("recoSkipFrameRemovalConfirmationV1") private var skipFrameRemovalConfirmation = false
     @State private var showWalkthrough = false
     @State private var showLanguagePicker = false
+    @State private var showOnboardingChoice = false
+    @State private var showVideoWalkthrough = false
     @State private var walkthroughIndex = 0
     @State private var showBenchmark = false
     @State private var showBallTracking = false
@@ -128,7 +131,7 @@ struct ContentView: View {
             ToolbarItem(placement: .primaryAction) {
                 Button {
                     walkthroughIndex = 0
-                    showWalkthrough = true
+                    showOnboardingChoice = true
                 } label: {
                     Label(
                         app.tr("Ablauf erklären", "Show workflow", "Mostrar el flujo", "Afficher le parcours"),
@@ -142,7 +145,7 @@ struct ContentView: View {
             if let saved = AppLanguage(rawValue: preferredLanguage) {
                 app.language = saved
                 if !walkthroughComplete {
-                    showWalkthrough = true
+                    showOnboardingChoice = true
                 } else if lastSeenRelease != Self.currentRelease {
                     showReleaseNotes = true
                 }
@@ -156,6 +159,8 @@ struct ContentView: View {
         .sheet(isPresented: onboardingPresented) {
             OnboardingContainer(
                 showLanguagePicker: showLanguagePicker,
+                showOnboardingChoice: showOnboardingChoice,
+                showVideoWalkthrough: showVideoWalkthrough,
                 language: app.language,
                 walkthroughIndex: $walkthroughIndex,
                 selectLanguage: { language in
@@ -163,11 +168,21 @@ struct ContentView: View {
                     preferredLanguage = language.rawValue
                     showLanguagePicker = false
                     walkthroughIndex = 0
+                    showOnboardingChoice = true
+                },
+                chooseVideo: {
+                    showOnboardingChoice = false
+                    showVideoWalkthrough = true
+                },
+                chooseSteps: {
+                    showOnboardingChoice = false
+                    walkthroughIndex = 0
                     showWalkthrough = true
                 },
                 finish: {
                     walkthroughComplete = true
                     showWalkthrough = false
+                    showVideoWalkthrough = false
                 }
             )
         }
@@ -199,11 +214,13 @@ struct ContentView: View {
 
     private var onboardingPresented: Binding<Bool> {
         Binding(
-            get: { showLanguagePicker || showWalkthrough },
+            get: { showLanguagePicker || showOnboardingChoice || showWalkthrough || showVideoWalkthrough },
             set: { presented in
                 if !presented {
                     showLanguagePicker = false
+                    showOnboardingChoice = false
                     showWalkthrough = false
+                    showVideoWalkthrough = false
                 }
             }
         )
@@ -1554,6 +1571,10 @@ private struct WhatsNewSheet: View {
     private var changes: [(String, String)] {
         [
             (
+                language.text("Video-Einführung beim ersten Start", "Video walkthrough on first launch", "Vídeo introductorio al primer inicio", "Vidéo d’introduction au premier lancement"),
+                language.text("Nach der Sprachwahl fragt Reco Trainer jetzt, ob du lieber ein rund einminütiges Video ansehen oder die bisherige Schritt-für-Schritt-Anleitung durchklicken möchtest - beides zeigt denselben Ablauf. Das Video ist in allen vier Sprachen mit passenden Untertiteln hinterlegt und läuft vollständig lokal, ohne Internetverbindung. Es zeigt bewusst KI-generiertes Beispielmaterial statt echter Aufnahmen - Reco Trainer nimmt Datenhoheit ernst, auch bei der eigenen Einführung. Über „Ablauf erklären“ jederzeit erneut aufrufbar.", "After choosing a language, Reco Trainer now asks whether you'd rather watch a roughly one-minute video or click through the existing step-by-step guide - both cover the same workflow. The video has matching captions in all four languages and plays entirely locally, with no internet connection needed. It deliberately uses AI-generated sample footage instead of real recordings - Reco Trainer takes data ownership seriously, even for its own introduction. Reachable again any time via „Show workflow“.", "Tras elegir el idioma, Reco Trainer ahora pregunta si prefieres ver un vídeo de aproximadamente un minuto o recorrer la guía paso a paso ya existente - ambas opciones muestran el mismo proceso. El vídeo incluye subtítulos a juego en los cuatro idiomas y se reproduce completamente en local, sin necesidad de conexión a internet. Usa deliberadamente material de ejemplo generado por IA en lugar de grabaciones reales - Reco Trainer se toma en serio la soberanía de los datos, incluso en su propia introducción. Se puede volver a abrir en cualquier momento desde „Mostrar el flujo“.", "Après avoir choisi une langue, Reco Trainer demande désormais si vous préférez regarder une vidéo d’environ une minute ou parcourir le guide étape par étape existant - les deux présentent le même parcours. La vidéo dispose de sous-titres correspondants dans les quatre langues et se lit entièrement en local, sans connexion internet. Elle utilise volontairement des images d’exemple générées par IA plutôt que de vrais enregistrements - Reco Trainer prend la souveraineté des données au sérieux, même pour sa propre introduction. Accessible à nouveau à tout moment via « Afficher le parcours ».")
+            ),
+            (
                 language.text("Windows/Linux/Docker: Epochen-Feld ergänzt, viele Übersetzungslücken behoben", "Windows/Linux/Docker: added the epochs field, fixed many translation gaps", "Windows/Linux/Docker: se añadió el campo de épocas y se corrigieron muchos huecos de traducción", "Windows/Linux/Docker : ajout du champ époques, correction de nombreuses lacunes de traduction"),
                 language.text("Die plattformübergreifende Oberfläche hatte bisher gar kein Feld, um die Anzahl der Trainings-Epochen einzustellen (immer fest auf 20) - jetzt gibt es dort dasselbe Feld wie in der Mac-App (deren eigener Startwert ebenfalls von 20 auf 100 angehoben wurde). Außerdem waren viele Status- und Fehlermeldungen dieser Oberfläche fest auf Deutsch verdrahtet und erschienen unabhängig von der gewählten Sprache - unter anderem die Hardware-Anzeige, die Modell-Testwerte, die Paketbeschreibung eines aktiven Modells und praktisch jede Statuszeile während eines Vorgangs. Das ist jetzt korrekt in allen vier Sprachen.", "The cross-platform interface previously had no field at all to set the number of training epochs (always fixed at 20) - it now has the same field as the Mac app (whose own default was likewise raised from 20 to 100). In addition, many status and error messages in that interface were hardwired to German and appeared regardless of the selected language - among them the hardware display, model test scores, an active model's package description, and practically every status line during an operation. This is now correctly localized in all four languages.", "La interfaz multiplataforma no tenía ningún campo para ajustar el número de épocas de entrenamiento (siempre fijo en 20) - ahora tiene el mismo campo que la app de Mac (cuyo propio valor por defecto también subió de 20 a 100). Además, muchos mensajes de estado y error de esa interfaz estaban fijados en alemán y aparecían sin importar el idioma elegido, entre ellos la indicación de hardware, las puntuaciones de prueba de los modelos, la descripción del paquete de un modelo activo y prácticamente cada línea de estado durante una operación. Ahora está correctamente traducido a los cuatro idiomas.", "L’interface multiplateforme n’avait auparavant aucun champ pour régler le nombre d’époques d’entraînement (toujours fixé à 20) - elle dispose désormais du même champ que l’application Mac (dont la propre valeur par défaut est aussi passée de 20 à 100). De plus, de nombreux messages d’état et d’erreur de cette interface étaient figés en allemand et apparaissaient quelle que soit la langue choisie, notamment l’affichage du matériel, les scores de test des modèles, la description du paquet d’un modèle actif et pratiquement chaque ligne d’état pendant une opération. Tout cela est désormais correctement traduit dans les quatre langues.")
             ),
@@ -1635,17 +1656,155 @@ private struct WhatsNewSheet: View {
 
 private struct OnboardingContainer: View {
     let showLanguagePicker: Bool
+    let showOnboardingChoice: Bool
+    let showVideoWalkthrough: Bool
     let language: AppLanguage
     @Binding var walkthroughIndex: Int
     let selectLanguage: (AppLanguage) -> Void
+    let chooseVideo: () -> Void
+    let chooseSteps: () -> Void
     let finish: () -> Void
 
     @ViewBuilder
     var body: some View {
         if showLanguagePicker {
             LanguageSelectionSheet(select: selectLanguage)
+        } else if showOnboardingChoice {
+            OnboardingChoiceSheet(language: language, chooseVideo: chooseVideo, chooseSteps: chooseSteps, skip: finish)
+        } else if showVideoWalkthrough {
+            VideoWalkthroughSheet(language: language, finish: finish)
         } else {
             WalkthroughSheet(language: language, index: $walkthroughIndex, finish: finish)
+        }
+    }
+}
+
+private struct OnboardingChoiceSheet: View {
+    let language: AppLanguage
+    let chooseVideo: () -> Void
+    let chooseSteps: () -> Void
+    let skip: () -> Void
+
+    var body: some View {
+        VStack(spacing: 22) {
+            HStack {
+                Spacer()
+                Button(language.text("Schließen", "Close", "Cerrar", "Fermer"), action: skip)
+            }
+            Image(systemName: "sparkles")
+                .font(.system(size: 36, weight: .semibold))
+                .foregroundStyle(.blue)
+            VStack(spacing: 6) {
+                Text(language.text(
+                    "Wie möchtest du starten?", "How would you like to get started?",
+                    "¿Cómo quieres empezar?", "Comment souhaitez-vous commencer ?"
+                )).font(.title2.bold())
+                Text(language.text(
+                    "Beides zeigt denselben Ablauf - wähle, was dir lieber ist.",
+                    "Both cover the same workflow - pick whichever you prefer.",
+                    "Ambas opciones muestran el mismo proceso - elige la que prefieras.",
+                    "Les deux présentent le même parcours - choisissez celle que vous préférez."
+                ))
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+            }
+            HStack(spacing: 14) {
+                choiceButton(
+                    icon: "play.rectangle.fill",
+                    title: language.text("Video ansehen", "Watch a video", "Ver un vídeo", "Regarder une vidéo"),
+                    subtitle: language.text(
+                        "Rund eine Minute, mit Untertiteln in deiner Sprache.",
+                        "About a minute long, with captions in your language.",
+                        "Alrededor de un minuto, con subtítulos en tu idioma.",
+                        "Environ une minute, avec des sous-titres dans votre langue."
+                    ),
+                    action: chooseVideo
+                )
+                choiceButton(
+                    icon: "list.number",
+                    title: language.text("Schritt für Schritt", "Step by step", "Paso a paso", "Étape par étape"),
+                    subtitle: language.text(
+                        "Zum eigenen Tempo durchklicken.",
+                        "Click through at your own pace.",
+                        "Recorre los pasos a tu propio ritmo.",
+                        "Parcourez les étapes à votre rythme."
+                    ),
+                    action: chooseSteps
+                )
+            }
+            Text("Videos and images always remain on this computer.")
+                .font(.caption)
+                .foregroundStyle(.green)
+        }
+        .padding(30)
+        .frame(width: 560, height: 380)
+    }
+
+    private func choiceButton(icon: String, title: String, subtitle: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            VStack(alignment: .leading, spacing: 10) {
+                Image(systemName: icon)
+                    .font(.title)
+                    .foregroundStyle(.blue)
+                Text(title).font(.headline)
+                Text(subtitle)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(16)
+            .background(.quaternary.opacity(0.35), in: RoundedRectangle(cornerRadius: 14))
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+private struct VideoWalkthroughSheet: View {
+    let language: AppLanguage
+    let finish: () -> Void
+
+    @State private var player: AVPlayer?
+
+    /// Video files are pre-rendered per language with burned-in captions (see
+    /// mac/Sources/RecoTrainerMac/Resources/walkthrough-<lang>.mp4) rather than
+    /// one file with switchable subtitle tracks - the app already knows the
+    /// user's language at this point (just chosen on the previous screen), so
+    /// there's nothing to switch between at playback time.
+    private var resourceName: String { "walkthrough-\(language.rawValue)" }
+
+    var body: some View {
+        VStack(spacing: 16) {
+            HStack {
+                Text(language.text("Reco Trainer - Ablauf", "Reco Trainer - workflow", "Reco Trainer - flujo", "Reco Trainer - parcours"))
+                    .font(.title2.bold())
+                Spacer()
+                Button(language.text("Loslegen", "Get started", "Empezar", "Commencer"), action: finish)
+                    .buttonStyle(.borderedProminent)
+            }
+            if let player {
+                VideoPlayer(player: player)
+                    .frame(width: 720, height: 405)
+                    .clipShape(RoundedRectangle(cornerRadius: 12))
+            } else {
+                ContentUnavailableView(
+                    language.text("Video nicht gefunden", "Video not found", "Vídeo no encontrado", "Vidéo introuvable"),
+                    systemImage: "exclamationmark.triangle"
+                )
+                .frame(width: 720, height: 405)
+            }
+        }
+        .padding(24)
+        .onAppear {
+            if let url = Bundle.module.url(forResource: resourceName, withExtension: "mp4") {
+                let instance = AVPlayer(url: url)
+                player = instance
+                instance.play()
+            }
+        }
+        .onDisappear {
+            player?.pause()
         }
     }
 }

@@ -15,3 +15,10 @@ __pycache__/
 *.avi
 *.mkv
 *.webm
+# Exception: the bundled, AI-generated onboarding walkthrough videos (never
+# real user footage) - see mac/Sources/RecoTrainerMac/Resources/ and
+# cross-platform/public/. Everything else stays covered by the blanket
+# video-file rule above, which exists specifically so no one's real training
+# footage ever ends up committed to this repo by accident.
+!mac/Sources/RecoTrainerMac/Resources/walkthrough-*.mp4
+!cross-platform/public/walkthrough-*.mp4

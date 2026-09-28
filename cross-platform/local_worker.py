@@ -202,7 +202,12 @@ class LocalState:
         self.project: dict | None = None
         self.operation = "idle"
         self.progress = 0.0
-        self.message = "Lokaler Worker bereit."
+        # Empty, not a hardcoded-German default: STATE exists before any
+        # request (and its "language" field) has ever been seen, so there is
+        # no language to render this in yet. page.tsx's existing
+        # `worker?.message || t.localReady` fallback already shows a properly
+        # localized placeholder for an empty message.
+        self.message = ""
         self.log: list[str] = []
         self.busy = False
         self.error: str | None = None
@@ -1481,10 +1486,16 @@ def main() -> None:
     args = parser.parse_args()
     if HOST not in {"127.0.0.1", "localhost", "0.0.0.0"}:
         raise SystemExit("RECO_BIND_HOST muss 127.0.0.1, localhost oder 0.0.0.0 sein.")
+    # Terminal-only (not STATE.message): at process start no request has
+    # happened yet, so STATE.language is still its "de" default - showing
+    # this hardcoded-German text as the initial UI status regardless of the
+    # user's actual language would be exactly the kind of hardwired-language
+    # bug fixed elsewhere in this file (see localized()). system_python()
+    # already raises a properly localized error later if the version
+    # actually turns out to matter for "Set up ML".
     warning = python_version_warning()
     if warning:
         print(f"WARNUNG: {warning}", flush=True)
-        STATE.update(message=warning)
     server = ThreadingHTTPServer((HOST, args.port), Handler)
     print(f"Reco Local Worker: http://{HOST}:{args.port}", flush=True)
     server.serve_forever()
