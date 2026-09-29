@@ -6,6 +6,10 @@ Reco Trainer is a privacy-first tool for improving and comparing sports-camera d
 
 The alpha supports basketball, football (soccer), futsal, handball, hockey, rugby, lacrosse and American football. The interface and walkthrough are available in German, English, Spanish and French.
 
+## Extended training video
+
+The [12-minute extended training video](https://wendibus.github.io/reco-trainer/) combines a practical walkthrough with the reasoning behind careful annotation, representative test data, local training, model comparison, and ball-tracking simulation. It uses synthetic demonstration footage and includes optional English subtitles.
+
 ## New in 0.12: safer editing and clearer exchange
 
 Annotation editing now keeps exactly ten undo and redo steps per image, available from the buttons or with `Cmd/Ctrl+Z` and `Cmd/Ctrl+Shift+Z`. Before creating a `.recomodel` exchange package, Reco Trainer asks for a readable package name and uses it in both the package metadata and safe file name.

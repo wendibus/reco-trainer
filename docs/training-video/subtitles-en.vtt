@@ -1,0 +1,868 @@
+WEBVTT
+
+00:00:00.350 --> 00:00:02.967
+A basketball is easy for
+us to recognise, even
+
+00:00:03.047 --> 00:00:05.593
+when it is small,
+blurred, or partly hidden.
+
+00:00:05.673 --> 00:00:08.859
+A detection model sees only
+pixels and probabilities.
+
+00:00:08.939 --> 00:00:12.479
+It must learn which visual
+patterns belong to the ball, where
+
+00:00:12.559 --> 00:00:15.957
+the object begins and ends,
+and how confident it should be.
+
+00:00:17.037 --> 00:00:19.570
+Reco Trainer provides a local workflow for
+
+00:00:19.650 --> 00:00:22.619
+teaching that model with
+your own sports footage.
+
+00:00:22.699 --> 00:00:26.902
+In this extended training, we will
+follow the complete cycle: prepare
+
+00:00:26.982 --> 00:00:31.184
+representative frames, review
+labels, train locally, test on unseen
+
+00:00:31.264 --> 00:00:35.395
+material, compare model revisions,
+and decide what to improve next.
+
+00:00:36.475 --> 00:00:39.357
+Reco Trainer builds an
+object detection model.
+
+00:00:39.437 --> 00:00:41.652
+For every image, the model predicts a
+
+00:00:41.732 --> 00:00:44.318
+location, a class, and a confidence score.
+
+00:00:44.398 --> 00:00:46.392
+A box answers where the object is.
+
+00:00:46.472 --> 00:00:49.206
+The class says what the
+model thinks it found.
+
+00:00:49.286 --> 00:00:54.019
+Confidence describes how strongly the
+visual evidence supports that guess.
+
+00:00:55.099 --> 00:00:58.463
+The model does not contain a
+written rule for basketballs.
+
+00:00:58.543 --> 00:01:01.133
+It learns recurring
+patterns from examples.
+
+00:01:01.213 --> 00:01:04.366
+A correct annotation is
+therefore more than a drawing.
+
+00:01:04.446 --> 00:01:06.333
+It is the lesson we give the model.
+
+00:01:07.413 --> 00:01:10.364
+Reco Trainer starts with
+RF-DETR, a general object
+
+00:01:10.444 --> 00:01:13.818
+detector that already contains
+useful visual knowledge.
+
+00:01:13.898 --> 00:01:16.990
+Training adapts that knowledge
+to your sport, camera
+
+00:01:17.070 --> 00:01:19.739
+position, image quality,
+and chosen classes.
+
+00:01:19.819 --> 00:01:21.925
+This process is called fine-tuning.
+
+00:01:22.005 --> 00:01:25.520
+It makes useful results possible
+with hundreds of carefully
+
+00:01:25.600 --> 00:01:29.185
+selected frames instead of
+starting from millions of images.
+
+00:01:30.265 --> 00:01:32.910
+Reco Trainer follows a local-first design.
+
+00:01:32.990 --> 00:01:35.855
+Original videos remain
+in the selected folder.
+
+00:01:35.935 --> 00:01:40.200
+Extracted frames, annotations,
+training runs, model revisions, and
+
+00:01:40.280 --> 00:01:44.545
+benchmark reports stay below the
+local dot reco-training directory.
+
+00:01:44.625 --> 00:01:47.417
+The application has no
+media upload function.
+
+00:01:48.497 --> 00:01:52.188
+An update check can ask whether a
+newer Reco Trainer release exists.
+
+00:01:52.268 --> 00:01:55.892
+That request does not include
+project footage, labels, or models.
+
+00:01:55.972 --> 00:01:59.795
+Initial machine-learning setup
+may download software dependencies
+
+00:01:59.875 --> 00:02:03.500
+and pretrained weights, but it
+does not upload your sports videos.
+
+00:02:04.580 --> 00:02:08.458
+Local processing reduces the risk
+of accidental disclosure, but it
+
+00:02:08.538 --> 00:02:12.693
+does not replace consent, copyright,
+or data-protection obligations.
+
+00:02:12.773 --> 00:02:15.888
+You still need the appropriate
+rights to record, train
+
+00:02:15.968 --> 00:02:18.804
+on, and share anything
+derived from the material.
+
+00:02:18.884 --> 00:02:22.276
+This demonstration uses only
+approved synthetic footage.
+
+00:02:23.356 --> 00:02:27.064
+We begin by selecting a folder
+that contains the training videos.
+
+00:02:27.144 --> 00:02:30.163
+Reco Trainer samples a
+configurable number of images
+
+00:02:30.243 --> 00:02:33.263
+from each video and spreads
+them across the duration.
+
+00:02:33.343 --> 00:02:36.982
+These extracted frames become
+the raw material for annotation.
+
+00:02:38.062 --> 00:02:42.039
+The goal is useful variation, not
+the largest possible frame count.
+
+00:02:42.119 --> 00:02:45.882
+Consecutive frames often contain
+almost the same information.
+
+00:02:45.962 --> 00:02:49.512
+Fifty examples with different
+distances, lighting, motion
+
+00:02:49.592 --> 00:02:52.786
+blur, occlusion, and camera
+angles can teach more than
+
+00:02:52.866 --> 00:02:56.131
+hundreds of nearly identical
+images from one sequence.
+
+00:02:57.211 --> 00:02:59.760
+The frame count applies
+per video, so the total
+
+00:02:59.840 --> 00:03:02.053
+grows with the size of the source folder.
+
+00:03:02.133 --> 00:03:05.357
+Start with a manageable set
+that you can review carefully.
+
+00:03:05.437 --> 00:03:08.122
+You can remove an unsuitable
+image from training
+
+00:03:08.202 --> 00:03:10.549
+without touching the original recording.
+
+00:03:10.629 --> 00:03:14.663
+Reco Trainer deletes only the derived
+frame and related dataset copies.
+
+00:03:15.743 --> 00:03:18.864
+When choosing material,
+include the awkward cases.
+
+00:03:18.944 --> 00:03:22.721
+A fast ball near a player's hand,
+a partial view at the edge of the
+
+00:03:22.801 --> 00:03:26.650
+frame, or a dimly lit scene may
+take longer to label, but those are
+
+00:03:26.730 --> 00:03:30.507
+often the situations where the
+final model needs the most help.
+
+00:03:31.587 --> 00:03:34.586
+Annotation is the most
+important part of the workflow.
+
+00:03:34.666 --> 00:03:36.795
+A good box includes the complete object
+
+00:03:36.875 --> 00:03:39.072
+and stays close to its visible boundary.
+
+00:03:39.152 --> 00:03:42.486
+A box that cuts through the ball
+teaches an incomplete shape.
+
+00:03:42.566 --> 00:03:46.636
+A box with a large area of floor around
+it teaches unnecessary background.
+
+00:03:47.716 --> 00:03:50.167
+Select the correct class before drawing.
+
+00:03:50.247 --> 00:03:52.409
+Then inspect every proposed object.
+
+00:03:52.489 --> 00:03:55.230
+Move or resize inaccurate
+boxes, remove false
+
+00:03:55.310 --> 00:03:58.050
+detections, and add
+objects the model missed.
+
+00:03:58.130 --> 00:04:01.232
+Undo and redo keep the last
+ten editing steps for each
+
+00:04:01.312 --> 00:04:04.414
+image, which makes detailed
+correction less risky.
+
+00:04:05.494 --> 00:04:09.186
+Automatic labelling can save time
+once a base model is available.
+
+00:04:09.266 --> 00:04:11.586
+It should always be treated as a proposal.
+
+00:04:11.666 --> 00:04:14.397
+Reco Trainer keeps
+unreviewed candidates out of
+
+00:04:14.477 --> 00:04:17.551
+dataset generation, model
+packages, and benchmarks.
+
+00:04:17.631 --> 00:04:20.089
+This prevents the model
+from feeding its own
+
+00:04:20.169 --> 00:04:22.900
+uncertain guesses directly
+back into training.
+
+00:04:23.980 --> 00:04:26.352
+Consistency matters as much as accuracy.
+
+00:04:26.432 --> 00:04:28.804
+Similar situations need similar labels.
+
+00:04:28.884 --> 00:04:32.027
+If one reviewer draws a tight
+box and another includes a
+
+00:04:32.107 --> 00:04:35.390
+large margin, the model
+receives conflicting examples.
+
+00:04:35.470 --> 00:04:37.982
+Agree on the meaning of
+each class and review
+
+00:04:38.062 --> 00:04:40.364
+difficult cases with the same standard.
+
+00:04:41.444 --> 00:04:44.423
+Labelling can feel like
+preparation for training, but in
+
+00:04:44.503 --> 00:04:47.929
+practical machine learning it is
+the central teaching activity.
+
+00:04:48.009 --> 00:04:50.160
+The training process can only amplify the
+
+00:04:50.240 --> 00:04:52.837
+information contained in
+the reviewed examples.
+
+00:04:52.917 --> 00:04:56.597
+It cannot repair a dataset whose
+answers are missing or inconsistent.
+
+00:04:57.677 --> 00:05:00.574
+After the first useful
+model exists, Reco Trainer
+
+00:05:00.654 --> 00:05:03.338
+can help decide what
+deserves attention next.
+
+00:05:03.418 --> 00:05:05.748
+This is the idea behind active learning.
+
+00:05:05.828 --> 00:05:10.142
+Review time goes first to examples
+that are likely to teach something new.
+
+00:05:11.222 --> 00:05:14.077
+Low-confidence detections
+indicate uncertainty.
+
+00:05:14.157 --> 00:05:16.544
+If two installed models
+disagree, the frame
+
+00:05:16.624 --> 00:05:18.745
+probably contains genuine ambiguity.
+
+00:05:18.825 --> 00:05:21.012
+Temporal analysis adds another signal.
+
+00:05:21.092 --> 00:05:24.014
+When a detected ball jumps
+to an implausible position
+
+00:05:24.094 --> 00:05:27.081
+between neighbouring frames,
+the middle result may be
+
+00:05:27.161 --> 00:05:30.082
+a false detection rather
+than an extraordinary pass.
+
+00:05:31.162 --> 00:05:33.671
+These signals only
+change the review order.
+
+00:05:33.751 --> 00:05:36.960
+They never decide which answer
+enters the training set.
+
+00:05:37.040 --> 00:05:40.039
+A person still confirms the
+class, corrects the box,
+
+00:05:40.119 --> 00:05:42.838
+rejects the detection,
+or skips the candidate.
+
+00:05:42.918 --> 00:05:45.427
+Active learning makes human attention more
+
+00:05:45.507 --> 00:05:48.016
+efficient without removing human control.
+
+00:05:49.096 --> 00:05:53.357
+Once the reviewed set contains enough
+useful variation, we can train a model.
+
+00:05:53.437 --> 00:05:56.962
+An epoch means one complete pass
+through the training examples.
+
+00:05:57.042 --> 00:06:00.367
+Reco Trainer uses one hundred
+epochs as a practical default,
+
+00:06:00.447 --> 00:06:03.372
+but a larger number does not
+guarantee a better model.
+
+00:06:04.452 --> 00:06:06.940
+With too little data,
+a long training run can
+
+00:06:07.020 --> 00:06:10.062
+memorise the exact training
+images and their quirks.
+
+00:06:10.142 --> 00:06:11.311
+This is overfitting.
+
+00:06:11.391 --> 00:06:14.086
+The model may score well
+on familiar footage and
+
+00:06:14.166 --> 00:06:17.070
+fail when the camera,
+lighting, or players change.
+
+00:06:17.150 --> 00:06:19.429
+We therefore judge progress on material
+
+00:06:19.509 --> 00:06:21.719
+that the model never used for learning.
+
+00:06:22.799 --> 00:06:25.820
+Normal training continues
+from the current checkpoint.
+
+00:06:25.900 --> 00:06:29.825
+That is usually faster and preserves
+what the active model already knows.
+
+00:06:29.905 --> 00:06:33.119
+Use Train from scratch when you
+introduce a new class that the
+
+00:06:33.199 --> 00:06:36.414
+existing classification head
+was never trained to predict.
+
+00:06:37.494 --> 00:06:39.597
+Training stays on the local machine.
+
+00:06:39.677 --> 00:06:44.245
+Supported Apple systems use Metal
+acceleration, while other configurations
+
+00:06:44.325 --> 00:06:47.908
+can use an available local
+accelerator or fall back to the CPU.
+
+00:06:47.988 --> 00:06:50.302
+CPU training works, but it takes longer.
+
+00:06:50.382 --> 00:06:54.035
+During a tutorial recording, we
+use a labelled time jump rather
+
+00:06:54.115 --> 00:06:57.697
+than pretending that a full
+training run finishes instantly.
+
+00:06:58.777 --> 00:07:02.614
+The first model gives us a starting
+point, not a finished detector.
+
+00:07:02.694 --> 00:07:05.341
+Review new videos applies
+the active model to a
+
+00:07:05.421 --> 00:07:08.349
+separate folder and creates
+a queue of candidates.
+
+00:07:08.429 --> 00:07:11.146
+Videos already used by
+the project are skipped,
+
+00:07:11.226 --> 00:07:13.384
+so the review focuses on new material.
+
+00:07:14.464 --> 00:07:17.374
+Each candidate requires
+a deliberate decision.
+
+00:07:17.454 --> 00:07:20.291
+Confirm the ball when
+the detection is correct.
+
+00:07:20.371 --> 00:07:22.260
+Choose no ball for a false alarm.
+
+00:07:22.340 --> 00:07:26.562
+Correct the box when the object is
+real but the position is inaccurate.
+
+00:07:26.642 --> 00:07:29.333
+Skip a case when it
+cannot be judged reliably.
+
+00:07:30.413 --> 00:07:33.335
+Only reviewed candidates
+become training evidence.
+
+00:07:33.415 --> 00:07:36.270
+After collecting a meaningful
+batch, train another
+
+00:07:36.350 --> 00:07:38.939
+revision and compare it
+with the current model.
+
+00:07:39.019 --> 00:07:42.608
+This creates a controlled improvement
+cycle: expose the model to
+
+00:07:42.688 --> 00:07:46.344
+new situations, examine its
+mistakes, add verified examples, and
+
+00:07:46.424 --> 00:07:50.214
+measure whether the next revision
+handles those situations better.
+
+00:07:51.294 --> 00:07:53.982
+Avoid retraining after
+every single correction.
+
+00:07:54.062 --> 00:07:57.607
+A coherent batch gives the training
+run enough new information to
+
+00:07:57.687 --> 00:08:01.100
+justify the time and makes the
+comparison easier to interpret.
+
+00:08:02.180 --> 00:08:05.829
+A fair test uses footage the model
+has never seen during training.
+
+00:08:05.909 --> 00:08:08.812
+Testing on familiar material
+rewards memorisation
+
+00:08:08.892 --> 00:08:11.050
+and gives an overly optimistic result.
+
+00:08:11.130 --> 00:08:15.389
+The Independent model test creates a
+held-out set for an honest comparison.
+
+00:08:16.469 --> 00:08:19.875
+Select a folder that has never
+contributed training frames.
+
+00:08:19.955 --> 00:08:22.815
+Review the correct objects
+carefully, then freeze
+
+00:08:22.895 --> 00:08:25.413
+those answers as the
+benchmark ground truth.
+
+00:08:25.493 --> 00:08:27.738
+Every compatible model will receive the
+
+00:08:27.818 --> 00:08:30.199
+same images and the same expected answers.
+
+00:08:31.279 --> 00:08:34.476
+For this walkthrough, we use
+one approved fifteen-second
+
+00:08:34.556 --> 00:08:37.018
+synthetic clip to
+illustrate the mechanics.
+
+00:08:37.098 --> 00:08:39.693
+That is enough to show the
+workflow, but it is not
+
+00:08:39.773 --> 00:08:42.770
+enough to support a serious
+claim about model quality.
+
+00:08:42.850 --> 00:08:45.980
+A meaningful evaluation needs
+much more independent and
+
+00:08:46.060 --> 00:08:49.859
+representative footage across
+different games, camera positions,
+
+00:08:49.939 --> 00:08:53.805
+lighting conditions, distances,
+occlusions, and types of movement.
+
+00:08:54.885 --> 00:08:56.374
+Keep the test set separate.
+
+00:08:56.454 --> 00:09:00.399
+The moment a test frame influences
+training decisions or becomes a new
+
+00:09:00.479 --> 00:09:04.423
+training example, it no longer
+provides an independent examination.
+
+00:09:04.503 --> 00:09:06.947
+Replace contaminated test material before
+
+00:09:07.027 --> 00:09:09.266
+using the benchmark for a real decision.
+
+00:09:10.346 --> 00:09:12.978
+The local model comparison runs compatible
+
+00:09:13.058 --> 00:09:15.690
+revisions against the frozen ground truth.
+
+00:09:15.770 --> 00:09:18.768
+Models run one after another
+so they do not compete
+
+00:09:18.848 --> 00:09:21.627
+for the same processor,
+GPU, or shared memory.
+
+00:09:22.707 --> 00:09:26.158
+Precision asks how many reported
+detections were correct.
+
+00:09:26.238 --> 00:09:28.700
+Low precision means too many false alarms.
+
+00:09:28.780 --> 00:09:31.666
+Recall asks how many real
+objects the model found.
+
+00:09:31.746 --> 00:09:34.138
+Low recall means too many missed objects.
+
+00:09:34.218 --> 00:09:36.186
+F1 balances precision and recall.
+
+00:09:36.266 --> 00:09:39.787
+Mean Average Precision at an
+overlap threshold of point five
+
+00:09:39.867 --> 00:09:43.248
+summarises detection quality
+across confidence levels.
+
+00:09:44.328 --> 00:09:47.261
+Reco Trainer's quality
+score gives seventy percent
+
+00:09:47.341 --> 00:09:50.205
+weight to mAP at point five
+and thirty percent to F1.
+
+00:09:50.285 --> 00:09:52.671
+Inference time acts only as a tie-breaker.
+
+00:09:52.751 --> 00:09:56.163
+This ranking provides a useful
+overview, but the deployment
+
+00:09:56.243 --> 00:09:58.971
+goal still determines
+which errors matter most.
+
+00:09:59.051 --> 00:10:02.121
+A tracking system may prefer
+fewer missed balls, while
+
+00:10:02.201 --> 00:10:05.339
+another workflow may be more
+sensitive to false alarms.
+
+00:10:06.419 --> 00:10:09.392
+Inspect per-class results as
+well as the overall score.
+
+00:10:09.472 --> 00:10:12.055
+Strong performance on
+common player detections
+
+00:10:12.135 --> 00:10:14.394
+can hide weak ball or referee performance.
+
+00:10:14.474 --> 00:10:17.901
+Models with different class sets
+do not support a simple overall
+
+00:10:17.981 --> 00:10:21.538
+comparison, so their shared
+classes deserve separate attention.
+
+00:10:22.618 --> 00:10:26.273
+Completed training runs enter an
+immutable local model library.
+
+00:10:26.353 --> 00:10:29.464
+Reco Trainer can rename,
+activate, compare, and delete
+
+00:10:29.544 --> 00:10:33.198
+revisions, while protecting the
+active revision from deletion.
+
+00:10:33.278 --> 00:10:36.186
+A worse new run remains
+available for investigation
+
+00:10:36.266 --> 00:10:39.173
+and does not silently replace
+a better active model.
+
+00:10:40.253 --> 00:10:42.744
+Metrics summarise many images, but they do
+
+00:10:42.824 --> 00:10:45.243
+not show how detections behave over time.
+
+00:10:45.323 --> 00:10:49.456
+The ball-tracking simulation provides
+a visual check on a short clip.
+
+00:10:50.536 --> 00:10:52.260
+Green marks a direct detection.
+
+00:10:52.340 --> 00:10:55.934
+Orange shows an interpolated
+position between real detections.
+
+00:10:56.014 --> 00:10:59.207
+Yellow holds the last known
+position for a limited period.
+
+00:10:59.287 --> 00:11:03.149
+A lost state means the system can no
+longer estimate the ball reliably.
+
+00:11:03.229 --> 00:11:06.289
+The look-ahead setting
+controls how far the simulation
+
+00:11:06.369 --> 00:11:08.894
+may search around a gap
+before interpolating.
+
+00:11:09.974 --> 00:11:14.516
+This view helps reveal flicker,
+implausible jumps, and long detection gaps.
+
+00:11:14.596 --> 00:11:18.284
+It does not save new training data
+and does not change the model.
+
+00:11:18.364 --> 00:11:22.977
+Treat it as a practical inspection tool
+alongside the independent benchmark.
+
+00:11:24.057 --> 00:11:26.979
+When a model is ready
+for deliberate exchange,
+
+00:11:27.059 --> 00:11:30.135
+Reco Trainer can create
+a dot recomodel package.
+
+00:11:30.215 --> 00:11:32.598
+The package contains model weights, a
+
+00:11:32.678 --> 00:11:35.677
+manifest, checksums,
+and aggregate metadata.
+
+00:11:35.757 --> 00:11:38.678
+It excludes source
+videos, extracted frames,
+
+00:11:38.758 --> 00:11:41.834
+annotations, video file
+names, and local paths.
+
+00:11:42.914 --> 00:11:46.431
+During import, Reco Trainer
+checks the package structure and
+
+00:11:46.511 --> 00:11:49.959
+checksum, then uses PyTorch's
+safe-loading mode before the
+
+00:11:50.039 --> 00:11:53.694
+weights can support training,
+automatic labelling, or export.
+
+00:11:53.774 --> 00:11:56.668
+A checksum detects accidental
+changes, but it does
+
+00:11:56.748 --> 00:11:59.297
+not prove that the
+publisher is trustworthy.
+
+00:11:59.377 --> 00:12:02.271
+Import model packages only
+from sources you trust.
+
+00:12:03.351 --> 00:12:05.329
+The complete workflow is a cycle.
+
+00:12:05.409 --> 00:12:07.166
+Select varied local footage.
+
+00:12:07.246 --> 00:12:09.077
+Review every training answer.
+
+00:12:09.157 --> 00:12:10.694
+Train on your own machine.
+
+00:12:10.774 --> 00:12:12.899
+Test on genuinely unseen material.
+
+00:12:12.979 --> 00:12:16.132
+Compare the errors that
+matter for the intended use.
+
+00:12:16.212 --> 00:12:19.734
+Then collect new examples
+that address those weaknesses.
+
+00:12:20.814 --> 00:12:24.730
+Reco Trainer provides the technical
+structure, but the quality of the
+
+00:12:24.810 --> 00:12:29.065
+result still depends on informed human
+decisions and representative data.
+
+00:12:29.145 --> 00:12:32.248
+Keep backups, validate every
+model, and remember that a
+
+00:12:32.328 --> 00:12:35.635
+short demonstration cannot
+replace a serious evaluation.
+
+00:12:35.715 --> 00:12:37.870
+Good models begin with good decisions.
