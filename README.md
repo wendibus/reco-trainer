@@ -1,128 +1,114 @@
-# Reco Trainer 0.12
+# Reco Trainer
 
 > **Work in progress / alpha software.** Reco Trainer is ready for practical testing, but it is not a finished production release. Keep backups and validate every label, benchmark result and exported model before using it in a real workflow.
 
-Reco Trainer is a privacy-first tool for improving and comparing sports-camera detection models. Sensitive videos stay on the user's own computer: frames are extracted locally, automatic suggestions are corrected locally, and RF-DETR models are trained and tested locally. Only an explicitly exported `.recomodel` package is intended to be shared. It contains model weights, checksums and aggregate metadata—not videos, frames, local paths or video file names.
+Reco Trainer is a privacy-first tool for training and comparing sports-camera detection models. Your videos stay on your own computer: frames are extracted locally, automatic suggestions are corrected locally, and RF-DETR models are trained and tested locally. Only an explicitly exported `.recomodel` package is meant to be shared, and it contains model weights, checksums and aggregate metadata — never videos, frames, local paths or video file names.
 
-The alpha supports basketball, football (soccer), futsal, handball, hockey, rugby, lacrosse and American football. The interface and walkthrough are available in German, English, Spanish and French.
+Supported sports: basketball, football (soccer), futsal, handball, hockey, rugby, lacrosse and American football. The interface, walkthrough video and guided tour are available in German, English, Spanish and French.
 
-## Extended training video
+**New here?** Read the [User Guide](docs/USER-GUIDE.md). It explains in plain language how labeling and training work, why they matter, and how to use the advanced features such as model comparison — no machine-learning background required.
 
-The [12-minute extended training video](https://wendibus.github.io/reco-trainer/) combines a practical walkthrough with the reasoning behind careful annotation, representative test data, local training, model comparison, and ball-tracking simulation. It uses synthetic demonstration footage and includes optional English subtitles.
+**Prefer to watch?** The [12-minute extended training video](https://wendibus.github.io/reco-trainer/) combines a practical walkthrough with the reasoning behind careful annotation, representative test data, local training, model comparison and ball-tracking simulation. It uses synthetic demonstration footage and includes optional English subtitles.
 
-## New in 0.12: safer editing and clearer exchange
+## Download
 
-Annotation editing now keeps exactly ten undo and redo steps per image, available from the buttons or with `Cmd/Ctrl+Z` and `Cmd/Ctrl+Shift+Z`. Before creating a `.recomodel` exchange package, Reco Trainer asks for a readable package name and uses it in both the package metadata and safe file name.
+Always download from the **[latest release](https://github.com/wendibus/reco-trainer/releases/latest)**. Every release page lists one file per platform (the version number is part of the file name) plus `SHA256SUMS.txt` for verifying your download.
 
-The local model benchmark now includes an expandable glossary explaining quality score, mAP@0.50, precision, recall, F1, false positives, false negatives, inference time and the confidence threshold in plain language.
+| Platform | File on the release page | Details |
+|---|---|---|
+| macOS (Apple silicon) | `Reco-Trainer-Mac-<version>.dmg` | native app, [install](#macos) |
+| Windows | `Reco.Trainer.Windows.<version>.zip` | browser interface + local worker, [install](#windows) |
+| Linux | `Reco.Trainer.Linux.<version>.zip` | browser interface + local worker, [install](#linux) |
+| Docker | `Reco.Trainer.Docker.<version>.zip` | any system with Docker, [install](#docker) |
 
-## New in 0.11: versioned model library
+Reco Trainer checks GitHub for a newer release when it starts and shows a notice if one exists. That version check is the only network request it makes on its own; your footage is never uploaded.
 
-Every completed local training run is copied into an immutable entry below `.reco-training/models/library/`. Reco Trainer shows a readable name, model size, creation time, independent test mAP when available (otherwise validation mAP), active state and best marker. Revisions can be renamed, activated and deleted; the active revision is protected from deletion.
+Older releases stay available on the [releases page](https://github.com/wendibus/reco-trainer/releases). What changed in each version is described in that release's notes and in [`mac/CHANGELOG.md`](mac/CHANGELOG.md).
 
-Before the first 0.11 training run, Reco Trainer also preserves the mutable checkpoint left by an older version. After training, a new revision is activated only if its comparable independent test mAP improves on the active model; validation mAP is the fallback when no test result exists. A worse run remains available for inspection and benchmarking but cannot silently replace the better model.
+## Installation
 
-## New in 0.9: reviewed active learning
-
-Choose **Review new videos** and select a separate folder that was not used for the original training set. Reco Trainer extracts candidates locally, runs the current model at a recall-oriented threshold, and opens a review queue ordered toward uncertain detections.
-
-Each candidate needs one deliberate decision: **Ball**, **No ball**, correct the box, or **Skip**. Only reviewed candidates enter training. Pending candidates are technically excluded from dataset generation, model packages, and benchmarks. Source videos stay unchanged, and videos already used by the project are skipped.
-
-## Frame preparation introduced in 0.8
-
-The frame count is now selected **per video** instead of being shared across the whole project. With the default of 240 images per video, ten videos can contribute up to 2,400 images. The value is configurable before preparation.
-
-An unsuitable extracted image can now be removed directly from training. This deletes only the derived frame and derived dataset copies; the source video is never changed. If the image belonged to a frozen benchmark set, Reco Trainer invalidates that reference and asks the user to freeze the reviewed answers again.
-
-## Local model benchmark
-
-Reco Trainer can test all compatible imported models against the same frozen ground-truth image set and create an automatic ranking. It reports mAP@0.50, precision, recall, F1, mean IoU, false positives, false negatives and inference time per image.
-
-The quality score uses 70% mAP@0.50 and 30% F1; latency is used only as a tie-breaker. Models run sequentially so that they do not compete for the same GPU, Apple Neural Engine or system memory.
-
-For a meaningful comparison, use a separate, representative test set that was not used to train any of the compared models.
-
-## Downloads and installation
-
-Download the package for your system from [GitHub Releases](https://github.com/wendibus/reco-trainer/releases).
+Every platform needs internet access **once**, for the first "Set up ML" step: it installs RF-DETR and PyTorch into a private Python environment below `.reco-training/.runtime/` and downloads the pretrained weights. After that, everything runs offline.
 
 ### macOS
 
-1. Download `Reco-Trainer-Mac-0.15.4.dmg`.
-2. Open it and copy **Reco Trainer** to **Applications**.
-3. Start the app. This alpha is locally/ad-hoc signed and not Apple-notarized, so macOS may require Control-clicking the app, selecting **Open**, and confirming once.
+Requirements: macOS 14 or newer, Apple silicon, and **Python 3.11 or 3.12** (for example `brew install python@3.12`). The system Python that comes with macOS and the Xcode Command Line Tools is usually older and will not work. Node.js and Xcode are *not* needed for the app.
 
-Requirements: macOS 14 or newer and Apple silicon. Node.js 22 or newer and the Xcode Command Line Tools are needed for the local worker setup.
+1. Download `Reco-Trainer-Mac-<version>.dmg` from the [latest release](https://github.com/wendibus/reco-trainer/releases/latest).
+2. Open it and drag **Reco Trainer** into **Applications**.
+3. Start the app. It is signed with a Developer ID certificate but not yet Apple-notarized, so macOS may show a warning on first launch. Control-click the app, choose **Open**, and confirm once (or use **System Settings → Privacy & Security → Open Anyway**).
+4. Choose your language, then watch the short walkthrough video or click through the guided tour.
+5. Pick a sport and a video folder, then run **Set up ML** once.
 
 ### Windows
 
-1. Download and extract `Reco.Trainer.Windows.0.15.4.zip`.
-2. Open the extracted folder.
-3. Run `Start Reco Trainer Windows.bat`.
-4. Keep the terminal windows open; the interface runs at `http://localhost:8765/`.
-
 Requirements: Node.js 22, Python 3.11 or 3.12, and FFmpeg.
+
+1. Download and extract `Reco.Trainer.Windows.<version>.zip` from the [latest release](https://github.com/wendibus/reco-trainer/releases/latest).
+2. Open the extracted folder and run `Start Reco Trainer Windows.bat`.
+3. Keep the terminal windows open. The interface runs at <http://localhost:8765/>.
+4. Pick a sport and a video folder, then run **Set up ML** once. If an NVIDIA GPU is detected, PyTorch is installed with CUDA support automatically.
 
 ### Linux
 
-1. Download and extract `Reco.Trainer.Linux.0.15.4.zip`.
-2. Run `chmod +x "Start Reco Trainer Linux.sh"` once.
-3. Run `./Start\ Reco\ Trainer\ Linux.sh`.
-4. If necessary, open `http://localhost:8765/` manually.
+Requirements: Node.js 22, Python 3.11 or 3.12, FFmpeg, and Zenity or KDialog for the native folder dialog.
 
-Requirements: Node.js 22, Python 3.11 or 3.12, FFmpeg, and Zenity or KDialog for native folder selection.
+1. Download and extract `Reco.Trainer.Linux.<version>.zip` from the [latest release](https://github.com/wendibus/reco-trainer/releases/latest).
+2. Run `chmod +x "Start Reco Trainer Linux.sh"` once, then `./Start\ Reco\ Trainer\ Linux.sh`.
+3. If your browser does not open by itself, go to <http://localhost:8765/>.
+4. Pick a sport and a video folder, then run **Set up ML** once.
 
 ### Docker
 
-1. Download and extract `Reco.Trainer.Docker.0.15.4.zip`.
-2. Set `RECO_VIDEO_FOLDER` to the absolute path of the local sports-video folder.
-3. Run `docker compose up --build` from the extracted folder.
-4. Open `http://localhost:8765/`.
+Requirements: Docker with Compose. Training runs on the CPU inside the container.
 
-## Basic workflow
+1. Download and extract `Reco.Trainer.Docker.<version>.zip` from the [latest release](https://github.com/wendibus/reco-trainer/releases/latest).
+2. Set `RECO_VIDEO_FOLDER` to the absolute path of the folder with your sports videos.
+3. Run `docker compose up --build` in the extracted folder.
+4. Open <http://localhost:8765/>. Both ports are published on `127.0.0.1` only.
 
-1. Choose a language and complete the walkthrough.
-2. Select a sport and a local video folder.
-3. Choose the number of images per video and prepare frames locally below `.reco-training/`.
-4. Remove unsuitable images, then generate automatic suggestions, correct them and remove false labels.
-5. Train a local model or import compatible `.recomodel` packages.
-6. Choose **Review new videos**, select a separate folder, and review the local candidate queue.
-7. Retrain after a meaningful batch of confirmed images.
-8. Open **Test models**, freeze the reviewed answers and run the benchmark.
-9. Review the ranking and detailed error counts.
-10. Export a `.recomodel` package only when you deliberately want to exchange a model.
+The extracted folders also contain `START-HERE.md` with a step-by-step tour of the interface.
 
-For a friendlier, more thorough walkthrough of this same workflow — including why labeling and training work the way they do, and how to use the advanced features — see the [User Guide](docs/USER-GUIDE.md).
+## What you can do with it
+
+1. **Prepare** — choose a sport and a video folder; frames are extracted locally (240 per video by default, configurable) and unsuitable ones can be removed.
+2. **Label** — draw and correct boxes, or let a model suggest them (**auto-label**) and review each suggestion. Ten undo/redo steps per image.
+3. **Train** — fine-tune RF-DETR Nano or Small locally. Every run is kept as its own model version; a worse run never silently replaces the active one.
+4. **Improve** — **Review new videos** builds a review queue from footage the model has not seen, prioritizing uncertain frames (model disagreement, positional outliers). Only frames you reviewed enter training.
+5. **Test** — **Independent model test** builds a held-out test set from videos never used for training; **Test models** ranks all compatible models on it (mAP@0.50, precision, recall, F1, mean IoU, false positives/negatives, inference time). You can also bake a **combined model** that uses the best model per category.
+6. **Inspect tracking** — the **ball-tracking simulation** plays a short clip frame by frame and shows detected, interpolated, held and lost ball positions.
+7. **Exchange** — export a `.recomodel` package, or import one from a source you trust. Imports are checked against their checksum and scanned for executable code before they are ever used.
+
+The [User Guide](docs/USER-GUIDE.md) walks through all of this with explanations of *why* each step matters.
 
 ## Privacy and security
 
-- The local worker binds to `127.0.0.1` only.
-- There is no media upload endpoint.
+- The local worker binds to `127.0.0.1` only and has no media upload endpoint.
 - Videos, frames, annotations, training runs, models and benchmark reports stay below `.reco-training/` in the selected folder.
 - Benchmark result files contain numerical predictions and metrics, not source images.
-- The initial ML setup can download dependencies and pretrained weights, but it does not upload sports footage.
-- Import model packages only from trusted publishers. Checksums verify integrity, not the trustworthiness of model code or weights.
+- The initial ML setup downloads dependencies and pretrained weights, but never uploads sports footage.
+- Import model packages only from trusted publishers. Checksums verify integrity, not trustworthiness; imports are additionally loaded through PyTorch's safe-loading mode, which rejects weight files containing executable code.
+- The screenshots and demo video in this repository use AI-generated footage only.
 
 ## Please test it
 
-Feedback is especially useful for installation, frame extraction, box correction, false-positive removal, local training, model import/export and the new benchmark ranking. Include the operating system, hardware, sport, model size, exact failing action and full error message.
+Feedback is especially useful for installation, frame extraction, box correction, local training, model import/export, the benchmark and the ball-tracking simulation. Please include the operating system, hardware, sport, model size, the exact action that failed and the full error message. Keep in mind that the app is developed on a Mac and only a small part of the translations could be checked by native speakers — reports about wording in Spanish or French and about Windows, Linux or Docker are especially welcome.
 
 Please **do not** attach private match footage, extracted frames, datasets, `.reco-training` folders or logs containing personal paths. Prefer synthetic or redacted examples.
 
 ## Repository layout
 
 - `cross-platform/` — browser interface, local worker, Windows/Linux launchers and Docker configuration.
-- `mac/` — native Swift macOS application and its local Python ML worker.
-- `FORUM-ANNOUNCEMENT.md` — copy-ready English forum announcement.
-- `RELEASE-NOTES-0.15.4.md` — changes, installation details and SHA-256 checksums.
+- `mac/` — native Swift macOS application, its local Python ML worker and [`CHANGELOG.md`](mac/CHANGELOG.md).
+- `docs/` — the [User Guide](docs/USER-GUIDE.md), the hosted [training video](docs/training-video/) page, model documentation and design proposals.
+- `RELEASE-NOTES-<version>.md` — changes and download details for each release.
 
 ## Current limitations
 
-- Windows and Linux still require broader real-system testing.
-- Windows, Linux and Docker use CPU training unless a compatible local accelerator setup is added.
-- The Mac build is not Apple-notarized.
-- Automatic labels remain suggestions and must be reviewed.
-- Benchmark results are meaningful only with accurate, representative and previously unseen test data.
-- The current benchmark compares object detection; tracking stability across a complete video is not yet a ranking metric.
+- Windows, Linux and Docker still need broader real-system testing.
+- Training uses Apple silicon or an NVIDIA GPU when available; AMD GPUs are not accelerated, and Docker runs on the CPU.
+- The Mac app is signed but not Apple-notarized.
+- Automatic labels are suggestions and must be reviewed.
+- Benchmark results are only meaningful with accurate, representative and previously unseen test data.
+- The benchmark compares object detection; tracking stability across a complete video is not yet a ranking metric (the ball-tracking simulation is a visual check only).
 
 No software license has been granted in this repository yet. Third-party components remain subject to their own licenses.
