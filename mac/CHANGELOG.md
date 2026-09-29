@@ -1,5 +1,10 @@
 # Änderungen
 
+## 0.15.4
+
+- Windows/Linux/Docker: Der Clip der Balltracking-Simulation spielte nie über seine erste Sekunde hinaus, weil die Oberfläche den Status alle 900 ms neu lädt und der Player dadurch jedes Mal bei Bild 1 neu startete. Jetzt läuft der Clip in voller Länge.
+- Windows/Linux/Docker: Die Balltracking-Simulation zeigt jetzt einen gut sichtbaren Fortschrittsbalken mit Statuszeile und Prozentangabe; Bildextraktion und Ballerkennung melden echten Fortschritt.
+
 ## 0.15.3
 
 - Windows/Linux/Docker: Die Balltracking-Simulation konnte mit „Expecting ',' delimiter: line 1 column 6 (char 5)“ fehlschlagen, weil eine Log-Zeile der ML-Bibliotheken vor dem Ergebnis ausgegeben wurde und die gesamte Ausgabe als ein JSON-Dokument gelesen wurde. Es wird jetzt nur noch die letzte Ausgabezeile ausgewertet (wie in der Mac-App bereits seit 0.14.x).

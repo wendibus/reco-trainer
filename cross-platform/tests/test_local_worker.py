@@ -285,6 +285,22 @@ class RunJsonTests(unittest.TestCase):
         code = "print('[2026-09-29 10:00:00] loading model'); print('some warning'); print('{\"frames\": []}')"
         self.assertEqual(self.run_python(code), {"frames": []})
 
+    def test_forwards_stderr_progress_lines_to_the_callback(self):
+        seen: list[tuple[int, int]] = []
+        code = (
+            "import sys; print('RECO_PROGRESS 1 3', file=sys.stderr, flush=True); "
+            "print('RECO_PROGRESS 3 3', file=sys.stderr, flush=True); print('{\"ok\": true}')"
+        )
+        result = local_worker.run_json([sys.executable, "-c", code], on_progress=lambda done, total: seen.append((done, total)))
+        self.assertEqual(result, {"ok": True})
+        self.assertEqual(seen, [(1, 3), (3, 3)])
+
+    def test_progress_lines_are_not_part_of_the_error_message(self):
+        code = "import sys; print('RECO_PROGRESS 1 2', file=sys.stderr, flush=True); print('boom', file=sys.stderr); sys.exit(3)"
+        with self.assertRaises(RuntimeError) as raised:
+            local_worker.run_json([sys.executable, "-c", code])
+        self.assertEqual(str(raised.exception), "boom")
+
     def test_ignores_trailing_blank_lines(self):
         self.assertEqual(self.run_python('print(\'{"ok": true}\'); print(); print()'), {"ok": True})
 

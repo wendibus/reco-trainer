@@ -826,6 +826,8 @@ def simulate_ball_tracking(args: argparse.Namespace) -> None:
                 x1, y1, x2, y2 = [float(value) for value in box]
                 best = {"x": (x1 + x2) / 2, "y": (y1 + y2) / 2, "confidence": confidence}
             results.append({"file": path.name, "ball": best})
+        # stderr, not stdout: stdout must stay exactly one JSON blob (see docstring).
+        print(f"RECO_PROGRESS {len(results)} {len(image_paths)}", file=sys.stderr, flush=True)
 
     print(json.dumps({"frames": results}, ensure_ascii=False))
 

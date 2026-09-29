@@ -27,7 +27,7 @@ type WorkerStatus = {
   trainingHistory?: TrainingResult[];
   modelLibrary?: { packages: Array<{ packageID: string; displayName?: string; createdAt?: string; sport: Sport; modelSize: ModelSize; classes: string[]; description?: string; source?: string; statistics?: Record<string, number>; validationMetrics?: Record<string, number>; testMetrics?: Record<string, number>; validationScore?: number; testScore?: number; isActive?: boolean; isBest?: boolean }>; activePackageID: string | null; bestPackageID?: string | null };
   benchmark?: { groundTruth?: { createdAt?: string; datasetID?: string; sport?: string; frameCount: number; annotationCount: number; classes: string[] } | null; latest?: BenchmarkReport | null };
-  simulation?: { fps: number; frames: Array<{ file: string; timestamp: number; width: number; height: number; ball: { x: number; y: number; confidence: number } | null }> } | null;
+  simulation?: { id?: string; fps: number; frames: Array<{ file: string; timestamp: number; width: number; height: number; ball: { x: number; y: number; confidence: number } | null }> } | null;
 };
 type Gesture =
   | { type: 'draw'; pointerId: number; startX: number; startY: number; x: number; y: number; width: number; height: number }
@@ -39,7 +39,7 @@ const DEFAULT_API = 'http://127.0.0.1:8766';
 // Single source of truth for this web UI's own version - bump alongside
 // VERSION in cross-platform/scripts/package-platforms.sh at every release.
 // Compared against GitHub's latest release tag to power the update banner.
-const CURRENT_VERSION = '0.15.3';
+const CURRENT_VERSION = '0.15.4';
 const LATEST_RELEASE_API = 'https://api.github.com/repos/wendibus/reco-trainer/releases/latest';
 const LATEST_RELEASE_PAGE = 'https://github.com/wendibus/reco-trainer/releases/latest';
 const DISMISSED_UPDATE_KEY = 'reco-dismissed-update-version-v1';

@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 
 type Language = 'de' | 'en' | 'es' | 'fr';
 type SimulationFrame = { file: string; timestamp: number; width: number; height: number; ball: { x: number; y: number; confidence: number } | null };
-type Simulation = { fps: number; frames: SimulationFrame[] };
+type Simulation = { id?: string; fps: number; frames: SimulationFrame[] };
 type TrackState = 'detected' | 'interpolated' | 'coasting' | 'lost';
 type Resolved = { state: TrackState; x: number | null; y: number | null };
 
@@ -70,12 +70,19 @@ export default function BallTrackingPlayer(props: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [containerSize, setContainerSize] = useState({ width: 640, height: 360 });
 
-  const frames = props.simulation?.frames ?? [];
-  const fps = props.simulation?.fps || 12;
+  // The app re-fetches the worker status every ~900 ms, so props.simulation is a
+  // fresh object on every poll even though nothing changed. Key everything off
+  // the simulation's id instead - depending on the object itself restarted the
+  // clip from frame 0 on every poll, so it never played past its first second.
+  const simulationId = props.simulation?.id ?? (props.simulation ? `${props.simulation.frames.length}:${props.simulation.fps}` : '');
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const simulation = useMemo(() => props.simulation, [simulationId]);
+  const frames = useMemo(() => simulation?.frames ?? [], [simulation]);
+  const fps = simulation?.fps || 12;
   const detections = useMemo(() => frames.map((frame) => frame.ball ? { x: frame.ball.x, y: frame.ball.y } : null), [frames]);
   const resolved = useMemo(() => resolve(detections, lookaheadFrames), [detections, lookaheadFrames]);
 
-  useEffect(() => { setCurrentIndex(0); }, [props.simulation]);
+  useEffect(() => { setCurrentIndex(0); }, [simulationId]);
 
   useEffect(() => {
     if (!isPlaying || frames.length < 2) return;
@@ -108,7 +115,7 @@ export default function BallTrackingPlayer(props: Props) {
     <div className="benchmark-heading"><div><span className="benchmark-kicker">◆ SIMULATION</span><h2>{t.title}</h2><p>{t.intro}</p></div></div>
     <div className="ball-tracking-controls">
       <button type="button" className="primary-button" onClick={() => void pick()} disabled={props.busy}>{t.pick}</button>
-      {props.busy && props.operation?.startsWith('simulation') && <div className="benchmark-progress"><span style={{ width: `${Math.max(props.progress, .02) * 100}%` }} /></div>}
+      {props.busy && props.operation?.startsWith('simulation') && <div className="ball-tracking-progress"><div className="benchmark-progress"><span style={{ width: `${Math.max(props.progress, .02) * 100}%` }} /></div><small>{props.message} · {Math.round(props.progress * 100)} %</small></div>}
     </div>
     {props.error && <div className="benchmark-error">{props.error}</div>}
     {!frames.length ? <div className="benchmark-empty">{t.empty}</div> : <>

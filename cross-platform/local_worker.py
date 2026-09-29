@@ -18,7 +18,9 @@ import shutil
 import subprocess
 import sys
 import threading
+import time
 import uuid
+from collections.abc import Callable
 from datetime import datetime, timezone
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -946,11 +948,23 @@ def simulate_ball_tracking(video: Path, payload: dict) -> None:
         if frames_dir.exists():
             shutil.rmtree(frames_dir)
         frames_dir.mkdir(parents=True, exist_ok=True)
-        generated, rate, output_width, output_height = extract_frames_for_video(
-            video, duration, width, height, target_count, frames_dir, "sim",
-            ffmpeg, apple_extractor,
-            localized("Extraktion für die Simulation fehlgeschlagen", "Extraction for the simulation failed", "La extracción para la simulación falló", "L’extraction pour la simulation a échoué"),
-        )
+        # Neither extractor reports progress, but both write frames as they go.
+        extraction_done = threading.Event()
+
+        def watch_extraction() -> None:
+            while not extraction_done.wait(0.4):
+                written = sum(1 for _ in frames_dir.glob("sim-*.jpg"))
+                STATE.update(progress=0.01 + 0.39 * min(1.0, written / target_count))
+
+        threading.Thread(target=watch_extraction, daemon=True).start()
+        try:
+            generated, rate, output_width, output_height = extract_frames_for_video(
+                video, duration, width, height, target_count, frames_dir, "sim",
+                ffmpeg, apple_extractor,
+                localized("Extraktion für die Simulation fehlgeschlagen", "Extraction for the simulation failed", "La extracción para la simulación falló", "L’extraction pour la simulation a échoué"),
+            )
+        finally:
+            extraction_done.set()
         if not generated:
             raise RuntimeError(localized("Es konnten keine Bilder aus dem Video extrahiert werden.", "No images could be extracted from the video.", "No se pudieron extraer imágenes del vídeo.", "Aucune image n’a pu être extraite de la vidéo."))
 
@@ -960,7 +974,10 @@ def simulate_ball_tracking(video: Path, payload: dict) -> None:
             str(venv_python), str(worker), "simulate-ball-tracking",
             "--project", str(root), "--frames-dir", str(frames_dir),
             "--model", model, "--threshold", str(threshold), "--language", language,
-        ])
+        ], on_progress=lambda done, total: STATE.update(
+            progress=0.4 + 0.58 * done / max(total, 1),
+            message=localized(f"Ballerkennung läuft … {done}/{total}", f"Ball detection running … {done}/{total}", f"Detección del balón en curso … {done}/{total}", f"Détection du ballon en cours … {done}/{total}"),
+        ))
         frames = [
             {
                 "file": item["file"],
@@ -972,7 +989,7 @@ def simulate_ball_tracking(video: Path, payload: dict) -> None:
             for index, item in enumerate(detections.get("frames", []))
         ]
         STATE.update(
-            simulation={"fps": rate, "frames": frames},
+            simulation={"id": str(time.time_ns()), "fps": rate, "frames": frames},
             operation="ready", busy=False, progress=1.0,
             message=localized(f"{len(frames)} Bilder simuliert.", f"{len(frames)} images simulated.", f"{len(frames)} imágenes simuladas.", f"{len(frames)} images simulées."),
         )
@@ -1043,23 +1060,47 @@ def run_logged(command: list[str]) -> None:
         raise RuntimeError(localized(f"Lokaler ML-Worker wurde mit Code {code} beendet.", f"The local ML worker exited with code {code}.", f"El proceso local de ML terminó con el código {code}.", f"Le processus ML local s’est terminé avec le code {code}."))
 
 
-def run_json(command: list[str]) -> dict:
+PROGRESS_LINE = re.compile(r"^RECO_PROGRESS (\d+) (\d+)\s*$")
+
+
+def run_json(command: list[str], on_progress: Callable[[int, int], None] | None = None) -> dict:
     """Like run_logged, but for single-JSON actions (ml_worker.py subcommands
     that print exactly one JSON blob and nothing else instead of a progress
     stream) - captures stdout and parses it instead of logging it line by
     line. Same UTF-8 fix as run_logged (see its comment) applies here too.
+
+    Such actions may report progress as "RECO_PROGRESS <done> <total>" lines on
+    stderr (stdout stays reserved for the result); those go to on_progress and
+    are kept out of any error message.
     """
-    result = subprocess.run(
-        command, capture_output=True, text=True, encoding="utf-8", errors="replace",
+    process = subprocess.Popen(
+        command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="replace",
         env={**os.environ, "PYTHONUNBUFFERED": "1", "PYTORCH_ENABLE_MPS_FALLBACK": "1", "PYTHONIOENCODING": "utf-8"},
-        check=False,
     )
-    if result.returncode != 0:
-        raise RuntimeError(result.stderr.strip() or result.stdout.strip() or localized(f"Lokaler ML-Worker wurde mit Code {result.returncode} beendet.", f"The local ML worker exited with code {result.returncode}.", f"El proceso local de ML terminó con el código {result.returncode}.", f"Le processus ML local s’est terminé avec le code {result.returncode}."))
+    stderr_lines: list[str] = []
+
+    def read_stderr() -> None:
+        assert process.stderr is not None
+        for line in process.stderr:
+            match = PROGRESS_LINE.match(line)
+            if match:
+                if on_progress:
+                    on_progress(int(match.group(1)), int(match.group(2)))
+            else:
+                stderr_lines.append(line)
+
+    reader = threading.Thread(target=read_stderr, daemon=True)
+    reader.start()
+    assert process.stdout is not None
+    stdout = process.stdout.read()
+    returncode = process.wait()
+    reader.join()
+    if returncode != 0:
+        raise RuntimeError("".join(stderr_lines).strip() or stdout.strip() or localized(f"Lokaler ML-Worker wurde mit Code {returncode} beendet.", f"The local ML worker exited with code {returncode}.", f"El proceso local de ML terminó con el código {returncode}.", f"Le processus ML local s’est terminé avec le code {returncode}."))
     # RF-DETR/PyTorch can print their own notices to stdout while loading the
     # model, ahead of the worker's final JSON print - only that last non-empty
     # line is the result (same rule as decodeLastJSONLine in the Mac app).
-    last_line = next((line for line in reversed(result.stdout.splitlines()) if line.strip()), "")
+    last_line = next((line for line in reversed(stdout.splitlines()) if line.strip()), "")
     return json.loads(last_line)
 
 
