@@ -1,6 +1,6 @@
 # Reco Trainer
 
-> **Work in progress / alpha software.** Reco Trainer is ready for practical testing, but it is not a finished production release. Keep backups and validate every label, benchmark result and exported model before using it in a real workflow.
+> **Ready for real-world use, but not bug-free.** Reco Trainer is built for production workflows, yet it is under active development and still has bugs. Keep backups, review automatic labels, and validate benchmark results and exported models before relying on them in a critical workflow. If something breaks, please [report it](#feedback-and-bug-reports).
 
 Reco Trainer is a privacy-first tool for training and comparing sports-camera detection models. Your videos stay on your own computer: frames are extracted locally, automatic suggestions are corrected locally, and RF-DETR models are trained and tested locally. Only an explicitly exported `.recomodel` package is meant to be shared, and it contains model weights, checksums and aggregate metadata — never videos, frames, local paths or video file names.
 
@@ -89,7 +89,7 @@ The [User Guide](docs/USER-GUIDE.md) walks through all of this with explanations
 - Import model packages only from trusted publishers. Checksums verify integrity, not trustworthiness; imports are additionally loaded through PyTorch's safe-loading mode, which rejects weight files containing executable code.
 - The screenshots and demo video in this repository use AI-generated footage only.
 
-## Please test it
+## Feedback and bug reports
 
 Feedback is especially useful for installation, frame extraction, box correction, local training, model import/export, the benchmark and the ball-tracking simulation. Please include the operating system, hardware, sport, model size, the exact action that failed and the full error message. Keep in mind that the app is developed on a Mac and only a small part of the translations could be checked by native speakers — reports about wording in Spanish or French and about Windows, Linux or Docker are especially welcome.
 
