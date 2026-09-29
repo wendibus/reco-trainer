@@ -1,5 +1,9 @@
 # Änderungen
 
+## 0.15.3
+
+- Windows/Linux/Docker: Die Balltracking-Simulation konnte mit „Expecting ',' delimiter: line 1 column 6 (char 5)“ fehlschlagen, weil eine Log-Zeile der ML-Bibliotheken vor dem Ergebnis ausgegeben wurde und die gesamte Ausgabe als ein JSON-Dokument gelesen wurde. Es wird jetzt nur noch die letzte Ausgabezeile ausgewertet (wie in der Mac-App bereits seit 0.14.x).
+
 ## 0.15.2
 
 - Die Video-Einführung stürzte beim Start des Videos ab (SIGABRT in Apples privatem _AVKit_SwiftUI-Framework, einer bekannten Schwachstelle von SwiftUIs `VideoPlayer` unter macOS 27). Die Wiedergabe läuft jetzt über AVKits klassische `AVPlayerView` statt über SwiftUIs `VideoPlayer` und umgeht damit das betroffene Framework vollständig.

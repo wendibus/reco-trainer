@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import stat
+import sys
 import tempfile
 import unittest
 from pathlib import Path, PurePosixPath, PureWindowsPath
@@ -265,6 +266,27 @@ class RunLoggedEncodingTests(unittest.TestCase):
 
         self.assertEqual(captured.get("encoding"), "utf-8")
         self.assertEqual(captured.get("env", {}).get("PYTHONIOENCODING"), "utf-8")
+
+
+class RunJsonTests(unittest.TestCase):
+    """Regression coverage for a real report: the ball-tracking simulation failed
+    with "Expecting ',' delimiter: line 1 column 6 (char 5)" because a library
+    notice starting with a timestamp ("[2026-...") was printed to stdout ahead of
+    the worker's JSON result, and the whole stdout was parsed as one JSON blob.
+    """
+
+    def run_python(self, code: str) -> dict:
+        return local_worker.run_json([sys.executable, "-c", code])
+
+    def test_parses_clean_single_line_output(self):
+        self.assertEqual(self.run_python('print(\'{"frames": [1]}\')'), {"frames": [1]})
+
+    def test_ignores_preceding_log_lines_on_stdout(self):
+        code = "print('[2026-09-29 10:00:00] loading model'); print('some warning'); print('{\"frames\": []}')"
+        self.assertEqual(self.run_python(code), {"frames": []})
+
+    def test_ignores_trailing_blank_lines(self):
+        self.assertEqual(self.run_python('print(\'{"ok": true}\'); print(); print()'), {"ok": True})
 
 
 class CudaSetupTests(unittest.TestCase):

@@ -1056,7 +1056,11 @@ def run_json(command: list[str]) -> dict:
     )
     if result.returncode != 0:
         raise RuntimeError(result.stderr.strip() or result.stdout.strip() or localized(f"Lokaler ML-Worker wurde mit Code {result.returncode} beendet.", f"The local ML worker exited with code {result.returncode}.", f"El proceso local de ML terminó con el código {result.returncode}.", f"Le processus ML local s’est terminé avec le code {result.returncode}."))
-    return json.loads(result.stdout.strip())
+    # RF-DETR/PyTorch can print their own notices to stdout while loading the
+    # model, ahead of the worker's final JSON print - only that last non-empty
+    # line is the result (same rule as decodeLastJSONLine in the Mac app).
+    last_line = next((line for line in reversed(result.stdout.splitlines()) if line.strip()), "")
+    return json.loads(last_line)
 
 
 def ml_action(action: str, payload: dict) -> None:
