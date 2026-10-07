@@ -8,7 +8,7 @@ Supported sports: basketball, football (soccer), futsal, handball, hockey, rugby
 
 **New here?** Read the [User Guide](docs/USER-GUIDE.md). It explains in plain language how labeling and training work, why they matter, and how to use the advanced features such as model comparison — no machine-learning background required.
 
-**Prefer to watch?** The [14-minute extended training video](https://wendibus.github.io/reco-trainer/) combines a practical walkthrough with the reasoning behind careful annotation, representative test data, local training, model comparison and ball-tracking simulation. It uses synthetic demonstration footage, offers American English and Spanish narration, and includes optional English, German, Spanish and French subtitles.
+**Prefer to watch?** The [14-minute extended training video](https://wendibus.github.io/reco-trainer/) combines a practical walkthrough with the reasoning behind careful annotation, representative test data, local training, model comparison and ball-tracking simulation. It uses synthetic demonstration footage, offers American English, German and Spanish narration, and includes optional English, German, Spanish and French subtitles.
 
 ## Download
 

@@ -1,868 +1,841 @@
 WEBVTT
 
-00:00:00.393 --> 00:00:03.335
-Ein Basketball ist für uns
-leicht zu erkennen, auch
+00:00:00.180 --> 00:00:04.045
+Ein Basketball ist für uns leicht
+zu erkennen, selbst wenn er klein,
 
-00:00:03.425 --> 00:00:06.288
-wenn er klein, unscharf
-oder teilweise verdeckt ist.
+00:00:04.115 --> 00:00:06.324
+unscharf oder teilweise verdeckt ist.
 
-00:00:06.378 --> 00:00:09.959
+00:00:06.394 --> 00:00:10.190
 Ein Detektionsmodell sieht nur
 Pixel und Wahrscheinlichkeiten.
 
-00:00:10.049 --> 00:00:14.029
+00:00:10.260 --> 00:00:13.573
 Es muss lernen, welche visuellen
-Muster zum Ball gehören, wo
+Muster zum Ball gehören,
 
-00:00:14.119 --> 00:00:17.939
-das Objekt beginnt und endet,
+00:00:13.643 --> 00:00:17.163
+wo das Objekt beginnt und endet,
 und wie sicher es sein sollte.
 
-00:00:19.153 --> 00:00:22.000
-Reco Trainer bietet einen lokalen Workflow für
+00:00:17.233 --> 00:00:20.131
+Reco Trainer bietet einen lokalen Arbeitsablauf,
 
-00:00:22.090 --> 00:00:25.428
-das Lehren dieses Modells
-mit eigenen Sportaufnahmen.
+00:00:20.201 --> 00:00:24.343
+mit dem du das Modell anhand deines
+eigenen Sportmaterials trainierst.
 
-00:00:25.518 --> 00:00:30.243
-In diesem umfassenden Training folgen
-wir dem kompletten Zyklus: vorbereiten
+00:00:24.413 --> 00:00:28.416
+In diesem erweiterten Training
+durchlaufen wir den gesamten Zyklus:
 
-00:00:30.333 --> 00:00:35.057
-repräsentative Frames, Review Labels,
-train lokal, test auf unbekannten
+00:00:28.486 --> 00:00:33.042
+repräsentative Frames vorbereiten,
+Annotationen prüfen, lokal trainieren,
 
-00:00:35.147 --> 00:00:39.791
-Material, vergleiche Modellversionen und
-entscheide, was verbessert werden soll.
+00:00:33.112 --> 00:00:37.875
+mit unbekanntem Material testen,
+Modellversionen vergleichen und entscheiden,
 
-00:00:41.009 --> 00:00:44.280
+00:00:37.945 --> 00:00:40.291
+was als Nächstes verbessert werden soll.
+
+00:00:40.791 --> 00:00:43.846
 Reco Trainer erstellt ein
 Objekterkennungsmodell.
 
-00:00:44.370 --> 00:00:46.884
-Für jedes Bild voraussagt das Modell eine
+00:00:43.916 --> 00:00:48.915
+Für jedes Bild schätzt das Modell eine
+Position, eine Klasse und einen Konfidenzwert.
 
-00:00:46.975 --> 00:00:49.910
-Position, eine Klasse und einen
-Vertrauenswürdigkeits-Score.
+00:00:48.985 --> 00:00:52.387
+Der Begrenzungsrahmen zeigt,
+wo sich das Objekt befindet.
 
-00:00:50.001 --> 00:00:52.264
-Ein Rechteck gibt an, wo das Objekt ist.
+00:00:52.457 --> 00:00:55.859
+Die Klasse gibt an, was das
+Modell vermutlich gefunden hat.
 
-00:00:52.355 --> 00:00:55.458
-Die Klasse sagt, was das
-Modell für gefunden hält.
+00:00:55.929 --> 00:00:57.734
+Der Konfidenzwert beschreibt,
 
-00:00:55.549 --> 00:01:00.921
-Vertrauenswürdigkeit beschreibt, wie stark die
-visuelle Beweislage für diese Vermutung spricht.
+00:00:57.804 --> 00:01:01.761
+wie deutlich die visuellen
+Anhaltspunkte diese Vermutung stützen.
 
-00:01:02.146 --> 00:01:05.965
-Das Modell enthält keine
-geschriebene Regel für Basketball.
+00:01:01.831 --> 00:01:05.997
+Das Modell enthält keine festgeschriebene
+Regel für Basketballbälle.
 
-00:01:06.055 --> 00:01:08.995
-Es lernt wiederkehrende
-Muster anhand von Beispielen.
+00:01:06.067 --> 00:01:08.844
+Es lernt wiederkehrende Muster aus Beispielen.
 
-00:01:09.086 --> 00:01:12.664
+00:01:08.914 --> 00:01:12.594
 Eine korrekte Annotation ist
-also mehr als ein Zeichnung.
+daher mehr als nur eine Zeichnung.
 
-00:01:12.755 --> 00:01:14.897
-Es ist die Lektion, die wir dem Modell geben.
+00:01:12.664 --> 00:01:15.441
+Sie ist der Unterricht,
+den wir dem Modell geben.
 
-00:01:16.123 --> 00:01:19.472
-Reco Trainer beginnt mit
-RF-DETR, einem allgemeinen Objekt
+00:01:15.511 --> 00:01:20.163
+Reco Trainer beginnt mit RF-DETR, einem
+allgemeinen Objekterkennungsmodell,
 
-00:01:19.563 --> 00:01:23.392
-Detektor, der bereits nützliches
-visuelles Wissen enthält.
+00:01:20.233 --> 00:01:23.149
+das bereits nützliches visuelles Wissen enthält.
 
-00:01:23.483 --> 00:01:26.992
-Das Training anpasst dieses
-Wissen an Ihre Sport, Kamera
+00:01:23.219 --> 00:01:27.315
+Das Training passt dieses Wissen an
+deinen Sport, die Kameraposition,
 
-00:01:27.083 --> 00:01:30.112
-Position, Bildqualität und gewählte Klassen.
+00:01:27.385 --> 00:01:30.093
+die Bildqualität und die gewählten Klassen an.
 
-00:01:30.203 --> 00:01:32.594
-Dieser Prozess wird als
-Feinabstimmung bezeichnet.
+00:01:30.163 --> 00:01:32.384
+Dieser Prozess heißt Feinabstimmung.
 
-00:01:32.684 --> 00:01:36.674
-Er ermöglicht nützliche Ergebnisse mit hunderten sorgfältig
-ausgewählten Frames anstelle von Beginn mit Millionen von Bildern.
+00:01:32.454 --> 00:01:37.870
+Dadurch sind mit Hunderten sorgfältig
+ausgewählten Frames brauchbare Ergebnisse möglich,
 
-00:01:36.765 --> 00:01:40.833
-Reco Trainer folgt einem lokalführenden Design.
+00:01:37.940 --> 00:01:41.342
+statt mit Millionen von Bildern
+ganz von vorne zu beginnen.
 
-00:01:42.057 --> 00:01:45.041
-Original-Videos bleiben im ausgewählten Ordner.
+00:01:41.842 --> 00:01:44.439
+Reco Trainer folgt einem Local-first-Konzept.
 
-00:01:45.131 --> 00:01:48.363
-Extrahierte Frames, Anmerkungen,
-Trainingsläufe, Modellrevisionen und
+00:01:44.509 --> 00:01:47.367
+Die Originalvideos bleiben
+im ausgewählten Ordner.
 
-00:01:48.453 --> 00:01:53.264
-Benchmark-Berichte bleiben unter
-dem lokalen Ordner .reco-training.
+00:01:47.437 --> 00:01:50.359
+Extrahierte Frames,
+Annotationen, Trainingsläufe,
 
-00:01:53.355 --> 00:01:58.166
-Das Programm hat keine Medien-Upload-Funktion.
+00:01:50.429 --> 00:01:55.694
+Modellversionen und Vergleichsberichte bleiben
+im lokalen Verzeichnis Punkt reco-training.
 
-00:01:58.256 --> 00:02:01.406
-Reco Trainer, RF-DETR, PyTorch, mAP, F1, CPU,
-GPU, Metal und .recomodel bleiben unverändert.
+00:01:55.764 --> 00:01:59.207
+Die Anwendung besitzt keine
+Funktion zum Hochladen von Medien.
 
-00:02:02.624 --> 00:02:06.788
-Ein Update-Check kann fragen, ob eine neuerere
-Version des Reco Trainer verfügbar ist.
+00:01:59.277 --> 00:02:01.224
+Eine Update-Prüfung kann abfragen,
 
-00:02:06.878 --> 00:02:10.966
-Diese Anfrage enthält keine
-Projektdateien, Labels oder Modelle.
+00:02:01.294 --> 00:02:04.216
+ob eine neuere Version von
+Reco Trainer verfügbar ist.
 
-00:02:11.057 --> 00:02:15.369
-Die Anfangsphase der maschinelles-Lern-Einrichtung kann Software-Abhängigkeiten und
-vortrainierte Gewichte herunterladen, aber sie überträgt Ihre Sportvideos nicht.
+00:02:04.286 --> 00:02:08.575
+Diese Anfrage enthält weder Projektmaterial
+noch Annotationen oder Modelle.
 
-00:02:15.459 --> 00:02:19.549
-Die lokale Verarbeitung reduziert das Risiko unabsichtlicher Enthüllungen, aber sie
-ersetzt nicht die Zustimmung, Urheberrechte oder die Verpflichtungen zur Daten-Schutz.
+00:02:08.645 --> 00:02:15.731
+Die erstmalige Einrichtung des maschinellen Lernens kann
+Softwareabhängigkeiten und vortrainierte Gewichte herunterladen,
 
-00:02:20.767 --> 00:02:25.142
-Sie benötigen immer noch die richtigen Rechte, um aufzunehmen, zu
-trainieren und zu teilen, was aus dem Material abgeleitet wurde.
+00:02:15.801 --> 00:02:18.073
+lädt deine Sportvideos jedoch nicht hoch.
 
-00:02:25.232 --> 00:02:29.919
-Reco Trainer
+00:02:18.143 --> 00:02:22.627
+Lokale Verarbeitung verringert das Risiko
+einer unbeabsichtigten Offenlegung,
 
-00:02:30.009 --> 00:02:33.523
-RF-DETR
+00:02:22.697 --> 00:02:27.311
+ersetzt aber weder Einwilligungen noch
+Urheberrechte oder Datenschutzpflichten.
 
-00:02:33.614 --> 00:02:36.813
-PyTorch, mAP, F1, CPU, GPU, Metal
-und .recomodel bleiben unverändert.
+00:02:27.381 --> 00:02:31.800
+Du benötigst weiterhin die entsprechenden
+Rechte, um das Material aufzunehmen,
 
-00:02:36.903 --> 00:02:40.730
-Diese Demonstration verwendet nur
-genehmigte synthetische Aufnahmen.
+00:02:31.870 --> 00:02:36.289
+für das Training zu verwenden und daraus
+entstandene Ergebnisse weiterzugeben.
 
-00:02:41.940 --> 00:02:46.044
+00:02:36.359 --> 00:02:41.233
+Diese Demonstration verwendet ausschließlich
+freigegebenes synthetisches Material.
+
+00:02:41.733 --> 00:02:46.231
 Wir beginnen damit, einen Ordner
 auszuwählen, der die Trainingsvideos enthält.
 
-00:02:46.132 --> 00:02:49.473
-Reco Trainer nimmt eine konfigurierbare Anzahl von
-Bildern aus jedem Video und verteilt sie über die Dauer.
+00:02:46.301 --> 00:02:52.917
+Der Reco Trainer nimmt eine konfigurierbare Anzahl von Bildern
+aus jedem Video und verteilt sie über die gesamte Dauer.
 
-00:02:49.561 --> 00:02:52.903
-Diese extrahierten Frames dienen
-als Rohmaterial für die Annotierung.
+00:02:52.987 --> 00:02:56.889
+Diese extrahierten Frames werden
+zum Rohmaterial für die Annotation.
 
-00:02:52.992 --> 00:02:57.018
-Das Ziel ist vielseitige Variation, nicht
-die größtmögliche Anzahl von Frames.
+00:02:56.959 --> 00:03:01.192
+Das Ziel ist nützliche Variation, nicht
+die größtmögliche Anzahl an Frames.
 
-00:02:58.214 --> 00:03:02.614
-Nachfolgende Frames enthalten
+00:03:01.262 --> 00:03:05.231
+Aufeinanderfolgende Frames enthalten
 oft fast dieselbe Information.
 
-00:03:02.703 --> 00:03:06.867
-Fünfzig Beispiele mit verschiedenen
-Abständen, Beleuchtung und Bewegung
+00:03:05.301 --> 00:03:09.401
+Fünfzig Beispiele mit unterschiedlichen
+Entfernungen, Beleuchtungen,
 
-00:03:06.955 --> 00:03:10.884
-Reco Trainer, RF-DETR, PyTorch, mAP, F1, CPU,
-GPU, Metal und .recomodel bleiben unverändert.
+00:03:09.471 --> 00:03:10.725
+Bewegungsunschärfen,
 
-00:03:10.972 --> 00:03:14.507
-Bewegungsunschärfe, Verdeckung und
-Kamerawinkel können mehr lehren als
+00:03:10.795 --> 00:03:16.816
+Verdeckungen und Kamerawinkeln können mehr lehren als
+hunderte fast identischer Bilder aus einer Sequenz.
 
-00:03:14.595 --> 00:03:18.208
-hundert fast identische
-Bilder aus einer Sequenz.
+00:03:16.886 --> 00:03:18.868
+Die Anzahl der Frames gilt pro Video,
 
-00:03:19.403 --> 00:03:22.224
-Die Bildanzahl gilt pro Video, daher wächst die
-Gesamtanzahl mit der Größe des Quelldossiers.
+00:03:18.938 --> 00:03:22.310
+sodass die Gesamtzahl mit der
+Größe des Quellordners wächst.
 
-00:03:22.312 --> 00:03:24.761
-Beginnen Sie mit einem verständlichen
-Satz, den Sie sorgfältig überprüfen können.
+00:03:22.380 --> 00:03:26.481
+Beginne mit einer überschaubaren
+Menge, die du sorgfältig prüfen kannst.
 
-00:03:24.850 --> 00:03:28.417
-Sie können ein unpassendes
-Bild aus dem Training entfernen
+00:03:26.551 --> 00:03:29.857
+Du kannst ein ungeeignetes Bild
+aus dem Training entfernen,
 
-00:03:28.506 --> 00:03:31.477
-ohne die Originalaufnahme zu berühren.
+00:03:29.927 --> 00:03:31.976
+ohne das Originalvideo zu verändern.
 
-00:03:31.565 --> 00:03:34.162
-Reco Trainer löscht nur die abgeleitete
-Bildschirmfahne und verwandte Datensatzkopien.
+00:03:32.046 --> 00:03:37.338
+Reco Trainer löscht lediglich den abgeleiteten
+Frame und die zugehörigen Kopien im Datensatz.
 
-00:03:34.251 --> 00:03:38.715
-Reco Trainer, RF-DETR, PyTorch, mAP, F1, CPU,
-GPU, Metal und .recomodel bleiben unverändert.
+00:03:37.408 --> 00:03:40.714
+Beziehe bei der Materialauswahl
+auch schwierige Fälle ein.
 
-00:03:39.910 --> 00:03:43.363
-Wähle Materialien, um schwierige
-Fälle zu berücksichtigen.
+00:03:40.784 --> 00:03:43.429
+Ein schneller Ball nahe der Hand eines Spielers,
 
-00:03:43.452 --> 00:03:47.631
-Ein schneller Ball nahe am Handgelenk, ein Teilbild an der Bildkante oder ein schwach beleuchtetes Szenario können länger
-zum Labeln dauern, aber diese sind oft die Situationen, in denen das finale Modell am meisten Unterstützung benötigt.
+00:03:43.499 --> 00:03:50.578
+ein nur teilweise sichtbares Objekt am Bildrand oder eine schlecht
+beleuchtete Szene können beim Annotieren mehr Zeit kosten.
 
-00:03:47.720 --> 00:03:51.979
-Die Annotation ist der
-wichtigste Teil des Workflows.
+00:03:50.648 --> 00:03:53.094
+Doch häufig sind es genau diese Situationen,
 
-00:03:52.068 --> 00:03:56.247
-Ein guter Box umfasst den kompletten Objekt
-und bleibt nahe an seiner sichtbaren Grenze.
+00:03:53.164 --> 00:03:56.735
+bei denen das fertige Modell am
+meisten Unterstützung benötigt.
 
-00:03:57.432 --> 00:04:00.663
-Eine Box, die durch den Ball geht,
-lehrt eine unvollständige Form.
+00:03:57.235 --> 00:04:00.342
+Die Annotation ist der wichtigste
+Teil des Arbeitsablaufs.
 
-00:04:00.749 --> 00:04:03.042
-Reco Trainer
+00:04:00.412 --> 00:04:06.010
+Ein guter Begrenzungsrahmen umfasst das gesamte Objekt
+und liegt möglichst eng an seinem sichtbaren Rand.
 
-00:04:03.129 --> 00:04:05.495
-RF-DETR
+00:04:06.080 --> 00:04:10.059
+Ein Rahmen, der den Ball abschneidet,
+vermittelt eine unvollständige Form.
 
-00:04:05.581 --> 00:04:09.173
-PyTorch, mAP, F1, CPU, GPU, Metal und .recomodel
+00:04:10.129 --> 00:04:14.544
+Ein Rahmen mit viel Bodenfläche um den Ball
+herum vermittelt unnötigen Hintergrund.
 
-00:04:09.259 --> 00:04:13.644
-Ein Box mit einem großen Bodenbereich um
-ihn herum lehrt unnötigen Hintergrund.
+00:04:14.614 --> 00:04:17.035
+Wähle die richtige Klasse, bevor du zeichnest.
 
-00:04:14.807 --> 00:04:17.448
-Wählen Sie die richtige Klasse vor dem Zeichnen.
+00:04:17.105 --> 00:04:19.464
+Überprüfe dann jedes vorgeschlagene Objekt.
 
-00:04:17.534 --> 00:04:19.863
-Dann überprüfen Sie jede vorgeschlagene Objekt.
+00:04:19.534 --> 00:04:21.894
+Verschiebe oder korrigiere ungenaue Rahmen,
 
-00:04:19.949 --> 00:04:22.902
-Verschieben oder vergrößern Sie
-ungenaue Boxen, entfernen Sie falsche
+00:04:21.964 --> 00:04:26.316
+entferne falsche Erkennungen und füge
+Objekte hinzu, die das Modell übersehen hat.
 
-00:04:22.988 --> 00:04:25.940
-Erkennungen und fügen Sie Objekte
-hinzu, die das Modell verpasst hat.
+00:04:26.386 --> 00:04:30.988
+Rückgängig und Wiederholen speichern die
+letzten zehn Bearbeitungsschritte pro Bild.
 
-00:04:26.026 --> 00:04:29.367
-Stornieren und wiederholen Sie die letzten
-zehn Bearbeitungsschritte für jedes
+00:04:31.058 --> 00:04:34.538
+So lassen sich auch detaillierte
+Korrekturen sicher durchführen.
 
-00:04:29.454 --> 00:04:32.795
-Bild, was detaillierte
-Korrekturen weniger riskant macht.
+00:04:34.608 --> 00:04:38.961
+Automatisches Annotieren kann Zeit sparen,
+sobald ein Basismodell verfügbar ist.
 
-00:04:33.959 --> 00:04:37.936
-Automatisches Etikettieren kann Zeit
-sparen, wenn ein Basismodell verfügbar ist.
+00:04:39.031 --> 00:04:42.138
+Das Ergebnis sollte stets als
+Vorschlag betrachtet werden.
 
-00:04:38.022 --> 00:04:40.521
-Es sollte immer als Vorschlag behandelt werden.
+00:04:42.208 --> 00:04:46.186
+Reco Trainer schließt ungeprüfte
+Kandidaten von der Datensatzerstellung,
 
-00:04:40.608 --> 00:04:43.550
-Reco Trainer hält unbesichtigte Kandidaten aus
+00:04:46.256 --> 00:04:48.740
+von Modellpaketen und von Vergleichstests aus.
 
-00:04:43.636 --> 00:04:46.947
-der Datensatzgenerierung,
-Modellpaketen und Benchmarking.
+00:04:48.810 --> 00:04:53.910
+So gelangen die unsicheren Vermutungen des Modells
+nicht direkt zurück in den Trainingsprozess.
 
-00:04:47.033 --> 00:04:49.681
-Das verhindert, dass das Modell seine eigenen
+00:04:53.980 --> 00:04:56.526
+Konsistenz ist genauso wichtig wie Genauigkeit.
 
-00:04:49.768 --> 00:04:52.710
-unsicheren Schätzungen direkt
-zurück in den Training.
+00:04:56.596 --> 00:04:59.641
+Ähnliche Situationen brauchen
+ähnliche Beschriftungen.
 
-00:04:53.873 --> 00:04:56.428
-Konsistenz zählt genauso wie Genauigkeit.
+00:04:59.711 --> 00:05:04.561
+Wenn du in einem Bild einen engen Rahmen zeichnest
+und in einem anderen viel Rand einbeziehst,
 
-00:04:56.514 --> 00:04:59.070
-Ähnliche Situationen
-benötigen ähnliche Etiketten.
+00:05:04.631 --> 00:05:07.115
+erhält das Modell widersprüchliche Beispiele.
 
-00:04:59.156 --> 00:05:02.542
-Wenn ein Besichtiger eine enge
-Box zieht und ein anderer ein
+00:05:07.185 --> 00:05:12.098
+Lege die Bedeutung jeder Klasse fest und prüfe
+schwierige Fälle immer nach demselben Maßstab.
 
-00:05:02.628 --> 00:05:06.165
-große Margen, das Modell erhält
-widersprüchliche Beispiele.
+00:05:12.168 --> 00:05:15.960
+Das Annotieren kann wie eine bloße
+Vorbereitung auf das Training wirken.
 
-00:05:06.251 --> 00:05:08.957
-Übereinstimmung im Verständnis
-jedes Klassifikators und Überprüfung
+00:05:16.030 --> 00:05:20.258
+Beim praktischen maschinellen Lernen ist
+es jedoch die zentrale Lehrtätigkeit.
 
-00:05:09.043 --> 00:05:11.523
-schwierige Fälle mit gleichen Standards.
+00:05:20.328 --> 00:05:25.117
+Der Trainingsprozess kann nur die Informationen
+aus den geprüften Beispielen verstärken.
 
-00:05:12.686 --> 00:05:15.896
-Etikettieren kann wie Vorbereitung
-für das Training wirken, aber in
+00:05:25.187 --> 00:05:29.477
+Fehlende oder widersprüchliche Antworten
+im Datensatz kann er nicht reparieren.
 
-00:05:15.982 --> 00:05:19.672
-praktischer Maschinelles Lernen ist
-es der zentrale Unterrichtsaktivität.
+00:05:29.977 --> 00:05:32.617
+Sobald das erste brauchbare
+Modell vorhanden ist,
 
-00:05:19.759 --> 00:05:22.076
-Der Trainingsprozess kann nur die
+00:05:32.687 --> 00:05:37.345
+kann Reco Trainer dir helfen zu entscheiden,
+was als Nächstes Aufmerksamkeit verdient.
 
-00:05:22.162 --> 00:05:24.960
-enthaltenen Informationen im
-überprüften Beispiel verstärken.
+00:05:37.415 --> 00:05:39.614
+Das ist die Idee hinter dem aktiven Lernen.
 
-00:05:25.046 --> 00:05:29.010
-Es kann jedoch keine Datenbank reparieren, deren
-Antworten fehlen oder widersprüchlich sind.
+00:05:39.684 --> 00:05:44.404
+Zuerst werden Beispiele geprüft, die dem
+Modell wahrscheinlich etwas Neues vermitteln.
 
-00:05:30.204 --> 00:05:33.581
-Nach dem ersten nützlichen Modell kann Reco Trainer helfen, zu
-entscheiden, was im nächsten Schritt beachtet werden sollte.
+00:05:44.474 --> 00:05:47.997
+Erkennungen mit niedriger Konfidenz
+weisen auf Unsicherheit hin.
 
-00:05:33.674 --> 00:05:36.803
-Dies ist der Kerngedanke des Aktiven Lernens.
+00:05:48.067 --> 00:05:52.031
+Wenn zwei installierte Modelle zu
+unterschiedlichen Ergebnissen kommen,
 
-00:05:36.896 --> 00:05:39.611
-Zuerst werden die Zeit untersucht, die
-am wahrscheinlichsten etwas Neues lehren.
+00:05:52.101 --> 00:05:55.371
+enthält der Frame wahrscheinlich
+eine echte Mehrdeutigkeit.
 
-00:05:39.705 --> 00:05:44.733
-Niedrige Konfidenz-Detektionen
-deuten auf Unsicherheit hin.
+00:05:55.441 --> 00:05:58.145
+Die zeitliche Analyse
+liefert ein weiteres Signal.
 
-00:05:45.992 --> 00:05:49.319
-Wenn zwei installierte Modelle widersprechen,
-enthält das Bild wahrscheinlich echte Ambiguität.
+00:05:58.215 --> 00:06:03.250
+Springt ein erkannter Ball zwischen benachbarten
+Frames an eine unwahrscheinliche Position,
 
-00:05:49.412 --> 00:05:52.195
-Temporale Analyse fügt
-ein weiteres Signal hinzu.
+00:06:03.320 --> 00:06:08.419
+ist das mittlere Ergebnis möglicherweise eine
+Fehlerkennung und kein außergewöhnlicher Pass.
 
-00:05:52.288 --> 00:05:54.760
-reco Trainer
+00:06:08.489 --> 00:06:11.885
+Diese Signale verändern lediglich
+die Reihenfolge der Prüfung.
 
-00:05:54.853 --> 00:05:57.402
-RF-DETR, PyTorch, mAP, F1, CPU, GPU,
-Metal und .recomodel bleiben unverändert.
+00:06:11.955 --> 00:06:16.045
+Sie entscheiden niemals, welche Antwort
+in den Trainingsdatensatz gelangt.
 
-00:05:57.495 --> 00:06:00.901
-Wenn ein detekterter Ball zu einer
-unwahrscheinlichen Position springt
+00:06:16.115 --> 00:06:20.332
+Ein Mensch bestätigt weiterhin die
+Klasse, korrigiert den Begrenzungsrahmen,
 
-00:06:00.994 --> 00:06:04.476
-zwischen benachbarten Frames,
-kann der mittlere Ergebnis
+00:06:20.402 --> 00:06:23.357
+lehnt die Erkennung ab oder
+überspringt den Kandidaten.
 
-00:06:04.569 --> 00:06:07.974
-eine Falschdetektion sein, anstatt
-eine außergewöhnliche Passung.
+00:06:23.427 --> 00:06:27.013
+Aktives Lernen nutzt die menschliche
+Aufmerksamkeit effizienter,
 
-00:06:09.232 --> 00:06:12.157
-Diese Signale ändern nur die
-Reihenfolge der Überprüfung.
+00:06:27.083 --> 00:06:29.408
+ohne die menschliche Kontrolle aufzugeben.
 
-00:06:12.250 --> 00:06:15.990
-Sie entscheiden nie, welche Antwort
-in das Trainingsset eingeht.
+00:06:29.908 --> 00:06:33.728
+Sobald der geprüfte Datensatz
+genügend nützliche Variation enthält,
 
-00:06:16.083 --> 00:06:19.579
-Ein Mensch bestätigt immerhin
-die Klasse, korrigiert den Boxen
+00:06:33.798 --> 00:06:35.543
+kannst du ein Modell trainieren.
 
-00:06:19.672 --> 00:06:22.841
-lehnt die Detektion ab oder
-fügt den Kandidaten aus.
+00:06:35.613 --> 00:06:40.341
+Eine Epoche bezeichnet einen vollständigen
+Durchlauf durch die Trainingsbeispiele.
 
-00:06:22.934 --> 00:06:25.859
-Aktives Lernen macht menschliche Aufmerksamkeit
+00:06:40.411 --> 00:06:43.453
+Reco Trainer verwendet
+standardmäßig hundert Epochen,
 
-00:06:25.952 --> 00:06:28.876
-effizient ohne den menschlichen
-Eingriff zu entfernen.
+00:06:43.523 --> 00:06:47.602
+doch eine höhere Anzahl garantiert
+nicht automatisch ein besseres Modell.
 
-00:06:30.112 --> 00:06:34.792
-Sobald der geprüfte Satz genügend nützliche
-Variation enthält, können wir ein Modell trainieren.
+00:06:47.672 --> 00:06:54.279
+Mit zu wenig Daten kann ein langer Trainingslauf die genauen
+Trainingsbilder und ihre Besonderheiten auswendig lernen.
 
-00:06:34.880 --> 00:06:38.752
-Ein Epoch bedeutet eine vollständige
-Durchsicht der Trainingsbeispiele.
+00:06:54.349 --> 00:06:55.771
+Das nennt man Overfitting.
 
-00:06:38.840 --> 00:06:42.493
-Reco Trainer verwendet hundert
-Epochen als praktische Standardwerte,
+00:06:55.841 --> 00:07:00.114
+Das Modell könnte dann gut auf bekannte
+Aufnahmen abschneiden, aber versagen,
 
-00:06:42.580 --> 00:06:45.793
-aber eine größere Anzahl garantiert
-nicht ein besseres Modell.
+00:07:00.184 --> 00:07:03.161
+wenn die Kamera, das Licht
+oder die Objekte sich ändern.
 
-00:06:46.980 --> 00:06:49.713
-Mit zu wenig Daten kann ein langer Trainingslauf
+00:07:03.231 --> 00:07:05.949
+Deshalb bewerten wir den
+Fortschritt an Material,
 
-00:06:49.801 --> 00:06:53.142
-das genaue Trainingsbild und seine
-Eigenheiten auswendig lernen.
-
-00:06:53.230 --> 00:06:54.514
-Dies ist Overfitting.
-
-00:06:54.602 --> 00:06:57.562
-Das Modell kann bei vertrautem
-Material gut abschneiden und
-
-00:06:57.650 --> 00:07:00.840
-versagen, wenn die Kamera, die
-Beleuchtung oder die Spieler sich ändern.
-
-00:07:00.928 --> 00:07:03.431
-Daher bewerten wir den Fortschritt an Material,
-
-00:07:03.519 --> 00:07:05.947
+00:07:06.019 --> 00:07:08.542
 das das Modell nie für das Lernen verwendet hat.
 
-00:07:07.133 --> 00:07:10.452
-Das normale Training beginnt
-von der aktuellen Checkpoint.
+00:07:08.612 --> 00:07:11.784
+Das normale Training setzt
+vom aktuellen Checkpoint fort.
 
-00:07:10.540 --> 00:07:14.851
-Das ist meistens schneller und behält das,
-was das aktuelle Modell bereits weiß, bei.
+00:07:11.854 --> 00:07:16.452
+Das ist meistens schneller und bewahrt, was
+das aktuelle Modell bereits gelernt hat.
 
-00:07:14.939 --> 00:07:18.469
-Verwende Train from scratch, wenn du
-eine neue Klasse einführen möchtest, die
+00:07:16.522 --> 00:07:19.953
+Trainiere von Grund auf neu, wenn
+du eine neue Klasse einfühgst,
 
-00:07:18.557 --> 00:07:22.089
-das bestehende Klassifizierungshead
-nie für die Vorhersage trainiert hat.
+00:07:20.023 --> 00:07:23.324
+die der bestehende Klassifikator
+noch nie vorhergesagt hat.
 
-00:07:23.275 --> 00:07:25.585
+00:07:23.394 --> 00:07:25.787
 Das Training bleibt auf dem lokalen Rechner.
 
-00:07:25.673 --> 00:07:30.691
-Unterstützte Apple-Systeme verwenden
-Metal-Acceleration, während andere Konfigurationen
+00:07:25.857 --> 00:07:29.548
+Unterstützte Apple-Systeme
+verwenden die Metal-Beschleunigung.
 
-00:07:30.779 --> 00:07:34.715
-einen verfügbaren lokalen Beschleuniger
-verwenden können oder auf den CPU-fallen.
+00:07:29.618 --> 00:07:35.382
+Andere Konfigurationen nutzen einen verfügbaren
+lokalen Beschleuniger oder greifen auf die CPU zurück.
 
-00:07:34.803 --> 00:07:37.344
-CPU-Training funktioniert,
-aber es dauert länger.
+00:07:35.452 --> 00:07:38.754
+Das Training auf der CPU
+funktioniert, dauert jedoch länger.
 
-00:07:37.432 --> 00:07:41.445
-Beim Tutorial-Aufzeichnen verwenden
-wir einen markierten Zeitprung anstelle
+00:07:38.824 --> 00:07:42.968
+In einem Tutorial kennzeichnen wir
+einen Zeitsprung, statt vorzutäuschen,
 
-00:07:41.533 --> 00:07:45.468
-dessen, als ob eine vollständige
-Trainingslaufzeit sofort abgeschlossen wäre.
+00:07:43.038 --> 00:07:45.950
+ein vollständiger Trainingslauf
+sei sofort beendet.
 
-00:07:46.609 --> 00:07:50.331
-Das erste Modell gibt uns einen Ausgangspunkt,
-nicht eine abgeschlossene Detektor.
+00:07:46.450 --> 00:07:50.238
+Das erste Modell liefert einen Ausgangspunkt,
+aber noch keinen fertigen Detektor.
 
-00:07:50.409 --> 00:07:52.976
-Die Überprüfung neuer Videos
-setzt das aktive Modell auf eine
+00:07:50.308 --> 00:07:56.649
+Bei der Prüfung neuer Videos wird das aktive Modell auf einen separaten
+Ordner angewendet und eine Warteschlange mit Kandidaten erstellt.
 
-00:07:53.054 --> 00:07:55.894
-Separate Ordner und erstellt
-eine Schlange von Kandidaten.
+00:07:56.719 --> 00:07:59.855
+Videos, die das Projekt bereits
+verwendet hat, werden übersprungen.
 
-00:07:55.972 --> 00:07:58.607
-Videos, die bereits im Projekt
-verwendet wurden, werden übersprungen;
+00:07:59.925 --> 00:08:02.300
+So konzentriert sich die
+Prüfung auf neues Material.
 
-00:07:58.685 --> 00:08:00.778
-somit konzentriert sich die
-Bewertung auf neues Material.
-
-00:08:01.826 --> 00:08:04.648
+00:08:02.370 --> 00:08:04.854
 Jeder Kandidat erfordert
 eine bewusste Entscheidung.
 
-00:08:04.726 --> 00:08:07.478
-Bestätigen Sie den Ball, wenn
-die Erkennung korrekt ist.
+00:08:04.924 --> 00:08:07.244
+Bestätige den Ball, wenn
+die Detektion korrekt ist.
 
-00:08:07.555 --> 00:08:09.388
-Wählen Sie keinen Ball für ein Fehlalarm aus.
+00:08:07.314 --> 00:08:09.255
+Wähle „kein Ball“ bei einem falschen Alarm.
 
-00:08:09.465 --> 00:08:13.561
-Korrigieren Sie den Rahmen, wenn das Objekt
-real ist, aber die Position ungenau ist.
+00:08:09.325 --> 00:08:12.080
+Korrigiere den Begrenzungsrahmen,
+wenn das Objekt real ist,
 
-00:08:13.638 --> 00:08:16.249
-Überspringen Sie einen Fall, wenn er
-nicht zuverlässig beurteilt werden kann.
+00:08:12.150 --> 00:08:13.493
+aber die Position ungenau ist.
 
-00:08:17.296 --> 00:08:20.131
-Nur bewertete Kandidaten werden
-als Trainingsbelege verwendet.
+00:08:13.563 --> 00:08:16.916
+Überspringe einen Fall, wenn er nicht
+zuverlässig beurteilt werden kann.
 
-00:08:20.208 --> 00:08:22.978
-Nachdem ein sinnvoller Batch gesammelt
-wurde, trainiere ein weiteres
+00:08:16.986 --> 00:08:19.578
+Nur geprüfte Kandidaten
+werden zu Trainingsbeispielen.
 
-00:08:23.055 --> 00:08:25.567
-und vergleiche es mit dem aktuellen Modell.
+00:08:19.648 --> 00:08:21.806
+Nachdem du eine sinnvolle Menge gesammelt hast,
 
-00:08:25.644 --> 00:08:29.126
-Dies schafft einen kontrollierten
-Verbesserungskreislauf: setze das Modell auf
+00:08:21.876 --> 00:08:25.555
+trainierst du eine weitere Version und
+vergleichst sie mit dem aktuellen Modell.
 
-00:08:29.203 --> 00:08:32.750
-neue Situationen, untersuche seine Fehler,
-füge bestätigte Beispiele hinzu und
+00:08:25.625 --> 00:08:28.109
+So entsteht ein kontrollierter
+Verbesserungszyklus:
 
-00:08:32.827 --> 00:08:36.504
-mess die Verbesserung der nächsten
-Revision bei diesen Situationen.
+00:08:28.179 --> 00:08:31.749
+Du konfrontierst das Modell mit neuen
+Situationen, untersuchst seine Fehler,
 
-00:08:37.551 --> 00:08:40.159
-Vermeide das Nachtrainen nach
-jedem einzelnen Korrektur.
+00:08:31.819 --> 00:08:33.868
+fügst bestätigte Beispiele hinzu und prüfst,
 
-00:08:40.236 --> 00:08:43.675
-Ein kohärenter Batch gibt dem
-Trainingslauf genug neue Informationen.
+00:08:33.938 --> 00:08:36.639
+ob die nächste Version diese
+Situationen besser bewältigt.
 
-00:08:43.752 --> 00:08:47.063
-Berechne die Zeit und vereinfache
-die Interpretation der Vergleiche.
+00:08:36.709 --> 00:08:39.628
+Vermeide das Wiedertrainieren
+nach jeder einzelnen Korrektur.
 
-00:08:48.147 --> 00:08:52.069
-Ein faire Test verwendet Videoaufnahmen, die das
-Modell während des Trainings noch nie gesehen hat.
+00:08:39.698 --> 00:08:43.594
+Eine zusammenhängende Menge gibt dem
+Trainingsdurchlauf genug neue Informationen,
 
-00:08:52.155 --> 00:08:55.275
-Der Test auf vertrauten Material belohnt das
-Memorieren und gibt einen zu optimistischen Ergebnis.
+00:08:43.664 --> 00:08:47.452
+um die Zeit zu rechtfertigen, und macht
+den Vergleich einfacher zu interpretieren.
 
-00:08:55.361 --> 00:08:57.681
-Der unabhängige Modelltest erstellt ein
-abgelegtes Set für eine ehrliche Vergleich.
+00:08:47.952 --> 00:08:49.830
+Ein fairer Test verwendet Material,
 
-00:08:57.767 --> 00:09:02.344
-Wähle einen Ordner, der nie
-Trainingsrahmen beigetragen hat.
+00:08:49.900 --> 00:08:52.658
+das das Modell während des
+Trainings nie gesehen hat.
 
-00:09:03.505 --> 00:09:07.165
-Überprüfe die korrekten Objekte
-sorgfältig, dann frieren
+00:08:52.728 --> 00:08:54.857
+Wenn du mit vertrautem Material testest,
 
-00:09:07.251 --> 00:09:10.325
-diese Antworten als Benchmark-Ground-Truth ein.
+00:08:54.927 --> 00:08:58.942
+belohnst du das Auswendiglernen und
+erhältst zu optimistische Ergebnisse.
 
-00:09:10.411 --> 00:09:13.117
-Reco Trainer, RF-DETR, PyTorch, mAP, F1, CPU,
-GPU, Metal und .recomodel bleiben unverändert.
+00:08:59.012 --> 00:09:04.849
+Der unabhängige Modelltest erstellt einen getrennten
+Testsatz und ermöglicht so einen ehrlichen Vergleich.
 
-00:09:13.203 --> 00:09:15.616
-Jeder kompatible Modell erhält die gleichen
-Bilder und die gleichen erwarteten Antworten.
+00:09:04.919 --> 00:09:08.745
+Wähle einen Ordner, aus dem noch nie
+Trainingsframes übernommen wurden.
 
-00:09:15.702 --> 00:09:18.261
-Für diesen Durchgang verwenden wir ein genehmigtes
-15-Sekunden-Syntheseclip, um die Mechanik zu illustrieren.
+00:09:08.815 --> 00:09:15.469
+Prüfe die korrekten Objekte sorgfältig und fixiere diese
+Antworten anschließend als Referenzdaten für den Vergleichstest.
 
-00:09:19.422 --> 00:09:22.858
-Das reicht aus, um den Workflow zu zeigen, aber es reicht nicht aus,
-um eine ernsthafte Aussage über die Modellqualität zu unterstützen.
+00:09:15.539 --> 00:09:20.119
+Jedes kompatible Modell erhält dieselben
+Bilder und dieselben erwarteten Antworten.
 
-00:09:22.944 --> 00:09:25.590
-Eine bedeutende Bewertung benötigt viel mehr unabhängiges und
-repräsentatives Material aus verschiedenen Spielen und Kamerapositionen.
+00:09:20.189 --> 00:09:25.398
+Für diese Anleitung verwenden wir einen freigegebenen
+synthetischen Clip von fünfzehn Sekunden,
 
-00:09:25.676 --> 00:09:28.465
-Reco Trainer
+00:09:25.468 --> 00:09:27.786
+um die Funktionsweise zu veranschaulichen.
 
-00:09:28.551 --> 00:09:31.772
-RF-DETR
+00:09:27.856 --> 00:09:29.671
+Das genügt, um den Ablauf zu zeigen,
 
-00:09:31.858 --> 00:09:35.222
-PyTorch
+00:09:29.741 --> 00:09:33.504
+reicht aber nicht für eine belastbare
+Aussage über die Modellqualität.
 
-00:09:35.308 --> 00:09:39.391
-mAP, F1, CPU, GPU, Metal und .recomodel
+00:09:33.574 --> 00:09:40.542
+Eine aussagekräftige Bewertung benötigt wesentlich mehr
+unabhängiges und repräsentatives Material aus verschiedenen Spielen,
 
-00:09:39.477 --> 00:09:43.632
-Beleuchtungsbedingungen, Distanzen,
-Verdeckungen und Arten der Bewegung.
+00:09:40.612 --> 00:09:45.507
+Kamerapositionen, Lichtverhältnissen,
+Entfernungen, Verdeckungen und Bewegungsarten.
 
-00:09:44.793 --> 00:09:46.393
-Behalte das Testset getrennt.
+00:09:45.577 --> 00:09:47.140
+Halte die Testmenge getrennt.
 
-00:09:46.479 --> 00:09:50.719
-Der Moment, in dem ein Testrahmen die Trainingsentscheidungen beeinflusst oder
-ein neues Trainingsbeispiel wird, bietet nicht mehr eine unabhängige Überprüfung.
+00:09:47.210 --> 00:09:52.796
+Sobald ein Testframe die Trainingsentscheidungen
+beeinflusst oder als neues Trainingsbeispiel dient,
 
-00:09:50.805 --> 00:09:55.044
-Ersetze kontaminiertes Testmaterial vor der
-Verwendung des Benchmarks für eine echte Entscheidung.
+00:09:52.866 --> 00:09:55.184
+liefert er kein unabhängiges Ergebnis mehr.
 
-00:09:55.130 --> 00:09:57.757
-Die lokale Modellvergleich läuft kompatible
-Überarbeitungen gegen das gefrorene Goldstandard.
+00:09:55.254 --> 00:09:57.321
+Ersetze kontaminiertes Testmaterial,
 
-00:09:57.843 --> 00:10:00.249
-Reco Trainer, RF-DETR, PyTorch, mAP,
-F1, CPU, GPU, Metal und .recomodel
+00:09:57.391 --> 00:10:00.714
+bevor du den Vergleichstest für
+eine echte Entscheidung nutzt.
 
-00:10:01.437 --> 00:10:04.468
-translations array containing one translated string per input item, in the same order and with no
-commentary. Never combine adjacent cues. Each string must be concise enough for its original display time.
+00:10:01.214 --> 00:10:06.934
+Beim lokalen Modellvergleich werden kompatible Versionen
+anhand der festgelegten Referenzdaten bewertet.
 
-00:10:04.560 --> 00:10:07.591
-INPUT: [
+00:10:07.004 --> 00:10:10.815
+Die Modelle laufen nacheinander, damit
+sie nicht um denselben Prozessor,
 
-00:10:07.683 --> 00:10:11.136
-Modelle laufen nacheinander,
-um Konkurrenz zu vermeiden.
+00:10:10.885 --> 00:10:14.264
+dieselbe GPU oder denselben
+gemeinsamen Speicher konkurrieren.
 
-00:10:11.228 --> 00:10:14.428
-Sie nutzen unterschiedliche Prozessoren,
-GPUs oder geteilte Speicher.
+00:10:14.334 --> 00:10:17.898
+Die Präzision zeigt, wie viele
+gemeldete Erkennungen korrekt waren.
 
-00:10:15.672 --> 00:10:19.647
-Genauigkeit fragt, wie viele
-gemeldete Erkennungen korrekt sind.
+00:10:17.968 --> 00:10:20.485
+Ein niedriger Wert bedeutet zu viele Fehlalarme.
 
-00:10:19.739 --> 00:10:22.574
-Geringe Genauigkeit bedeutet
-zu viele Falschalarme.
+00:10:20.555 --> 00:10:25.167
+Der Recall zeigt, wie viele der tatsächlich
+vorhandenen Objekte das Modell gefunden hat.
 
-00:10:22.666 --> 00:10:25.990
-Erinnerung fragt, wie viele echte
-Objekte das Modell gefunden hat.
+00:10:25.237 --> 00:10:28.308
+Ein niedriger Recall bedeutet
+zu viele übersehene Objekte.
 
-00:10:26.082 --> 00:10:28.837
-Geringe Erinnerung bedeutet
-zu viele verpasste Objekte.
+00:10:28.378 --> 00:10:31.449
+Der F1-Wert bringt Präzision
+und Recall ins Gleichgewicht.
 
-00:10:28.929 --> 00:10:31.195
-F1 balanciert Genauigkeit und Erinnerung.
+00:10:31.519 --> 00:10:40.750
+Die mittlere durchschnittliche Präzision bei einem Überlappungsschwellenwert von null
+Komma fünf fasst die Erkennungsqualität über verschiedene Konfidenzwerte zusammen.
 
-00:10:31.288 --> 00:10:35.342
-Mittelwertiger Genauigkeitspräzisionswert bei
-einem Überschneidungsschwellenwert von 0,5
+00:10:40.820 --> 00:10:47.280
+Der Qualitätswert von Reco Trainer gewichtet M A P bei null Komma
+fünf mit siebzig Prozent und den F1-Wert mit dreißig Prozent.
 
-00:10:35.435 --> 00:10:39.328
-Fasst die Qualität der Erkennung über
-verschiedene Konfidenzniveaus zusammen.
+00:10:47.350 --> 00:10:50.914
+Die Inferenzzeit dient nur als
+Entscheidungshilfe bei Gleichstand.
 
-00:10:40.572 --> 00:10:43.950
-Reco Trainers Qualitätswert gibt 70%
-Gewicht an mAP bei 0,5 und 30% an F1.
+00:10:50.984 --> 00:10:53.686
+Diese Rangfolge bietet
+einen nützlichen Überblick.
 
-00:10:44.042 --> 00:10:47.340
-Die Inferenzzeit dient nur
-als Entscheidungshilfe.
+00:10:53.756 --> 00:10:57.874
+Welche Fehler am wichtigsten sind, hängt
+jedoch weiterhin vom Einsatzzweck ab.
 
-00:10:47.433 --> 00:10:50.180
-Dieser Rang bietet eine nützliche Übersicht, aber der Deploymeingang
-bestimmt immer noch, welche Fehler am wichtigsten sind.
+00:10:57.944 --> 00:11:02.247
+Für ein Tracking-System können möglichst
+wenige übersehene Bälle wichtiger sein,
 
-00:10:50.273 --> 00:10:54.202
-Ein Tracking-System könnte weniger verpasste Bälle bevorzugen,
-während ein anderes Workflow mehr anfällig für Fehlalarmanzeigen ist.
+00:11:02.317 --> 00:11:06.251
+während ein anderer Arbeitsablauf
+empfindlicher auf Fehlalarme reagiert.
 
-00:10:54.294 --> 00:10:57.436
-recomodel
+00:11:06.321 --> 00:11:09.701
+Prüfe sowohl die Ergebnisse jeder
+Klasse als auch den Gesamtwert.
 
-00:10:57.528 --> 00:11:01.064
-Metal
+00:11:09.771 --> 00:11:16.661
+Eine starke Leistung bei häufigen Spielererkennungen kann Schwächen
+bei der Erkennung von Bällen oder Schiedsrichtern verdecken.
 
-00:11:01.156 --> 00:11:04.770
-PyTorch
+00:11:16.731 --> 00:11:22.020
+Modelle mit unterschiedlichen Klassen lassen sich
+nicht einfach über einen Gesamtwert vergleichen.
 
-00:11:06.013 --> 00:11:09.437
-Überprüfen Sie sowohl die
-per-Klasse-Ergebnisse als auch den Gesamtscore.
+00:11:22.090 --> 00:11:25.777
+Deshalb müssen ihre gemeinsamen
+Klassen gesondert betrachtet werden.
 
-00:11:09.529 --> 00:11:12.504
-Starke Leistung bei der Erkennung
-von allgemeinen Spielerbewegungen
+00:11:25.847 --> 00:11:30.705
+Abgeschlossene Trainingsläufe gelangen in
+eine unveränderliche lokale Modellbibliothek.
 
-00:11:12.596 --> 00:11:15.198
-kann schwaches Ball- oder
-Schiedsrichterleistungsverhalten verdecken.
+00:11:30.775 --> 00:11:34.893
+Reco Trainer kann Versionen umbenennen,
+aktivieren, vergleichen und löschen,
 
-00:11:15.290 --> 00:11:19.237
-Modelle mit unterschiedlichen Klassensätzen unterstützen keine einfache
-Gesamtkomparation, sodass ihre gemeinsamen Klassen separat beachtet werden sollten.
+00:11:34.963 --> 00:11:37.542
+schützt die aktive Version
+jedoch vor dem Löschen.
 
-00:11:19.329 --> 00:11:23.425
-Fertiggestellte Trainingsläufe werden in eine
-unveränderliche lokale Modellbibliothek aufgenommen.
+00:11:37.612 --> 00:11:44.256
+Ein schlechteres neues Ergebnis bleibt für Untersuchungen
+verfügbar und ersetzt nicht unbemerkt ein besseres aktives Modell.
 
-00:11:24.669 --> 00:11:28.878
-Reco Trainer kann umbenennen,
-aktivieren, vergleichen und löschen
+00:11:44.756 --> 00:11:48.618
+Metriken fassen viele Bilder
+zusammen, aber sie zeigen nicht,
 
-00:11:28.970 --> 00:11:32.553
-Revisionen, während die aktive Revision
-vor der Löschung geschützt wird.
+00:11:48.688 --> 00:11:51.734
+wie die Erkennungen sich
+über die Zeit verhalten.
 
-00:11:32.645 --> 00:11:36.854
-Reco Trainer kann umbenennen,
-aktivieren, vergleichen und löschen
-
-00:11:36.946 --> 00:11:40.295
-Ein schlechterer neuer Lauf
-ist verfügbar zum Überprüfen
-
-00:11:40.387 --> 00:11:43.735
-und ersetzt nicht stillschweigend
-einen besseren aktiven Modell.
-
-00:11:45.025 --> 00:11:48.226
-Metriken fassen viele Bilder zusammen, aber sie zeigen
-nicht an, wie die Erkennungen über die Zeit verhalten.
-
-00:11:48.329 --> 00:11:51.438
+00:11:51.804 --> 00:11:57.742
 Die Ball-Tracking-Simulation bietet eine
-visuelle Überprüfung auf einem kurzen Clip.
+visuelle Überprüfung für einen kurzen Ausschnitt.
 
-00:11:51.540 --> 00:11:56.852
-Grün markiert eine direkte Erkennung.
+00:11:57.812 --> 00:12:00.487
+Grün kennzeichnet eine direkte Erkennung.
 
-00:11:58.239 --> 00:12:00.455
-Orange zeigt eine interpolierte Position
-zwischen tatsächlichen Erkennungen.
+00:12:00.557 --> 00:12:05.087
+Orange zeigt eine interpolierte
+Position zwischen echten Erkennungen.
 
-00:12:00.558 --> 00:12:05.176
+00:12:05.157 --> 00:12:09.093
 Gelb hält die letzte bekannte
 Position für eine begrenzte Zeit.
 
-00:12:05.279 --> 00:12:09.382
-reco Trainer, RF-DETR, PyTorch, mAP, F1, CPU,
-GPU, Metal und .recomodel bleiben unverändert.
+00:12:09.163 --> 00:12:11.170
+Der Status „Verloren“ bedeutet,
 
-00:12:09.485 --> 00:12:14.448
-Ein verlorener Zustand bedeutet, dass das System
-den Ball nicht mehr zuverlässig schätzen kann.
+00:12:11.240 --> 00:12:15.992
+dass das System die Position des Balls
+nicht mehr zuverlässig schätzen kann.
 
-00:12:14.551 --> 00:12:18.483
-Die Voranschau-Einstellung
-steuert, wie weit die Simulation
+00:12:16.062 --> 00:12:18.514
+Die Vorausschau-Einstellung steuert,
 
-00:12:18.586 --> 00:12:21.831
-vor der Interpolation nach
-einem Lücke suchen kann.
+00:12:18.584 --> 00:12:23.485
+wie weit die Simulation rund um eine
+Lücke suchen darf, bevor sie interpoliert.
 
-00:12:23.218 --> 00:12:29.055
-Diese Ansicht hilft dabei, Flackern, unwahrscheinliche
-Sprünge und lange Erkennungslücken zu enthüllen.
+00:12:23.555 --> 00:12:25.784
+Diese Ansicht hilft dabei, Flicker,
 
-00:12:29.158 --> 00:12:33.897
-Es speichert keine neuen Trainingsdaten
+00:12:25.854 --> 00:12:30.235
+unwahrscheinliche Sprünge und lange
+Erkennungslücken zu entdecken.
+
+00:12:30.305 --> 00:12:34.686
+Sie speichert keine neuen Trainingsdaten
 und ändert das Modell nicht.
 
-00:12:34.000 --> 00:12:39.928
-Behandel es als ein praktisches Überwachungstool
-neben dem unabhängigen Benchmark.
+00:12:34.756 --> 00:12:40.547
+Behandle sie als praktisches Inspektionswerkzeug
+neben dem unabhängigen Vergleichstest.
 
-00:12:41.252 --> 00:12:44.471
-Wenn ein Modell für eine
-bewusste Austauschung bereit ist,
+00:12:41.047 --> 00:12:43.514
+Wenn ein Modell weitergegeben werden soll,
 
-00:12:44.559 --> 00:12:47.948
-kann Reco Trainer ein
-dot-recomodel-Paket erstellen.
+00:12:43.584 --> 00:12:46.806
+kann Reco Trainer ein Punkt
+recomodel-Paket erstellen.
 
-00:12:48.036 --> 00:12:50.662
-Das Paket enthält Modellgewichte, eine
+00:12:46.876 --> 00:12:50.098
+Das Paket enthält Modellgewichte,
+eine Manifestdatei,
 
-00:12:50.750 --> 00:12:54.054
-Manifest, Prüfsummen und aggregierte Metadaten.
+00:12:50.168 --> 00:12:52.772
+Prüfsummen und zusammenfassende Metadaten.
 
-00:12:54.142 --> 00:12:57.360
-Es enthält keine Quell-Videos,
-extrahierte Frames,
+00:12:52.842 --> 00:12:57.161
+Es enthält jedoch keine Quellvideos,
+extrahierten Frames, Annotationen,
 
-00:12:57.448 --> 00:13:00.837
-Annotations, Videodateinamen und lokale Pfade.
+00:12:57.231 --> 00:12:59.699
+Videodateinamen oder lokale Pfadangaben.
 
-00:13:02.027 --> 00:13:05.902
-Beim Import überprüft Reco Trainer
-die Struktur des Pakets und
+00:12:59.769 --> 00:13:03.676
+Beim Import prüft Reco Trainer die
+Paketstruktur und die Prüfsumme.
 
-00:13:05.990 --> 00:13:09.789
-die Prüfsumme, bevor es PyTorchs
-sichere Ladenmodus verwendet, bevor die
+00:13:03.746 --> 00:13:07.585
+Anschließend verwendet es das
+sichere Ladeverfahren von PyTorch,
 
-00:13:09.877 --> 00:13:13.904
-Gewichte für das Training, automatische
-Etikettierung oder Export unterstützt.
+00:13:07.655 --> 00:13:09.505
+bevor die Gewichte für Training,
 
-00:13:13.992 --> 00:13:17.180
+00:13:09.575 --> 00:13:13.346
+automatisches Annotieren oder
+Export eingesetzt werden können.
+
+00:13:13.416 --> 00:13:17.597
 Eine Prüfsumme erkennt versehentliche
-Änderungen, aber sie tut
+Änderungen, beweist aber nicht,
 
-00:13:17.268 --> 00:13:20.077
-Beweise nicht, dass der
-Verleger vertrauenswürdig ist.
+00:13:17.667 --> 00:13:20.203
+dass der Herausgeber vertrauenswürdig ist.
 
-00:13:20.165 --> 00:13:23.353
-Importiere Modelle nur aus
-vertrauenswürdigen Quellen.
+00:13:20.273 --> 00:13:23.838
+Importiere Modellpakete nur aus
+Quellen, denen du vertraust.
 
-00:13:24.549 --> 00:13:26.763
-Das komplette Workflow ist ein Zyklus.
+00:13:24.338 --> 00:13:26.528
+Der gesamte Workflow ist ein Kreislauf.
 
-00:13:26.853 --> 00:13:28.820
-Wähle vielfältige lokale Aufnahmen.
+00:13:26.598 --> 00:13:28.921
+Wähle verschiedene lokale Aufnahmen aus.
 
-00:13:28.909 --> 00:13:30.959
-Überprüfe jede Trainingsantwort.
+00:13:28.991 --> 00:13:30.650
+Prüfe jede Trainingsantwort.
 
-00:13:31.049 --> 00:13:32.769
+00:13:30.720 --> 00:13:32.844
 Trainiere auf deinem eigenen Rechner.
 
-00:13:32.859 --> 00:13:35.237
-Teste auf echt unerkanntem Material.
+00:13:32.914 --> 00:13:35.237
+Teste auf wirklich unbekanntem Material.
 
-00:13:35.327 --> 00:13:38.857
-Vergleiche die Fehler, die für die
-vorgesehene Verwendung relevant sind.
+00:13:35.307 --> 00:13:39.292
+Vergleiche die Fehler, die für den
+vorgesehenen Einsatz relevant sind.
 
-00:13:38.946 --> 00:13:42.889
-Sammle dann neue Beispiele, um
-diese Schwächen zu adressieren.
+00:13:39.362 --> 00:13:42.815
+Sammle dann neue Beispiele, die
+diese Schwächen adressieren.
 
-00:13:44.098 --> 00:13:48.481
-Reco Trainer bietet die technische
-Struktur, aber die Qualität des
+00:13:42.885 --> 00:13:45.474
+Reco Trainer liefert die technische Struktur.
 
-00:13:48.571 --> 00:13:53.334
-Ergebnisses hängt immer noch von informierten
+00:13:45.544 --> 00:13:52.787
+Die Qualität des Ergebnisses hängt jedoch weiterhin von fundierten
 menschlichen Entscheidungen und repräsentativen Daten ab.
 
-00:13:53.424 --> 00:13:56.897
-Behalte Sicherungen, überprüfe jeden
-Modell und erinnere dich daran, dass ein
+00:13:52.857 --> 00:13:56.709
+Erstelle Sicherungskopien, validiere
+jedes Modell und denke daran,
 
-00:13:56.987 --> 00:14:00.689
-kurzer Demonstrationsfilm keinen
-ernsthaften Test ersetzen kann.
+00:13:56.779 --> 00:14:00.897
+dass eine kurze Demonstration keine
+ernsthafte Bewertung ersetzen kann.
 
-00:14:00.778 --> 00:14:03.191
+00:14:00.967 --> 00:14:03.689
 Gute Modelle beginnen mit guten Entscheidungen.
