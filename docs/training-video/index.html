@@ -18,6 +18,14 @@
     h1 { max-width: 900px; margin: 18px 0 10px; font-size: clamp(34px, 5vw, 64px); line-height: 1.04; letter-spacing: 0; }
     .lead { max-width: 790px; margin: 0 0 30px; color: var(--muted); font-size: 19px; }
     .player { overflow: hidden; border: 1px solid #202b31; border-radius: 8px; background: #10171b; box-shadow: 0 18px 46px rgba(23, 33, 40, .18); }
+    .language-bar { display: flex; align-items: center; gap: 12px; padding: 12px 14px; color: #dce5e9; background: #172128; }
+    .language-bar > span { font-size: 14px; font-weight: 650; }
+    .language-switch { display: inline-flex; overflow: hidden; border: 1px solid #53636c; border-radius: 6px; }
+    .language-switch button { min-height: 36px; padding: 7px 13px; border: 0; border-right: 1px solid #53636c; color: #e7edef; background: transparent; font: inherit; font-weight: 650; cursor: pointer; }
+    .language-switch button:last-child { border-right: 0; }
+    .language-switch button:hover { background: #25333a; }
+    .language-switch button[aria-pressed="true"] { color: #10171b; background: white; }
+    .language-switch button:focus-visible { position: relative; outline: 3px solid #72a0ff; outline-offset: -3px; }
     video { display: block; width: 100%; aspect-ratio: 16 / 9; background: #10171b; }
     .meta { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 24px; padding: 18px 0; }
     .meta p { margin: 0; color: var(--muted); }
@@ -26,7 +34,7 @@
     .privacy strong { color: var(--green); }
     .privacy p { margin: 0; color: var(--muted); }
     footer { padding: 22px 0 34px; border-top: 1px solid var(--line); color: var(--muted); font-size: 14px; }
-    @media (max-width: 680px) { header { align-items: flex-start; } .meta { grid-template-columns: 1fr; } .button { justify-content: center; } }
+    @media (max-width: 680px) { header { align-items: flex-start; } .language-bar { align-items: flex-start; flex-direction: column; } .language-switch { width: 100%; } .language-switch button { flex: 1; padding-inline: 8px; } .meta { grid-template-columns: 1fr; } .button { justify-content: center; } }
   </style>
 </head>
 <body>
@@ -38,8 +46,16 @@
     <h1>Extended privacy-first training</h1>
     <p class="lead">A practical walkthrough of local video preparation, annotation, model training, independent evaluation, benchmarking, and ball-tracking simulation.</p>
     <section class="player" aria-label="Training video">
-      <video controls preload="metadata" poster="poster.jpg">
-        <source src="https://github.com/wendibus/reco-trainer/releases/download/training-video-v1/Reco-Trainer-Extended-Training-EN.mp4" type="video/mp4">
+      <div class="language-bar">
+        <span id="audio-language-label">Audio language</span>
+        <div class="language-switch" role="group" aria-labelledby="audio-language-label">
+          <button type="button" data-language="en" aria-pressed="true">English</button>
+          <button type="button" data-language="de" aria-pressed="false">Deutsch</button>
+          <button type="button" data-language="es" aria-pressed="false">Español</button>
+        </div>
+      </div>
+      <video id="training-video" controls preload="metadata" poster="poster.jpg">
+        <source id="video-source" src="https://github.com/wendibus/reco-trainer/releases/download/training-video-v1/Reco-Trainer-Extended-Training-EN.mp4" type="video/mp4">
         <track default kind="subtitles" srclang="en" label="English" src="subtitles-en.vtt">
         <track kind="subtitles" srclang="de" label="Deutsch" src="subtitles-de.vtt">
         <track kind="subtitles" srclang="es" label="Español" src="subtitles-es.vtt">
@@ -49,7 +65,7 @@
     </section>
     <div class="meta">
       <p>American English, German and Spanish narration · Optional English, German, Spanish and French subtitles · 14:04 · 1080p</p>
-      <a class="button" href="https://github.com/wendibus/reco-trainer/releases/download/training-video-v1/Reco-Trainer-Extended-Training-EN.mp4">Download video</a>
+      <a id="video-download" class="button" href="https://github.com/wendibus/reco-trainer/releases/download/training-video-v1/Reco-Trainer-Extended-Training-EN.mp4">Download selected language</a>
     </div>
     <section class="privacy">
       <strong>Privacy note</strong>
@@ -57,5 +73,48 @@
     </section>
   </main>
   <footer>Reco Trainer is ready for real-world use but not yet bug-free. Validate labels, benchmark results, and exported models before relying on them.</footer>
+  <script>
+    const video = document.getElementById("training-video");
+    const source = document.getElementById("video-source");
+    const download = document.getElementById("video-download");
+    const languageButtons = [...document.querySelectorAll("[data-language]")];
+    const videoUrls = {
+      en: "https://github.com/wendibus/reco-trainer/releases/download/training-video-v1/Reco-Trainer-Extended-Training-EN.mp4",
+      de: "https://github.com/wendibus/reco-trainer/releases/download/training-video-v1/Reco-Trainer-Extended-Training-DE.mp4",
+      es: "https://github.com/wendibus/reco-trainer/releases/download/training-video-v1/Reco-Trainer-Extended-Training-ES.mp4"
+    };
+
+    function selectLanguage(language) {
+      if (!videoUrls[language] || source.src === videoUrls[language]) return;
+
+      const position = video.currentTime;
+      const wasPlaying = !video.paused;
+      const volume = video.volume;
+      const muted = video.muted;
+      const playbackRate = video.playbackRate;
+      const textTrackModes = [...video.textTracks].map((track) => track.mode);
+
+      languageButtons.forEach((button) => {
+        button.setAttribute("aria-pressed", String(button.dataset.language === language));
+      });
+      source.src = videoUrls[language];
+      download.href = videoUrls[language];
+      video.load();
+      video.addEventListener("loadedmetadata", () => {
+        video.currentTime = Math.min(position, video.duration || position);
+        video.volume = volume;
+        video.muted = muted;
+        video.playbackRate = playbackRate;
+        [...video.textTracks].forEach((track, index) => {
+          track.mode = textTrackModes[index] || "disabled";
+        });
+        if (wasPlaying) video.play().catch(() => {});
+      }, { once: true });
+    }
+
+    languageButtons.forEach((button) => {
+      button.addEventListener("click", () => selectLanguage(button.dataset.language));
+    });
+  </script>
 </body>
 </html>
