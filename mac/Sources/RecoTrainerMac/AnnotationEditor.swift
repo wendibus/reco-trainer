@@ -65,7 +65,7 @@ struct AnnotationEditor: View {
                             .position(x: fitted.midX, y: fitted.midY)
                     } else {
                         ContentUnavailableView(
-                            language.text("Frame fehlt", "Frame is missing"),
+                            language.text("Frame fehlt", "Frame is missing", "Falta el fotograma", "Image manquante"),
                             systemImage: "photo.badge.exclamationmark"
                         )
                     }
@@ -205,8 +205,8 @@ struct AnnotationEditor: View {
                 } label: {
                     Label(
                         isPanning
-                            ? language.text("Markieren", "Annotate")
-                            : language.text("Verschieben", "Pan"),
+                            ? language.text("Markieren", "Annotate", "Anotar", "Annoter")
+                            : language.text("Verschieben", "Pan", "Mover", "Déplacer"),
                         systemImage: isPanning ? "rectangle.dashed" : "hand.draw"
                     )
                 }
@@ -215,8 +215,8 @@ struct AnnotationEditor: View {
 
                 Label(
                     isPanning
-                        ? language.text("Bild ziehen; Pinch zum Zoomen", "Drag image; pinch to zoom")
-                        : language.text("Rahmen aufziehen; Pinch zum Zoomen", "Draw a box; pinch to zoom"),
+                        ? language.text("Bild ziehen; Pinch zum Zoomen", "Drag image; pinch to zoom", "Arrastra la imagen; pellizca para hacer zoom", "Faites glisser l’image ; pincez pour zoomer")
+                        : language.text("Rahmen aufziehen; Pinch zum Zoomen", "Draw a box; pinch to zoom", "Dibuja un recuadro; pellizca para hacer zoom", "Tracez une boîte ; pincez pour zoomer"),
                     systemImage: isPanning ? "hand.draw" : "rectangle.dashed"
                 )
                     .foregroundStyle(.secondary)
@@ -236,7 +236,7 @@ struct AnnotationEditor: View {
                 } label: {
                     Image(systemName: "plus.magnifyingglass")
                 }
-                Button(language.text("Zurücksetzen", "Reset")) {
+                Button(language.text("Zurücksetzen", "Reset", "Restablecer", "Réinitialiser")) {
                     zoom = 1
                     offset = .zero
                 }
@@ -256,12 +256,12 @@ struct AnnotationEditor: View {
                 }
                 .keyboardShortcut("z", modifiers: [.command, .shift])
                 .disabled(redoStack.isEmpty)
-                Button(language.text("Letzte entfernen", "Remove last")) {
+                Button(language.text("Letzte entfernen", "Remove last", "Quitar la última", "Supprimer la dernière")) {
                     guard !frame.annotations.isEmpty else { return }
                     commit(Array(frame.annotations.dropLast()))
                 }
                 .disabled(frame.annotations.isEmpty)
-                Button(language.text("Frame leeren", "Clear frame"), role: .destructive) {
+                Button(language.text("Frame leeren", "Clear frame", "Vaciar el fotograma", "Vider l’image"), role: .destructive) {
                     commit([])
                 }
                 .disabled(frame.annotations.isEmpty)
@@ -270,11 +270,11 @@ struct AnnotationEditor: View {
             if let selected = selectedAnnotation {
                 HStack {
                     Label(
-                        language.text("Ausgewählt: \(language.category(selected.category))", "Selected: \(language.category(selected.category))"),
+                        language.text("Ausgewählt: \(language.category(selected.category))", "Selected: \(language.category(selected.category))", "Seleccionado: \(language.category(selected.category))", "Sélectionné : \(language.category(selected.category))"),
                         systemImage: "cursorarrow.rays"
                     )
                     .font(.callout)
-                    Picker(language.text("Klasse ändern", "Change class"), selection: Binding(
+                    Picker(language.text("Klasse ändern", "Change class", "Cambiar clase", "Changer de classe"), selection: Binding(
                         get: { selected.category },
                         set: { relabelSelected(to: $0) }
                     )) {

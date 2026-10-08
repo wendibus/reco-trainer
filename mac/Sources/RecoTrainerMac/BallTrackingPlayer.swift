@@ -76,7 +76,7 @@ struct BallTrackingPlayer: View {
                 .clipShape(RoundedRectangle(cornerRadius: 10))
             } else {
                 ContentUnavailableView(
-                    language.text("Keine Bilder", "No images"),
+                    language.text("Keine Bilder", "No images", "Sin imágenes", "Aucune image"),
                     systemImage: "photo.badge.exclamationmark"
                 )
                 .frame(minHeight: 360)

@@ -42,7 +42,7 @@ const DEFAULT_API = 'http://127.0.0.1:8766';
 // Single source of truth for this web UI's own version - bump alongside
 // VERSION in cross-platform/scripts/package-platforms.sh at every release.
 // Compared against GitHub's latest release tag to power the update banner.
-const CURRENT_VERSION = '0.16.0';
+const CURRENT_VERSION = '0.16.1';
 const LATEST_RELEASE_API = 'https://api.github.com/repos/wendibus/reco-trainer/releases/latest';
 const LATEST_RELEASE_PAGE = 'https://github.com/wendibus/reco-trainer/releases/latest';
 const DISMISSED_UPDATE_KEY = 'reco-dismissed-update-version-v1';
@@ -324,7 +324,7 @@ export default function Home() {
     // opposed to ml_worker.py subprocess output, which already gets its own
     // --language) read this from the request body via its localized() helper.
     const response = await fetch(`${api}${path}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...payload, language }) });
-    const result = await response.json();
+    const result = (await response.json()) as { error?: string; status?: WorkerStatus };
     if (!response.ok) throw new Error(result.error || 'Local worker failed');
     if (result.status) setWorker(result.status as WorkerStatus);
     return result;

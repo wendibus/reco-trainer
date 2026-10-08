@@ -82,7 +82,9 @@ export default function BallTrackingPlayer(props: Props) {
   const detections = useMemo(() => frames.map((frame) => frame.ball ? { x: frame.ball.x, y: frame.ball.y } : null), [frames]);
   const resolved = useMemo(() => resolve(detections, lookaheadFrames), [detections, lookaheadFrames]);
 
-  useEffect(() => { setCurrentIndex(0); }, [simulationId]);
+  // Restart only when a different simulation arrives (reset while rendering, not in an effect).
+  const [shownSimulationId, setShownSimulationId] = useState(simulationId);
+  if (shownSimulationId !== simulationId) { setShownSimulationId(simulationId); setCurrentIndex(0); }
 
   useEffect(() => {
     if (!isPlaying || frames.length < 2) return;

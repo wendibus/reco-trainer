@@ -1,5 +1,10 @@
 # Änderungen
 
+## 0.16.1
+
+- Mac-App: 47 Beschriftungen und Statusmeldungen gab es nur auf Deutsch und Englisch und erschienen für Spanisch und Französisch auf Englisch (u. a. Sprache/Sportart, „Modell verbessern“, „Von Grund auf neu trainieren“, „Mindest-Sicherheit“, Werkzeug-Beschriftungen, Fortschrittsmeldungen). Jetzt vollständig in allen vier Sprachen.
+- Weboberfläche: alle 9 TypeScript-Typfehler und ein Lint-Fehler im Balltracking-Player behoben.
+
 ## 0.16.0
 
 - Windows/Linux/Docker: Die Weboberfläche hat jetzt denselben Funktionsumfang wie die Mac-App - „Boxen mit OpenCV verfeinern“, „Spielfeld festlegen/bearbeiten“ (inkl. einmaligem Hinweis), Export „CPU-Modell (ONNX)“ und „Trainingsordner anzeigen“. Der Core-ML-Export steht dort nur auf einem Mac zur Verfügung.

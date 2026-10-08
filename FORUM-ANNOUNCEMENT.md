@@ -1,4 +1,4 @@
-# Reco Trainer 0.12: Safer editing and clearer model comparison (work in progress)
+# Reco Trainer 0.12: Safer editing and clearer model comparison
 
 Reco Trainer is an experimental, privacy-first tool for improving sports-camera detection models without uploading sensitive match footage. Videos, extracted frames, labels, training runs and benchmark data stay on the user's own computer.
 
@@ -16,7 +16,7 @@ The comparison prefers results from the independent test set. If no test result 
 
 Reco Trainer also includes resumable training from the latest checkpoint, permanently visible training subfolders, OpenCV-assisted box checks, Futsal support, safer video-folder scanning, reviewed active learning from new videos, and the local multi-model benchmark.
 
-This remains **work in progress / alpha software**. Keep backups, verify automatically generated labels, and evaluate every model on complete matches before using it in a production camera workflow.
+Reco Trainer is ready for real-world use but not yet bug-free. Keep backups, verify automatically generated labels, and evaluate every model on complete matches before using it in a production camera workflow.
 
 ## Downloads and installation
 

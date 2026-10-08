@@ -110,7 +110,7 @@ struct FieldGeometryEditor: View {
                             .position(x: fitted.midX, y: fitted.midY)
                     } else {
                         ContentUnavailableView(
-                            language.text("Frame fehlt", "Frame is missing"),
+                            language.text("Frame fehlt", "Frame is missing", "Falta el fotograma", "Image manquante"),
                             systemImage: "photo.badge.exclamationmark"
                         )
                     }

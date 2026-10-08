@@ -42,7 +42,7 @@ struct ContentView: View {
                 fieldGeometryNudge
             }
         }
-        .alert(app.tr("Hinweis", "Notice"), isPresented: Binding(
+        .alert(app.tr("Hinweis", "Notice", "Aviso", "Avis"), isPresented: Binding(
             get: { app.errorMessage != nil },
             set: { if !$0 { app.errorMessage = nil } }
         )) {
@@ -292,14 +292,14 @@ struct ContentView: View {
 
     private var sidebar: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Picker(app.tr("Sprache", "Language"), selection: $app.language) {
+            Picker(app.tr("Sprache", "Language", "Idioma", "Langue"), selection: $app.language) {
                 ForEach(AppLanguage.allCases) { language in Text(language.title).tag(language) }
             }
             .pickerStyle(.segmented)
 
             VStack(alignment: .leading, spacing: 8) {
-                Text(app.tr("1 · Sportart", "1 · Sport")).font(.headline)
-                Picker(app.tr("Sportart", "Sport"), selection: $app.sport) {
+                Text(app.tr("1 · Sportart", "1 · Sport", "1 · Deporte", "1 · Sport")).font(.headline)
+                Picker(app.tr("Sportart", "Sport", "Deporte", "Sport"), selection: $app.sport) {
                     ForEach(Sport.allCases) { sport in Text(sport.title(language: app.language)).tag(sport) }
                 }
                 .labelsHidden()
@@ -313,7 +313,7 @@ struct ContentView: View {
                 } label: {
                     Label(app.tr("Videoordner auswählen", "Select video folder", "Seleccionar carpeta de vídeos", "Sélectionner le dossier vidéo"), systemImage: "folder")
                 }
-                Text(app.selectedFolder?.path(percentEncoded: false) ?? app.tr("Noch kein Ordner gewählt", "No folder selected"))
+                Text(app.selectedFolder?.path(percentEncoded: false) ?? app.tr("Noch kein Ordner gewählt", "No folder selected", "Aún no se ha elegido ninguna carpeta", "Aucun dossier choisi"))
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .lineLimit(3)
@@ -362,7 +362,7 @@ struct ContentView: View {
             if let project = app.project {
                 Divider()
                 HStack {
-                    Text(app.tr("3 · Trainingsbilder", "3 · Training images")).font(.headline)
+                    Text(app.tr("3 · Trainingsbilder", "3 · Training images", "3 · Imágenes de entrenamiento", "3 · Images d’entraînement")).font(.headline)
                     Spacer()
                     if app.selectedFrameIDs.count > 1 {
                         Text("\(app.selectedFrameIDs.count) \(app.tr("ausgewählt", "selected", "seleccionadas", "sélectionnées"))")
@@ -387,7 +387,7 @@ struct ContentView: View {
                         VStack(alignment: .leading) {
                             Text(frame.videoName).lineLimit(1)
                             Text(String(
-                                format: app.tr("%02d:%02d · %d Markierungen", "%02d:%02d · %d annotations"),
+                                format: app.tr("%02d:%02d · %d Markierungen", "%02d:%02d · %d annotations", "%02d:%02d · %d anotaciones", "%02d:%02d · %d annotations"),
                                 Int(frame.timestamp) / 60,
                                 Int(frame.timestamp) % 60,
                                 frame.annotations.count
@@ -413,7 +413,7 @@ struct ContentView: View {
             }
 
             Spacer(minLength: 0)
-            Label(app.tr("Keine Videos oder Frames werden hochgeladen.", "No videos or frames are uploaded."), systemImage: "lock.fill")
+            Label(app.tr("Keine Videos oder Frames werden hochgeladen.", "No videos or frames are uploaded.", "No se sube ningún vídeo ni fotograma.", "Aucune vidéo ni image n’est envoyée."), systemImage: "lock.fill")
                 .font(.caption)
                 .foregroundStyle(.green)
         }
@@ -516,7 +516,7 @@ struct ContentView: View {
                     .buttonStyle(.borderedProminent)
                     .disabled(app.store == nil || app.isWorking)
 
-                    Picker(app.tr("Modell", "Model"), selection: $app.modelSize) {
+                    Picker(app.tr("Modell", "Model", "Modelo", "Modèle"), selection: $app.modelSize) {
                         ForEach(ModelSize.allCases) { Text($0.title(language: app.language)).tag($0) }
                     }
                     .fixedSize()
@@ -765,8 +765,8 @@ struct ContentView: View {
 
     private var annotationToolbar: some View {
         HStack {
-            Text(app.tr("Objekt markieren:", "Annotate object:")).font(.headline)
-            Picker(app.tr("Klasse", "Class"), selection: $app.selectedCategory) {
+            Text(app.tr("Objekt markieren:", "Annotate object:", "Anotar objeto:", "Annoter l’objet :")).font(.headline)
+            Picker(app.tr("Klasse", "Class", "Clase", "Classe"), selection: $app.selectedCategory) {
                 ForEach(app.sport.categories, id: \.self) { Text(app.language.category($0)).tag($0) }
             }
             .frame(width: 180)
@@ -827,17 +827,17 @@ struct ContentView: View {
     private var trainingPanel: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
-                Text(app.tr("4 · Modell verbessern", "4 · Improve model")).font(.headline)
-                Picker(app.tr("Modell", "Model"), selection: $app.modelSize) {
+                Text(app.tr("4 · Modell verbessern", "4 · Improve model", "4 · Mejorar el modelo", "4 · Améliorer le modèle")).font(.headline)
+                Picker(app.tr("Modell", "Model", "Modelo", "Modèle"), selection: $app.modelSize) {
                     ForEach(ModelSize.allCases) { Text($0.title(language: app.language)).tag($0) }
                 }
                 .fixedSize()
-                Stepper(app.tr("\(app.epochs) Epochen", "\(app.epochs) epochs"), value: $app.epochs, in: 1...200)
+                Stepper(app.tr("\(app.epochs) Epochen", "\(app.epochs) epochs", "\(app.epochs) épocas", "\(app.epochs) époques"), value: $app.epochs, in: 1...200)
                     .frame(width: 150)
-                Toggle(app.tr("Von Grund auf neu trainieren", "Train from scratch"), isOn: $app.trainFreshStart)
+                Toggle(app.tr("Von Grund auf neu trainieren", "Train from scratch", "Entrenar desde cero", "Entraîner à partir de zéro"), isOn: $app.trainFreshStart)
                     .help(app.tr(
                         "Ignoriert für diesen Lauf jeden vorhandenen Checkpoint und startet garantiert vom Apache-Basismodell. Sinnvoll, wenn seit dem letzten Modell neue Kategorien dazugekommen sind - RF-DETR erweitert einen fortgesetzten Checkpoint sonst nicht automatisch auf mehr Klassen.",
-                        "Ignores any existing checkpoint for this run and guarantees a start from the Apache base model. Useful when new categories were added since the last model - RF-DETR doesn't automatically expand a continued checkpoint to more classes."
+                        "Ignores any existing checkpoint for this run and guarantees a start from the Apache base model. Useful when new categories were added since the last model - RF-DETR doesn't automatically expand a continued checkpoint to more classes.", "Ignora cualquier checkpoint existente en esta ejecución y garantiza el inicio desde el modelo base Apache. Útil cuando se han añadido categorías nuevas desde el último modelo: RF-DETR no amplía automáticamente un checkpoint continuado a más clases.", "Ignore tout checkpoint existant pour cette exécution et garantit un démarrage depuis le modèle de base Apache. Utile lorsque de nouvelles catégories ont été ajoutées depuis le dernier modèle : RF-DETR n’étend pas automatiquement un checkpoint repris à davantage de classes."
                     ))
                 Spacer()
                 if let hardware = app.hardware {
@@ -845,7 +845,7 @@ struct ContentView: View {
                         .foregroundStyle(hardware.mpsAvailable ? .green : .secondary)
                         .help(app.tr(
                             "MPS nutzt die Apple-GPU für das Training. Parallele Datenlader halten sie ausgelastet.",
-                            "MPS uses the Apple GPU for training. Parallel data loaders keep it supplied."
+                            "MPS uses the Apple GPU for training. Parallel data loaders keep it supplied.", "MPS usa la GPU de Apple para el entrenamiento. Los cargadores de datos en paralelo la mantienen abastecida.", "MPS utilise le GPU d’Apple pour l’entraînement. Des chargeurs de données parallèles le maintiennent alimenté."
                         ))
                 }
             }
@@ -954,7 +954,7 @@ struct ContentView: View {
             }
 
             HStack {
-                Text(app.tr("Mindest-Sicherheit", "Minimum confidence"))
+                Text(app.tr("Mindest-Sicherheit", "Minimum confidence", "Confianza mínima", "Confiance minimale"))
                 Slider(value: $app.confidenceThreshold, in: 0.05...0.9, step: 0.05)
                     .frame(maxWidth: 220)
                 Text("\(Int(app.confidenceThreshold * 100)) %")
@@ -979,7 +979,7 @@ struct ContentView: View {
             if let packageID = app.activeModelPackageID {
                 VStack(alignment: .leading, spacing: 3) {
                     Label(
-                        "\(app.tr("Aktives Austauschmodell", "Active exchange model")): \(packageID)",
+                        "\(app.tr("Aktives Austauschmodell", "Active exchange model", "Modelo de intercambio activo", "Modèle d’échange actif")): \(packageID)",
                         systemImage: "checkmark.shield.fill"
                     )
                     .foregroundStyle(.green)
@@ -995,7 +995,7 @@ struct ContentView: View {
 
             Text(app.tr(
                 "Nur Modellpakete aus einer vertrauenswürdigen Quelle importieren.",
-                "Import model packages only from a trusted source."
+                "Import model packages only from a trusted source.", "Importa paquetes de modelo solo de una fuente de confianza.", "N’importez des paquets de modèle que depuis une source de confiance."
             ))
             .font(.caption2)
             .foregroundStyle(.orange)
@@ -1003,7 +1003,7 @@ struct ContentView: View {
             if app.selectedCategory == "player" {
                 Text(app.tr(
                     "Hinweis: Das allgemeine Basismodell kennt nur „Person“ und kann Spieler, Schiedsrichter und Zuschauer noch nicht sicher unterscheiden.",
-                    "Note: The generic base model only knows “person” and cannot yet reliably distinguish players, referees, and spectators."
+                    "Note: The generic base model only knows “person” and cannot yet reliably distinguish players, referees, and spectators.", "Nota: el modelo base genérico solo conoce «persona» y aún no distingue con fiabilidad entre jugadores, árbitros y espectadores.", "Remarque : le modèle de base générique ne connaît que « personne » et ne distingue pas encore de façon fiable les joueurs, les arbitres et les spectateurs."
                 ))
                 .font(.caption)
                 .foregroundStyle(.orange)
@@ -1182,7 +1182,7 @@ struct ContentView: View {
         var parts = [hardware.recommendedDevice.uppercased()]
         if let memory = hardware.memoryGB { parts.append("\(memory) GB") }
         if let workers = hardware.dataWorkers {
-            parts.append(app.tr("\(workers) Loader", "\(workers) loaders"))
+            parts.append(app.tr("\(workers) Loader", "\(workers) loaders", "\(workers) cargadores", "\(workers) chargeurs"))
         }
         return parts.joined(separator: " · ")
     }
@@ -1192,11 +1192,11 @@ struct ContentView: View {
             Image(systemName: "figure.basketball.circle.fill")
                 .font(.system(size: 72))
                 .foregroundStyle(.blue.gradient)
-            Text(app.tr("Lokales Training für Reco Cam", "Local training for Reco Cam"))
+            Text(app.tr("Lokales Training für Reco Cam", "Local training for Reco Cam", "Entrenamiento local para Reco Cam", "Entraînement local pour Reco Cam"))
                 .font(.largeTitle.bold())
             Text(app.tr(
                 "Sportart wählen, Videoordner öffnen und Fehler direkt auf dem Mac korrigieren.\nDie Originalaufnahmen verlassen den Rechner nicht.",
-                "Choose a sport, open a video folder, and correct errors directly on your Mac.\nThe original recordings never leave the computer."
+                "Choose a sport, open a video folder, and correct errors directly on your Mac.\nThe original recordings never leave the computer.", "Elige un deporte, abre una carpeta de vídeos y corrige los errores directamente en tu Mac.\nLas grabaciones originales nunca salen del ordenador.", "Choisissez un sport, ouvrez un dossier vidéo et corrigez les erreurs directement sur votre Mac.\nLes enregistrements originaux ne quittent jamais l’ordinateur."
             ))
                 .multilineTextAlignment(.center)
                 .foregroundStyle(.secondary)
@@ -1571,12 +1571,8 @@ private struct WhatsNewSheet: View {
     private var changes: [(String, String)] {
         [
             (
-                language.text("Weboberfläche: gleicher Funktionsumfang wie die Mac-App", "Web interface: same features as the Mac app", "Interfaz web: las mismas funciones que la app de Mac", "Interface web : les mêmes fonctions que l’application Mac"),
-                language.text("Die Windows/Linux/Docker-Oberfläche kann jetzt auch „Boxen mit OpenCV verfeinern“, das Spielfeld festlegen (damit „Automatisch markieren“ nur Personen auf dem Feld berücksichtigt), das CPU-Modell (ONNX) exportieren und den Trainingsordner anzeigen. Der Core-ML-Export bleibt dort dem Mac vorbehalten.", "The Windows/Linux/Docker interface can now also “Refine boxes with OpenCV”, set the field boundaries (so “Auto-label” only considers people on the field), export the CPU model (ONNX) and show the training folder. Core ML export stays Mac-only there.", "La interfaz de Windows/Linux/Docker ahora también puede «Refinar cuadros con OpenCV», definir el campo (para que «Marcado automático» solo considere a personas dentro del campo), exportar el modelo CPU (ONNX) y mostrar la carpeta de entrenamiento. La exportación a Core ML sigue siendo exclusiva del Mac.", "L’interface Windows/Linux/Docker peut désormais aussi « Affiner les boîtes avec OpenCV », définir le terrain (pour que « Marquage automatique » ne prenne en compte que les personnes sur le terrain), exporter le modèle CPU (ONNX) et afficher le dossier d’entraînement. L’export Core ML reste réservé au Mac.")
-            ),
-            (
-                language.text("Neue Voreinstellung: 60 Bilder je Video", "New default: 60 images per video", "Nuevo valor predeterminado: 60 imágenes por vídeo", "Nouvelle valeur par défaut : 60 images par vidéo"),
-                language.text("Statt 240 werden jetzt standardmäßig 60 Bilder je Video extrahiert - in der Mac-App und in der Weboberfläche. Der Wert lässt sich weiterhin von 4 bis 5000 einstellen; bestehende Projekte behalten ihren Wert.", "60 images per video are now extracted by default instead of 240 - in the Mac app and in the web interface. The value can still be set from 4 to 5000; existing projects keep theirs.", "Ahora se extraen 60 imágenes por vídeo de forma predeterminada en lugar de 240, tanto en la app de Mac como en la interfaz web. El valor sigue pudiéndose ajustar de 4 a 5000; los proyectos existentes conservan el suyo.", "60 images par vidéo sont désormais extraites par défaut au lieu de 240, dans l’application Mac comme dans l’interface web. La valeur reste réglable de 4 à 5000 ; les projets existants conservent la leur.")
+                language.text("Vollständig übersetzt: Spanisch und Französisch", "Fully translated: Spanish and French", "Traducción completa: español y francés", "Traduction complète : espagnol et français"),
+                language.text("47 Beschriftungen und Statusmeldungen der Mac-App gab es bisher nur auf Deutsch und Englisch und erschienen für Spanisch und Französisch auf Englisch - zum Beispiel Sprache und Sportart, „Modell verbessern“, „Von Grund auf neu trainieren“, „Mindest-Sicherheit“ sowie die Fortschrittsmeldungen beim Trainieren, Exportieren und Importieren. Jetzt ist alles in allen vier Sprachen verfügbar.", "47 labels and status messages in the Mac app existed only in German and English and showed up in English for Spanish and French - for example language and sport, “Improve model”, “Train from scratch”, “Minimum confidence” and the progress messages while training, exporting and importing. Everything is now available in all four languages.", "47 etiquetas y mensajes de estado de la app de Mac solo existían en alemán e inglés y aparecían en inglés para español y francés, por ejemplo idioma y deporte, «Mejorar el modelo», «Entrenar desde cero», «Confianza mínima» y los mensajes de progreso al entrenar, exportar e importar. Ahora todo está disponible en los cuatro idiomas.", "47 libellés et messages d’état de l’application Mac n’existaient qu’en allemand et en anglais et s’affichaient en anglais pour l’espagnol et le français, par exemple langue et sport, « Améliorer le modèle », « Entraîner à partir de zéro », « Confiance minimale » et les messages de progression pendant l’entraînement, l’export et l’import. Tout est désormais disponible dans les quatre langues.")
             )
         ]
     }

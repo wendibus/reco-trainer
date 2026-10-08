@@ -30,7 +30,7 @@ final class AppState: ObservableObject {
     /// CFBundleShortVersionString (Info.plist) and VERSION (package-platforms.sh)
     /// at every release. Used both for the "what's new" sheet and for deciding
     /// whether a fetched GitHub release is actually newer than what's running.
-    static let appVersion = "0.16.0"
+    static let appVersion = "0.16.1"
 
     @Published var language: AppLanguage = .de
     @Published var sport: Sport = .football
@@ -643,12 +643,12 @@ final class AppState: ObservableObject {
         }
     }
 
-    func checkHardware() { runWorkerAction(tr("Prüfe Mac-Hardware …", "Checking Mac hardware …")) { worker, output in
+    func checkHardware() { runWorkerAction(tr("Prüfe Mac-Hardware …", "Checking Mac hardware …", "Comprobando el hardware del Mac …", "Vérification du matériel du Mac …")) { worker, output in
         let status = try await worker.doctor()
         await MainActor.run { self.hardware = status }
         await output(self.tr(
             "Hardware erkannt: \(status.recommendedDevice.uppercased())\n",
-            "Hardware detected: \(status.recommendedDevice.uppercased())\n"
+            "Hardware detected: \(status.recommendedDevice.uppercased())\n", "Hardware detectado: \(status.recommendedDevice.uppercased())\n", "Matériel détecté : \(status.recommendedDevice.uppercased())\n"
         ))
     }}
 
@@ -667,7 +667,7 @@ final class AppState: ObservableObject {
         }
     }
 
-    func prepareEnvironment() { runWorkerAction(tr("Richte lokale ML-Umgebung ein …", "Setting up local ML environment …")) { worker, output in
+    func prepareEnvironment() { runWorkerAction(tr("Richte lokale ML-Umgebung ein …", "Setting up local ML environment …", "Configurando el entorno de ML local …", "Configuration de l’environnement ML local …")) { worker, output in
         try await worker.prepareEnvironment(onOutput: output)
     }}
 
@@ -926,7 +926,7 @@ final class AppState: ObservableObject {
         } catch { errorMessage = error.localizedDescription }
     }
 
-    func train() { runWorkerAction(tr("Trainiere lokal …", "Training locally …")) { worker, output in
+    func train() { runWorkerAction(tr("Trainiere lokal …", "Training locally …", "Entrenando localmente …", "Entraînement local …")) { worker, output in
         let allAnnotatedCategories = Set(self.project?.classes ?? [])
         let selected = self.trainingCategories
         let isRestricted = !selected.isEmpty && selected != allAnnotatedCategories
@@ -940,15 +940,15 @@ final class AppState: ObservableObject {
         )
     }}
 
-    func exportCPU() { runWorkerAction(tr("Exportiere universelles CPU-Modell …", "Exporting universal CPU model …")) { worker, output in
+    func exportCPU() { runWorkerAction(tr("Exportiere universelles CPU-Modell …", "Exporting universal CPU model …", "Exportando el modelo CPU universal …", "Export du modèle CPU universel …")) { worker, output in
         try await worker.exportCPU(modelSize: self.modelSize, language: self.language, onOutput: output)
     }}
 
-    func exportCoreML() { runWorkerAction(tr("Exportiere Core-ML-Modell …", "Exporting Core ML model …")) { worker, output in
+    func exportCoreML() { runWorkerAction(tr("Exportiere Core-ML-Modell …", "Exporting Core ML model …", "Exportando el modelo Core ML …", "Export du modèle Core ML …")) { worker, output in
         try await worker.exportCoreML(modelSize: self.modelSize, language: self.language, onOutput: output)
     }}
 
-    func packageModel(name: String) { runWorkerAction(tr("Erstelle datenschutzsicheres Austauschpaket …", "Creating privacy-safe exchange package …")) { worker, output in
+    func packageModel(name: String) { runWorkerAction(tr("Erstelle datenschutzsicheres Austauschpaket …", "Creating privacy-safe exchange package …", "Creando un paquete de intercambio seguro para la privacidad …", "Création d’un paquet d’échange respectueux de la vie privée …")) { worker, output in
         try await worker.packageModel(modelSize: self.modelSize, name: name, language: self.language, onOutput: output)
     }}
 
@@ -1014,7 +1014,7 @@ final class AppState: ObservableObject {
     private func importModelPackage(from fileURL: URL, store: ProjectStore) {
         isWorking = true
         errorMessage = nil
-        status = tr("Prüfe und importiere Modellpaket …", "Validating and importing model package …")
+        status = tr("Prüfe und importiere Modellpaket …", "Validating and importing model package …", "Comprobando e importando el paquete de modelo …", "Vérification et import du paquet de modèle …")
         Task {
             do {
                 let imported = try await MLWorker(projectRoot: store.rootURL)
@@ -1033,7 +1033,7 @@ final class AppState: ObservableObject {
                 }
             } catch {
                 errorMessage = error.localizedDescription
-                status = tr("Modellimport fehlgeschlagen.", "Model import failed.")
+                status = tr("Modellimport fehlgeschlagen.", "Model import failed.", "Falló la importación del modelo.", "Échec de l’import du modèle.")
             }
             isWorking = false
         }
@@ -1126,11 +1126,11 @@ final class AppState: ObservableObject {
                             "Aucune détection automatique pour cette classe. Consultez le journal."
                         )
                 } else {
-                    status = tr("Fertig.", "Done.")
+                    status = tr("Fertig.", "Done.", "Listo.", "Terminé.")
                 }
             } catch {
                 errorMessage = error.localizedDescription
-                status = tr("Vorgang fehlgeschlagen.", "Operation failed.")
+                status = tr("Vorgang fehlgeschlagen.", "Operation failed.", "La operación falló.", "L’opération a échoué.")
             }
             isWorking = false
         }
