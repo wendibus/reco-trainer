@@ -30,7 +30,7 @@ final class AppState: ObservableObject {
     /// CFBundleShortVersionString (Info.plist) and VERSION (package-platforms.sh)
     /// at every release. Used both for the "what's new" sheet and for deciding
     /// whether a fetched GitHub release is actually newer than what's running.
-    static let appVersion = "0.15.4"
+    static let appVersion = "0.16.0"
 
     @Published var language: AppLanguage = .de
     @Published var sport: Sport = .football
@@ -92,7 +92,7 @@ final class AppState: ObservableObject {
     /// reviewed first (see flag_ensemble_disagreement() in ml_worker.py). Off
     /// by default since it roughly doubles auto-label inference time.
     @Published var useEnsembleDisagreement = false
-    @Published var framesPerVideo = 240
+    @Published var framesPerVideo = 60
     @Published var progress = 0.0
     @Published var status = "Videoordner auswählen, um zu beginnen."
     @Published var log = ""
@@ -301,7 +301,7 @@ final class AppState: ObservableObject {
                 self.sport = loaded.sport
                 self.selectedCategory = loaded.sport.categories.first ?? "ball"
                 self.selectedFrameID = loaded.frames.first?.id
-                self.framesPerVideo = loaded.framesPerVideo ?? 240
+                self.framesPerVideo = loaded.framesPerVideo ?? 60
                 if let activeSize = snapshot.activeModel.flatMap({ ModelSize(rawValue: $0.modelSize) }) {
                     self.modelSize = activeSize
                 } else if let lastModel = loaded.lastTraining?.model,

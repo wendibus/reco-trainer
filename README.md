@@ -70,13 +70,13 @@ The extracted folders also contain `START-HERE.md` with a step-by-step tour of t
 
 ## What you can do with it
 
-1. **Prepare** — choose a sport and a video folder; frames are extracted locally (240 per video by default, configurable) and unsuitable ones can be removed.
-2. **Label** — draw and correct boxes, or let a model suggest them (**auto-label**) and review each suggestion. Ten undo/redo steps per image.
+1. **Prepare** — choose a sport and a video folder; frames are extracted locally (60 per video by default; you can lower or raise the number) and unsuitable ones can be removed.
+2. **Label** — draw and correct boxes, or let a model suggest them (**auto-label**) and review each suggestion. Mark the **field boundaries** so auto-label only considers people standing on the field, and tighten boxes with **Refine boxes with OpenCV**. Ten undo/redo steps per image.
 3. **Train** — fine-tune RF-DETR Nano or Small locally. Every run is kept as its own model version; a worse run never silently replaces the active one.
 4. **Improve** — **Review new videos** builds a review queue from footage the model has not seen, prioritizing uncertain frames (model disagreement, positional outliers). Only frames you reviewed enter training.
 5. **Test** — **Independent model test** builds a held-out test set from videos never used for training; **Test models** ranks all compatible models on it (mAP@0.50, precision, recall, F1, mean IoU, false positives/negatives, inference time). You can also bake a **combined model** that uses the best model per category.
 6. **Inspect tracking** — the **ball-tracking simulation** plays a short clip frame by frame and shows detected, interpolated, held and lost ball positions.
-7. **Exchange** — export a `.recomodel` package, or import one from a source you trust. Imports are checked against their checksum and scanned for executable code before they are ever used.
+7. **Exchange** — export a CPU model (ONNX) or, on a Mac, an Apple model (Core ML); export a `.recomodel` package, or import one from a source you trust. Imports are checked against their checksum and scanned for executable code before they are ever used.
 
 The [User Guide](docs/USER-GUIDE.md) walks through all of this with explanations of *why* each step matters.
 

@@ -92,7 +92,7 @@ The very first time you open Reco Trainer, after picking a language, you can cho
 
 ### Selecting videos and extracting frames
 
-Point Reco Trainer at a folder of video files. It extracts individual frames locally (by default, spread evenly through each video) that become the raw material for labeling. You don't need to extract *every* frame — a few hundred well-spread frames per video is usually enough to start, since consecutive video frames tend to look almost identical anyway and don't each teach the model something new.
+Point Reco Trainer at a folder of video files. It extracts individual frames locally (by default, spread evenly through each video) that become the raw material for labeling. You don't need to extract *every* frame — the default of 60 well-spread frames per video is a good start (you can lower or raise it before extracting), since consecutive video frames tend to look almost identical anyway and don't each teach the model something new.
 
 ### Auto-labeling and reviewing candidates
 
@@ -156,7 +156,7 @@ This panel plays back a short clip frame by frame, running the active model's ba
 
 ### Field geometry editor
 
-For sports where knowing the playing surface's layout matters (for example, mapping detections to real-world court/pitch coordinates), you can mark the field's corners on a reference frame once per project.
+Mark the four corners of the playing surface on a reference frame once per project and enter the field's real width and length. Auto-label then only adds players, referees and goalkeepers whose feet are on the field, so spectators, the bench and staff next to the court are ignored. Reco Trainer suggests this as soon as frames are ready; you can skip it, and you can change it at any time with **Edit field boundaries**. It is available in the Mac app and in the Windows, Linux and Docker interface.
 
 ### Model packages (`.recomodel`)
 

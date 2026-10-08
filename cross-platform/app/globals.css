@@ -1,6 +1,6 @@
 @import 'tailwindcss';
 
-:root { --ink:#172033; --muted:#667085; --line:#d9e0ea; --blue:#1769ff; --green:#13a36d; }
+:root { --ink:#172033; --muted:#667085; --line:#d9e0ea; --blue:#1769ff; --green:#13a36d; --accent:#1769ff; }
 * { box-sizing:border-box; }
 html,body { margin:0; min-height:100%; }
 button,select { font:inherit; }
@@ -137,7 +137,7 @@ select { height:34px; padding:0 9px; border:1px solid #cbd3df; border-radius:7px
 .dataset-summary span { min-width:0; padding:6px 8px; border-radius:7px; background:#f4f6f9; color:#6c7787; font-size:8px; line-height:1.25; }
 .dataset-summary span strong { display:block; overflow:hidden; color:#27364c; font-size:11px; text-overflow:ellipsis; white-space:nowrap; }
 .dataset-summary span.attention { background:#fff6e8; color:#9b6120; }
-.training-controls { display:flex; align-items:flex-end; gap:14px; margin-top:8px; }
+.training-controls { display:flex; flex-wrap:wrap; align-items:flex-end; gap:10px 14px; margin-top:8px; }
 .training-controls > label { display:flex; flex:0 0 180px; flex-wrap:wrap; justify-content:space-between; gap:4px; color:#617086; font-size:8px; }
 .training-controls input { width:100%; accent-color:var(--accent); }
 .auto-label-categories { display:flex; flex-wrap:wrap; align-items:center; gap:8px; }
@@ -145,7 +145,7 @@ select { height:34px; padding:0 9px; border:1px solid #cbd3df; border-radius:7px
 .auto-label-category-toggle input { width:auto; accent-color:var(--accent); }
 .cuda-toggle { display:flex; align-items:center; gap:5px; padding:4px 7px; color:#657287; font-size:8px; cursor:help; }
 .cuda-toggle input { width:auto; accent-color:var(--accent); }
-.training-actions { flex:1; flex-wrap:wrap; justify-content:flex-end; margin-top:0; }
+.training-actions { flex:1 1 100%; flex-wrap:wrap; justify-content:flex-start; margin-top:0; }
 .training-actions button { min-height:30px; padding-block:5px; }
 .exchange-status { margin-top:8px; overflow:hidden; color:#657286; font-size:8px; text-overflow:ellipsis; white-space:nowrap; }
 .exchange-status strong { color:#334158; }
@@ -310,3 +310,27 @@ select { height:34px; padding:0 9px; border:1px solid #cbd3df; border-radius:7px
   .language-choices { grid-template-columns:1fr; }
   .benchmark-workspace { padding:14px; } .benchmark-heading { flex-direction:column; } .benchmark-private { max-width:none; } .benchmark-steps { grid-template-columns:1fr; }
 }
+
+.field-nudge { flex:0 0 auto; display:flex; align-items:center; gap:14px; padding:9px clamp(18px,3vw,38px); background:rgba(19,163,109,.12); border-bottom:1px solid #dfe5ee; font-size:13px; color:var(--ink); }
+.field-nudge span { flex:1; }
+.field-nudge-action { border:0; border-radius:8px; padding:6px 14px; background:var(--green); color:#fff; font-size:12px; font-weight:650; }
+.training-folder-row { display:flex; align-items:center; gap:10px; margin-top:8px; flex-wrap:wrap; }
+.training-folder-row code { color:#657287; font-size:9px; }
+.field-editor-dialog { width:min(780px,100%); max-height:100%; overflow:auto; padding:24px 26px; border-radius:16px; background:#fff; box-shadow:0 28px 80px rgba(8,20,42,.34); }
+.field-editor-dialog h2 { margin:0 0 6px; font-size:20px; letter-spacing:-.02em; }
+.field-editor-intro { margin:0 0 14px; color:#637087; font-size:13px; line-height:1.45; }
+.field-editor-controls { display:flex; align-items:center; flex-wrap:wrap; gap:12px 16px; margin-bottom:12px; }
+.field-editor-controls label { display:flex; align-items:center; gap:7px; font-size:12px; color:#29384f; }
+.field-editor-controls input { width:78px; height:32px; padding:0 8px; border:1px solid #cbd3df; border-radius:7px; font-size:12px; }
+.field-editor-status { flex:1; min-width:160px; color:var(--blue); font-size:12px; font-weight:650; }
+.field-editor-status.done { color:var(--green); }
+.field-editor-stage { display:flex; justify-content:center; padding:10px; border-radius:10px; background:#eef1f6; }
+.field-editor-image-wrap { position:relative; display:inline-block; line-height:0; max-width:100%; cursor:crosshair; user-select:none; }
+.field-editor-image-wrap img { display:block; max-width:100%; max-height:52vh; border-radius:4px; }
+.field-editor-image-wrap svg { position:absolute; inset:0; width:100%; height:100%; pointer-events:none; }
+.field-editor-shape { fill:none; stroke:#f5d300; stroke-width:2; }
+.field-editor-shape.closed { fill:rgba(245,211,0,.15); }
+.field-editor-dot { position:absolute; width:14px; height:14px; margin:-7px 0 0 -7px; border:1px solid #000; border-radius:50%; background:#f5d300; pointer-events:none; }
+.field-editor-dot b { position:absolute; left:50%; bottom:100%; transform:translateX(-50%); margin-bottom:2px; font-size:11px; line-height:1; color:#000; text-shadow:0 0 3px #fff; }
+.field-editor-missing { padding:60px 20px; color:#657287; font-size:13px; }
+.field-editor-actions { display:flex; justify-content:flex-end; gap:10px; margin-top:14px; }

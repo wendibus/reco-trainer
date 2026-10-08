@@ -6,6 +6,7 @@ import stat
 import sys
 import tempfile
 import unittest
+from unittest import mock
 from pathlib import Path, PurePosixPath, PureWindowsPath
 
 
@@ -48,7 +49,7 @@ class GroundTruthTests(unittest.TestCase):
                 local_worker.freeze_ground_truth()
 
     def test_frame_count_is_per_video_and_safely_bounded(self):
-        self.assertEqual(local_worker.frames_per_video(None), 240)
+        self.assertEqual(local_worker.frames_per_video(None), 60)
         self.assertEqual(local_worker.frames_per_video("500"), 500)
         self.assertEqual(local_worker.frames_per_video(1), 4)
         self.assertEqual(local_worker.frames_per_video(50_000), 5_000)
@@ -303,6 +304,92 @@ class RunJsonTests(unittest.TestCase):
 
     def test_ignores_trailing_blank_lines(self):
         self.assertEqual(self.run_python('print(\'{"ok": true}\'); print(); print()'), {"ok": True})
+
+
+class ParityActionTests(unittest.TestCase):
+    """Actions the web UI gained to match the Mac app: OpenCV box refinement,
+    field boundaries and opening the training folder."""
+
+    def setUp(self):
+        local_worker.STATE.update(selected_folder=None, project_root=None, project=None, busy=False, error=None, log=[], language="en")
+
+    def tearDown(self):
+        local_worker.STATE.update(language="de")
+
+    def _project(self, root: Path) -> dict:
+        project = {"sport": "basketball", "frames": []}
+        local_worker.atomic_json(root / "project.json", project)
+        local_worker.STATE.update(project_root=root, project=project)
+        return project
+
+    def test_refine_boxes_runs_the_shared_worker_command_after_a_backup(self):
+        commands: list[list[str]] = []
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            self._project(root)
+            venv_python = local_worker.venv_python_path(root / ".runtime" / "venv")
+            venv_python.parent.mkdir(parents=True, exist_ok=True)
+            venv_python.write_text("")
+            with mock.patch.object(local_worker, "run_logged", lambda command: commands.append(command)):
+                local_worker.ml_action("refine-boxes", {"language": "en"})
+            self.assertEqual(len(commands), 1)
+            self.assertEqual(commands[0][2:], ["refine-boxes", "--project", str(root), "--language", "en"])
+            self.assertTrue(list((root / "backups").glob("project-*-boxen.json")))
+        self.assertIsNone(local_worker.STATE.error)
+
+    def test_refine_boxes_asks_for_ml_setup_when_there_is_no_environment(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            self._project(Path(temporary))
+            local_worker.ml_action("refine-boxes", {"language": "en"})
+        self.assertIn("Set up ML", local_worker.STATE.error or "")
+
+    def test_saves_field_geometry_in_the_shape_the_ml_worker_reads(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            self._project(root)
+            corners = [[0.1, 0.2], [0.9, 0.2], [0.95, 0.9], [0.05, 0.9]]
+            local_worker.save_field_geometry({"corners": corners, "realWidth": 15, "realLength": 28})
+            saved = json.loads((root / "project.json").read_text())["fieldGeometry"]
+            self.assertEqual(saved, {"corners": corners, "realWidth": 15.0, "realLength": 28.0})
+            self.assertEqual(local_worker.STATE.snapshot()["fieldGeometry"], saved)
+
+    def test_rejects_invalid_field_geometry(self):
+        good = [[0.1, 0.2], [0.9, 0.2], [0.95, 0.9], [0.05, 0.9]]
+        cases = [
+            {"corners": good[:3], "realWidth": 15, "realLength": 28},
+            {"corners": good + [[0.5, 0.5]], "realWidth": 15, "realLength": 28},
+            {"corners": [[1.5, 0.2]] + good[1:], "realWidth": 15, "realLength": 28},
+            {"corners": [[float("nan"), 0.2]] + good[1:], "realWidth": 15, "realLength": 28},
+            {"corners": good, "realWidth": 0, "realLength": 28},
+            {"corners": good, "realWidth": 15, "realLength": -3},
+            {"corners": good, "realWidth": "abc", "realLength": 28},
+            {"corners": good},
+        ]
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            self._project(root)
+            for payload in cases:
+                with self.subTest(payload=payload), self.assertRaises(RuntimeError):
+                    local_worker.save_field_geometry(payload)
+            self.assertNotIn("fieldGeometry", json.loads((root / "project.json").read_text()))
+
+    def test_reveals_the_visible_training_folder_with_the_system_file_manager(self):
+        opened: list[list[str]] = []
+        with tempfile.TemporaryDirectory() as temporary:
+            video_folder = Path(temporary)
+            root = video_folder / ".reco-training"
+            root.mkdir()
+            (video_folder / "Reco Training").mkdir()
+            local_worker.STATE.update(project_root=root)
+            with mock.patch.object(local_worker.sys, "platform", "linux"), \
+                 mock.patch.object(local_worker.shutil, "which", lambda name: "/usr/bin/xdg-open"), \
+                 mock.patch.object(local_worker.subprocess, "Popen", lambda command, **kwargs: opened.append(command)):
+                local_worker.reveal_training_folder()
+        self.assertEqual(opened, [["/usr/bin/xdg-open", str(video_folder / "Reco Training")]])
+
+    def test_reveal_without_a_project_explains_what_to_do(self):
+        with self.assertRaises(RuntimeError):
+            local_worker.reveal_training_folder()
 
 
 class CudaSetupTests(unittest.TestCase):

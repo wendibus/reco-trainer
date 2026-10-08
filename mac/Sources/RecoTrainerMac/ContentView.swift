@@ -311,7 +311,7 @@ struct ContentView: View {
                 Button {
                     app.chooseFolder()
                 } label: {
-                    Label(app.tr("Videoordner auswählen", "Select video folder"), systemImage: "folder")
+                    Label(app.tr("Videoordner auswählen", "Select video folder", "Seleccionar carpeta de vídeos", "Sélectionner le dossier vidéo"), systemImage: "folder")
                 }
                 Text(app.selectedFolder?.path(percentEncoded: false) ?? app.tr("Noch kein Ordner gewählt", "No folder selected"))
                     .font(.caption)
@@ -327,7 +327,7 @@ struct ContentView: View {
                 Button {
                     app.analyzeVideos()
                 } label: {
-                    Label(app.tr("Videos lokal analysieren", "Analyze videos locally"), systemImage: "film.stack")
+                    Label(app.tr("Videos lokal analysieren", "Analyze videos locally", "Analizar vídeos localmente", "Analyser les vidéos localement"), systemImage: "film.stack")
                 }
                 .buttonStyle(.borderedProminent)
                 .disabled(app.selectedFolder == nil || app.isWorking)
@@ -875,8 +875,8 @@ struct ContentView: View {
             }
 
             HStack {
-                Button(app.tr("Hardware prüfen", "Check hardware"), action: app.checkHardware)
-                Button(app.tr("ML einrichten", "Set up ML"), action: app.prepareEnvironment)
+                Button(app.tr("Hardware prüfen", "Check hardware", "Comprobar hardware", "Vérifier le matériel"), action: app.checkHardware)
+                Button(app.tr("ML einrichten", "Set up ML", "Configurar ML", "Configurer le ML"), action: app.prepareEnvironment)
                 Button(
                     app.project?.fieldGeometry == nil
                         ? app.tr("Spielfeld festlegen", "Set field boundaries", "Definir el campo", "Définir le terrain")
@@ -890,7 +890,7 @@ struct ContentView: View {
                         "Marquez les quatre coins du terrain pour que « Marquage automatique » ne prenne en compte que les personnes ayant les pieds sur le terrain."
                     ))
                 Button(
-                    app.tr("Automatisch markieren", "Auto-label"),
+                    app.tr("Automatisch markieren", "Auto-label", "Marcar automáticamente", "Marquage automatique"),
                     action: app.autoLabel
                 )
                     .disabled(app.project == nil || app.autoLabelCategories.isEmpty)
@@ -918,13 +918,13 @@ struct ContentView: View {
                 )
                     .buttonStyle(.borderedProminent)
                 Divider().frame(height: 22)
-                Button(app.tr("CPU-Modell (ONNX)", "CPU model (ONNX)"), action: app.exportCPU)
-                Button(app.tr("Apple-Modell (Core ML)", "Apple model (Core ML)"), action: app.exportCoreML)
-                Button(app.tr("Paket erstellen", "Exchange package")) {
+                Button(app.tr("CPU-Modell (ONNX)", "CPU model (ONNX)", "Modelo CPU (ONNX)", "Modèle CPU (ONNX)"), action: app.exportCPU)
+                Button(app.tr("Apple-Modell (Core ML)", "Apple model (Core ML)", "Modelo Apple (Core ML)", "Modèle Apple (Core ML)"), action: app.exportCoreML)
+                Button(app.tr("Paket erstellen", "Exchange package", "Crear paquete de intercambio", "Créer un paquet d’échange")) {
                     packageNameDraft = "\(app.sport.title(language: app.language)) · \(app.modelSize.title(language: app.language))"
                     showPackageNamePrompt = true
                 }
-                Button(app.tr("Modell importieren", "Import model"), action: app.importModelPackage)
+                Button(app.tr("Modell importieren", "Import model", "Importar modelo", "Importer un modèle"), action: app.importModelPackage)
             }
             .disabled(app.isWorking)
 
@@ -1200,7 +1200,7 @@ struct ContentView: View {
             ))
                 .multilineTextAlignment(.center)
                 .foregroundStyle(.secondary)
-            Button(app.tr("Videoordner auswählen", "Select video folder"), action: app.chooseFolder)
+            Button(app.tr("Videoordner auswählen", "Select video folder", "Seleccionar carpeta de vídeos", "Sélectionner le dossier vidéo"), action: app.chooseFolder)
                 .buttonStyle(.borderedProminent)
                 .controlSize(.large)
         }
@@ -1571,8 +1571,12 @@ private struct WhatsNewSheet: View {
     private var changes: [(String, String)] {
         [
             (
-                language.text("Windows/Linux/Docker: Balltracking-Simulation läuft jetzt komplett", "Windows/Linux/Docker: ball-tracking simulation now plays in full", "Windows/Linux/Docker: la simulación de seguimiento del balón se reproduce completa", "Windows/Linux/Docker : la simulation de suivi du ballon se lit désormais en entier"),
-                language.text("In der Windows/Linux/Docker-Oberfläche startete der Simulationsclip alle 0,9 Sekunden neu und spielte daher nie über seine erste Sekunde hinaus - jetzt läuft er in voller Länge. Außerdem gibt es einen gut sichtbaren Fortschrittsbalken mit Statuszeile und Prozentangabe für Bildextraktion und Ballerkennung.", "In the Windows/Linux/Docker interface the simulation clip restarted every 0.9 seconds and so never played past its first second - it now plays in full. There is also a clearly visible progress bar with a status line and percentage for image extraction and ball detection.", "En la interfaz de Windows/Linux/Docker, el clip de la simulación se reiniciaba cada 0,9 segundos y nunca pasaba de su primer segundo; ahora se reproduce completo. Además hay una barra de progreso bien visible con línea de estado y porcentaje para la extracción de imágenes y la detección del balón.", "Dans l’interface Windows/Linux/Docker, le clip de simulation redémarrait toutes les 0,9 seconde et ne dépassait donc jamais sa première seconde ; il se lit désormais en entier. Une barre de progression bien visible, avec ligne d’état et pourcentage, indique en outre l’extraction des images et la détection du ballon.")
+                language.text("Weboberfläche: gleicher Funktionsumfang wie die Mac-App", "Web interface: same features as the Mac app", "Interfaz web: las mismas funciones que la app de Mac", "Interface web : les mêmes fonctions que l’application Mac"),
+                language.text("Die Windows/Linux/Docker-Oberfläche kann jetzt auch „Boxen mit OpenCV verfeinern“, das Spielfeld festlegen (damit „Automatisch markieren“ nur Personen auf dem Feld berücksichtigt), das CPU-Modell (ONNX) exportieren und den Trainingsordner anzeigen. Der Core-ML-Export bleibt dort dem Mac vorbehalten.", "The Windows/Linux/Docker interface can now also “Refine boxes with OpenCV”, set the field boundaries (so “Auto-label” only considers people on the field), export the CPU model (ONNX) and show the training folder. Core ML export stays Mac-only there.", "La interfaz de Windows/Linux/Docker ahora también puede «Refinar cuadros con OpenCV», definir el campo (para que «Marcado automático» solo considere a personas dentro del campo), exportar el modelo CPU (ONNX) y mostrar la carpeta de entrenamiento. La exportación a Core ML sigue siendo exclusiva del Mac.", "L’interface Windows/Linux/Docker peut désormais aussi « Affiner les boîtes avec OpenCV », définir le terrain (pour que « Marquage automatique » ne prenne en compte que les personnes sur le terrain), exporter le modèle CPU (ONNX) et afficher le dossier d’entraînement. L’export Core ML reste réservé au Mac.")
+            ),
+            (
+                language.text("Neue Voreinstellung: 60 Bilder je Video", "New default: 60 images per video", "Nuevo valor predeterminado: 60 imágenes por vídeo", "Nouvelle valeur par défaut : 60 images par vidéo"),
+                language.text("Statt 240 werden jetzt standardmäßig 60 Bilder je Video extrahiert - in der Mac-App und in der Weboberfläche. Der Wert lässt sich weiterhin von 4 bis 5000 einstellen; bestehende Projekte behalten ihren Wert.", "60 images per video are now extracted by default instead of 240 - in the Mac app and in the web interface. The value can still be set from 4 to 5000; existing projects keep theirs.", "Ahora se extraen 60 imágenes por vídeo de forma predeterminada en lugar de 240, tanto en la app de Mac como en la interfaz web. El valor sigue pudiéndose ajustar de 4 a 5000; los proyectos existentes conservan el suyo.", "60 images par vidéo sont désormais extraites par défaut au lieu de 240, dans l’application Mac comme dans l’interface web. La valeur reste réglable de 4 à 5000 ; les projets existants conservent la leur.")
             )
         ]
     }

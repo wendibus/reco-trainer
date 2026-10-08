@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 import os
 import platform
 import re
@@ -36,7 +37,7 @@ configured_origin = os.environ.get("RECO_ALLOWED_ORIGIN")
 if configured_origin and re.fullmatch(r"http://(?:localhost|127\.0\.0\.1):\d{2,5}", configured_origin):
     ALLOWED_ORIGINS.add(configured_origin)
 VIDEO_EXTENSIONS = {".mp4", ".mov", ".m4v"}
-DEFAULT_FRAMES_PER_VIDEO = 240
+DEFAULT_FRAMES_PER_VIDEO = 60
 MIN_FRAMES_PER_VIDEO = 4
 MAX_FRAMES_PER_VIDEO = 5000
 SPORT_CATEGORIES = {
@@ -253,6 +254,7 @@ class LocalState:
                 "error": self.error,
                 "sport": (self.project or {}).get("sport"),
                 "framesPerVideo": (self.project or {}).get("framesPerVideo", DEFAULT_FRAMES_PER_VIDEO),
+                "fieldGeometry": (self.project or {}).get("fieldGeometry"),
                 "stats": {
                     "frameCount": len(training_frames),
                     "candidateCount": len(candidates),
@@ -1217,6 +1219,9 @@ def ml_action(action: str, payload: dict) -> None:
                 args = ["export", "--project", str(root), "--model", model, "--format", "coreml", "--language", language]
             elif action == "export-onnx":
                 args = ["export", "--project", str(root), "--model", model, "--format", "onnx", "--language", language]
+            elif action == "refine-boxes":
+                backup_project(root, "boxen")
+                args = ["refine-boxes", "--project", str(root), "--language", language]
             else:
                 raise RuntimeError(localized("Unbekannter ML-Vorgang.", "Unknown ML operation.", "Operación de ML desconocida.", "Opération ML inconnue."))
             run_logged([str(executable), str(worker), *args])
@@ -1225,6 +1230,59 @@ def ml_action(action: str, payload: dict) -> None:
     except Exception as error:
         STATE.append_log(str(error))
         STATE.update(operation="error", busy=False, error=str(error), message=localized("Lokaler ML-Vorgang fehlgeschlagen.", "Local ML operation failed.", "La operación local de ML falló.", "L’opération ML locale a échoué."))
+
+
+def save_field_geometry(payload: dict) -> None:
+    """Store the four marked field corners (TL, TR, BR, BL, fractional 0..1 of the
+    reference frame) and the field's real size in meters in project.json, in the
+    same shape the Mac app writes and ml_worker.field_membership_checker reads."""
+    root = STATE.project_root
+    project = STATE.project
+    if root is None or project is None:
+        raise RuntimeError(localized("Kein lokales Projekt geöffnet.", "No local project is open.", "No hay ningún proyecto local abierto.", "Aucun projet local n’est ouvert."))
+    invalid = localized("Ungültige Spielfeld-Angaben.", "Invalid field boundaries.", "Límites del campo no válidos.", "Limites du terrain non valides.")
+    try:
+        corners = [[float(point[0]), float(point[1])] for point in payload.get("corners") or []]
+        real_width = float(payload.get("realWidth"))
+        real_length = float(payload.get("realLength"))
+    except (TypeError, ValueError, IndexError):
+        raise RuntimeError(invalid) from None
+    finite = all(math.isfinite(value) for point in corners for value in point) and math.isfinite(real_width) and math.isfinite(real_length)
+    if len(corners) != 4 or not finite or any(not 0.0 <= value <= 1.0 for point in corners for value in point) or real_width <= 0 or real_length <= 0:
+        raise RuntimeError(invalid)
+    backup_project(root, "spielfeld")
+    project["fieldGeometry"] = {"corners": corners, "realWidth": real_width, "realLength": real_length}
+    project["updatedAt"] = utc_now()
+    atomic_json(root / "project.json", project)
+    STATE.update(project=project, message=localized("Spielfeld lokal gespeichert.", "Field boundaries saved locally.", "Límites del campo guardados localmente.", "Limites du terrain enregistrées localement."))
+
+
+def reveal_training_folder() -> None:
+    """Open the project's visible training folder in the system file manager
+    (the web counterpart of the Mac app's "Show training folder")."""
+    root = STATE.project_root
+    if root is None:
+        raise RuntimeError(localized("Zuerst einen Videoordner auswählen.", "Select a video folder first.", "Primero selecciona una carpeta de vídeos.", "Sélectionnez d’abord un dossier vidéo."))
+    if Path("/.dockerenv").exists():
+        raise RuntimeError(localized(
+            "Im Docker-Container kann kein Ordner geöffnet werden. Der Ordner „Reco Training“ liegt im eingebundenen Videoordner.",
+            "A folder cannot be opened from inside the Docker container. The “Reco Training” folder is inside the mounted video folder.",
+            "No se puede abrir una carpeta desde el contenedor de Docker. La carpeta «Reco Training» está dentro de la carpeta de vídeos montada.",
+            "Impossible d’ouvrir un dossier depuis le conteneur Docker. Le dossier « Reco Training » se trouve dans le dossier vidéo monté.",
+        ))
+    visible = root.parent / "Reco Training"
+    target = visible if visible.exists() else root
+    target.mkdir(parents=True, exist_ok=True)
+    if os.name == "nt":
+        os.startfile(str(target))  # type: ignore[attr-defined]
+        return
+    opener = "open" if sys.platform == "darwin" else shutil.which("xdg-open")
+    if not opener:
+        raise RuntimeError(localized(
+            "Kein Dateimanager gefunden (xdg-open fehlt).", "No file manager found (xdg-open is missing).",
+            "No se encontró un gestor de archivos (falta xdg-open).", "Aucun gestionnaire de fichiers trouvé (xdg-open manquant).",
+        ))
+    subprocess.Popen([opener, str(target)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
 def save_annotations(payload: dict) -> None:
@@ -1479,6 +1537,12 @@ class Handler(BaseHTTPRequestHandler):
             elif self.path == "/api/annotations":
                 save_annotations(payload)
                 self.json_response({"ok": True, "status": STATE.snapshot()})
+            elif self.path == "/api/field-geometry":
+                save_field_geometry(payload)
+                self.json_response({"ok": True, "status": STATE.snapshot()})
+            elif self.path == "/api/reveal-training-folder":
+                reveal_training_folder()
+                self.json_response({"ok": True})
             elif self.path == "/api/remove-frame":
                 if STATE.busy:
                     raise RuntimeError(localized("Ein lokaler Vorgang läuft bereits.", "A local operation is already running.", "Ya hay una operación local en curso.", "Une opération locale est déjà en cours."))
@@ -1499,7 +1563,7 @@ class Handler(BaseHTTPRequestHandler):
                 package_file = select_model_package()
                 threading.Thread(target=ml_action, args=("import-model", {**payload, "file": str(package_file)}), daemon=True).start()
                 self.json_response({"ok": True, "fileName": package_file.name})
-            elif self.path in {"/api/setup", "/api/autolabel", "/api/train", "/api/export-coreml", "/api/export-onnx", "/api/package-model", "/api/combine-models", "/api/benchmark", "/api/activate-model", "/api/rename-model", "/api/delete-model"}:
+            elif self.path in {"/api/setup", "/api/autolabel", "/api/train", "/api/export-coreml", "/api/export-onnx", "/api/refine-boxes", "/api/package-model", "/api/combine-models", "/api/benchmark", "/api/activate-model", "/api/rename-model", "/api/delete-model"}:
                 if STATE.busy:
                     raise RuntimeError(localized("Ein lokaler Vorgang läuft bereits.", "A local operation is already running.", "Ya hay una operación local en curso.", "Une opération locale est déjà en cours."))
                 action = self.path.removeprefix("/api/")

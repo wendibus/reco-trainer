@@ -1,5 +1,12 @@
 # Änderungen
 
+## 0.16.0
+
+- Windows/Linux/Docker: Die Weboberfläche hat jetzt denselben Funktionsumfang wie die Mac-App - „Boxen mit OpenCV verfeinern“, „Spielfeld festlegen/bearbeiten“ (inkl. einmaligem Hinweis), Export „CPU-Modell (ONNX)“ und „Trainingsordner anzeigen“. Der Core-ML-Export steht dort nur auf einem Mac zur Verfügung.
+- Neue Voreinstellung: **60 Bilder je Video** (bisher 240) in Mac-App und Weboberfläche; weiterhin von 4 bis 5000 einstellbar, bestehende Projekte behalten ihren Wert.
+- Weboberfläche: Schaltflächen im Primär-Stil in Dialogen (z. B. „Loslegen“ im Video-Dialog) waren unsichtbar - behoben. Die Trainings-Schaltflächen umbrechen jetzt in eine eigene Zeile.
+- Mac-App: die restlichen Beschriftungen im Trainings-Bereich gibt es jetzt auch auf Spanisch und Französisch.
+
 ## 0.15.4
 
 - Windows/Linux/Docker: Der Clip der Balltracking-Simulation spielte nie über seine erste Sekunde hinaus, weil die Oberfläche den Status alle 900 ms neu lädt und der Player dadurch jedes Mal bei Bild 1 neu startete. Jetzt läuft der Clip in voller Länge.

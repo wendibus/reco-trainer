@@ -59,7 +59,7 @@ struct FrameExtractor {
     func extract(
         videos: [VideoSource],
         into store: ProjectStore,
-        framesPerVideo: Int = 240,
+        framesPerVideo: Int = 60,
         progress: @escaping @Sendable (Double, String) async -> Void
     ) async throws -> [FrameRecord] {
         guard !videos.isEmpty else { throw FrameExtractorError.noVideos }
