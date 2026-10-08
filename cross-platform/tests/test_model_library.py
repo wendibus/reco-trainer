@@ -468,6 +468,29 @@ class FieldGeometryTests(unittest.TestCase):
         # square (which starts at pixel 100,100) -> negative field coordinates.
         self.assertFalse(is_on_field("player", 30.0, 20.0, 70.0, 50.0, 1000.0, 1000.0))
 
+    def test_more_than_four_points_need_no_real_size_but_three_are_still_invalid(self):
+        outline = [[0.1, 0.1], [0.9, 0.1], [0.9, 0.5], [0.5, 0.5], [0.5, 0.9], [0.1, 0.9]]
+        self.assertIsNone(ml_worker.field_membership_checker({"corners": outline[:3], "realWidth": 20.0, "realLength": 20.0}))
+        if HAS_OPENCV:
+            self.assertIsNotNone(ml_worker.field_membership_checker({"corners": outline}))
+
+    @unittest.skipUnless(HAS_OPENCV, "OpenCV is not installed in this environment")
+    def test_polygon_outline_with_more_than_four_points_is_checked_in_the_image(self):
+        # An L-shaped field: the top and left arms are on the field, the lower-right
+        # block (frame pixels 500-900 x 500-900) is cut out.
+        outline = [[0.1, 0.1], [0.9, 0.1], [0.9, 0.5], [0.5, 0.5], [0.5, 0.9], [0.1, 0.9]]
+        is_on_field = ml_worker.field_membership_checker({"corners": outline, "realWidth": 0.0, "realLength": 0.0})
+        self.assertIsNotNone(is_on_field)
+        # Feet at (300, 700): inside the left arm.
+        self.assertTrue(is_on_field("player", 280.0, 600.0, 320.0, 700.0, 1000.0, 1000.0))
+        # Feet at (800, 300): inside the top arm.
+        self.assertTrue(is_on_field("player", 780.0, 200.0, 820.0, 300.0, 1000.0, 1000.0))
+        # Feet at (700, 800): in the cut-out block, outside the outline.
+        self.assertFalse(is_on_field("player", 680.0, 700.0, 720.0, 800.0, 1000.0, 1000.0))
+        # Feet just on the boundary line stay in (pixel margin), the ball is never filtered.
+        self.assertTrue(is_on_field("player", 780.0, 400.0, 820.0, 503.0, 1000.0, 1000.0))
+        self.assertTrue(is_on_field("ball", 680.0, 700.0, 720.0, 800.0, 1000.0, 1000.0))
+
     @unittest.skipUnless(HAS_OPENCV, "OpenCV is not installed in this environment")
     def test_only_filters_person_shaped_categories(self):
         is_on_field = ml_worker.field_membership_checker(self._square_field_geometry())

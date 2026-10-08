@@ -1,5 +1,9 @@
 # Änderungen
 
+## 0.17.0
+
+- Spielfeld festlegen (Mac-App und Weboberfläche): nicht mehr auf vier Ecken beschränkt. Weitere Punkte rund um den Rand setzen (bis zu 32, z. B. für runde oder L-förmige Felder), Punkte per Ziehen verschieben und den jeweils letzten Punkt wieder entfernen. Bei genau vier Punkten bleibt alles wie bisher (echte Maße nötig); bei mehr Punkten sind die Maße optional und „Automatisch markieren“ prüft, ob die Füße innerhalb der Umrisse im Bild liegen.
+
 ## 0.16.1
 
 - Mac-App: 47 Beschriftungen und Statusmeldungen gab es nur auf Deutsch und Englisch und erschienen für Spanisch und Französisch auf Englisch (u. a. Sprache/Sportart, „Modell verbessern“, „Von Grund auf neu trainieren“, „Mindest-Sicherheit“, Werkzeug-Beschriftungen, Fortschrittsmeldungen). Jetzt vollständig in allen vier Sprachen.

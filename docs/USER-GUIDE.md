@@ -156,7 +156,7 @@ This panel plays back a short clip frame by frame, running the active model's ba
 
 ### Field geometry editor
 
-Mark the four corners of the playing surface on a reference frame once per project and enter the field's real width and length. Auto-label then only adds players, referees and goalkeepers whose feet are on the field, so spectators, the bench and staff next to the court are ignored. Reco Trainer suggests this as soon as frames are ready; you can skip it, and you can change it at any time with **Edit field boundaries**. It is available in the Mac app and in the Windows, Linux and Docker interface.
+Click the outline of the playing surface on a reference frame once per project. For a rectangular field click its four corners (top left, top right, bottom right, bottom left) and enter the field's real width and length. For any other shape - a curved court, an L-shaped pitch - keep adding points around the edge (up to 32); the real size is then optional. Drag a point to move it, or remove the last point if you misclicked. Auto-label then only adds players, referees and goalkeepers whose feet are on the field, so spectators, the bench and staff next to the court are ignored. Reco Trainer suggests this as soon as frames are ready; you can skip it, and you can change it at any time with **Edit field boundaries**. It is available in the Mac app and in the Windows, Linux and Docker interface.
 
 ### Model packages (`.recomodel`)
 

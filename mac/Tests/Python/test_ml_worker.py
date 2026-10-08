@@ -416,6 +416,24 @@ class DatasetTests(unittest.TestCase):
         # square (which starts at pixel 100,100) -> negative field coordinates.
         self.assertFalse(is_on_field("player", 30.0, 20.0, 70.0, 50.0, 1000.0, 1000.0))
 
+    def test_field_membership_checker_more_than_four_points_need_no_real_size(self):
+        outline = [[0.1, 0.1], [0.9, 0.1], [0.9, 0.5], [0.5, 0.5], [0.5, 0.9], [0.1, 0.9]]
+        self.assertIsNone(ml_worker.field_membership_checker({"corners": outline[:3], "realWidth": 20.0, "realLength": 20.0}))
+        if HAS_OPENCV:
+            self.assertIsNotNone(ml_worker.field_membership_checker({"corners": outline}))
+
+    @unittest.skipUnless(HAS_OPENCV, "OpenCV is not installed in this environment")
+    def test_field_membership_checker_polygon_outline_is_checked_in_the_image(self):
+        # L-shaped field: the lower-right block (pixels 500-900 x 500-900) is cut out.
+        outline = [[0.1, 0.1], [0.9, 0.1], [0.9, 0.5], [0.5, 0.5], [0.5, 0.9], [0.1, 0.9]]
+        is_on_field = ml_worker.field_membership_checker({"corners": outline, "realWidth": 0.0, "realLength": 0.0})
+        self.assertIsNotNone(is_on_field)
+        self.assertTrue(is_on_field("player", 280.0, 600.0, 320.0, 700.0, 1000.0, 1000.0))
+        self.assertTrue(is_on_field("player", 780.0, 200.0, 820.0, 300.0, 1000.0, 1000.0))
+        self.assertFalse(is_on_field("player", 680.0, 700.0, 720.0, 800.0, 1000.0, 1000.0))
+        self.assertTrue(is_on_field("player", 780.0, 400.0, 820.0, 503.0, 1000.0, 1000.0))
+        self.assertTrue(is_on_field("ball", 680.0, 700.0, 720.0, 800.0, 1000.0, 1000.0))
+
     @unittest.skipUnless(HAS_OPENCV, "OpenCV is not installed in this environment")
     def test_field_membership_checker_only_filters_person_shaped_categories(self):
         is_on_field = ml_worker.field_membership_checker(self._square_field_geometry())

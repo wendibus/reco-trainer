@@ -1232,10 +1232,15 @@ def ml_action(action: str, payload: dict) -> None:
         STATE.update(operation="error", busy=False, error=str(error), message=localized("Lokaler ML-Vorgang fehlgeschlagen.", "Local ML operation failed.", "La operación local de ML falló.", "L’opération ML locale a échoué."))
 
 
+MAX_FIELD_POINTS = 32
+
+
 def save_field_geometry(payload: dict) -> None:
-    """Store the four marked field corners (TL, TR, BR, BL, fractional 0..1 of the
-    reference frame) and the field's real size in meters in project.json, in the
-    same shape the Mac app writes and ml_worker.field_membership_checker reads."""
+    """Store the marked field outline in project.json, in the same shape the Mac app
+    writes and ml_worker.field_membership_checker reads: fractional (0..1) image
+    points. Exactly four points are the corners (TL, TR, BR, BL) and need the field's
+    real size in meters; more points trace an arbitrary outline, where the real size
+    is optional."""
     root = STATE.project_root
     project = STATE.project
     if root is None or project is None:
@@ -1243,12 +1248,13 @@ def save_field_geometry(payload: dict) -> None:
     invalid = localized("Ungültige Spielfeld-Angaben.", "Invalid field boundaries.", "Límites del campo no válidos.", "Limites du terrain non valides.")
     try:
         corners = [[float(point[0]), float(point[1])] for point in payload.get("corners") or []]
-        real_width = float(payload.get("realWidth"))
-        real_length = float(payload.get("realLength"))
+        real_width = float(payload.get("realWidth") or 0)
+        real_length = float(payload.get("realLength") or 0)
     except (TypeError, ValueError, IndexError):
         raise RuntimeError(invalid) from None
     finite = all(math.isfinite(value) for point in corners for value in point) and math.isfinite(real_width) and math.isfinite(real_length)
-    if len(corners) != 4 or not finite or any(not 0.0 <= value <= 1.0 for point in corners for value in point) or real_width <= 0 or real_length <= 0:
+    size_ok = real_width > 0 and real_length > 0 if len(corners) == 4 else real_width >= 0 and real_length >= 0
+    if not 4 <= len(corners) <= MAX_FIELD_POINTS or not finite or not size_ok or any(not 0.0 <= value <= 1.0 for point in corners for value in point):
         raise RuntimeError(invalid)
     backup_project(root, "spielfeld")
     project["fieldGeometry"] = {"corners": corners, "realWidth": real_width, "realLength": real_length}

@@ -353,11 +353,28 @@ class ParityActionTests(unittest.TestCase):
             self.assertEqual(saved, {"corners": corners, "realWidth": 15.0, "realLength": 28.0})
             self.assertEqual(local_worker.STATE.snapshot()["fieldGeometry"], saved)
 
+    def test_saves_an_outline_with_more_than_four_points_without_a_real_size(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            self._project(root)
+            outline = [[0.1, 0.1], [0.9, 0.1], [0.9, 0.5], [0.5, 0.5], [0.5, 0.9], [0.1, 0.9]]
+            local_worker.save_field_geometry({"corners": outline})
+            saved = json.loads((root / "project.json").read_text())["fieldGeometry"]
+            self.assertEqual(saved, {"corners": outline, "realWidth": 0.0, "realLength": 0.0})
+
+    def test_four_points_still_require_a_real_size(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            self._project(Path(temporary))
+            with self.assertRaises(RuntimeError):
+                local_worker.save_field_geometry({"corners": [[0.1, 0.1], [0.9, 0.1], [0.9, 0.9], [0.1, 0.9]]})
+
     def test_rejects_invalid_field_geometry(self):
         good = [[0.1, 0.2], [0.9, 0.2], [0.95, 0.9], [0.05, 0.9]]
         cases = [
             {"corners": good[:3], "realWidth": 15, "realLength": 28},
-            {"corners": good + [[0.5, 0.5]], "realWidth": 15, "realLength": 28},
+            {"corners": good, "realWidth": 15, "realLength": 0},
+            {"corners": good + [[0.5, 0.5]], "realWidth": -1, "realLength": 28},
+            {"corners": [[0.5, 0.5]] * 33, "realWidth": 15, "realLength": 28},
             {"corners": [[1.5, 0.2]] + good[1:], "realWidth": 15, "realLength": 28},
             {"corners": [[float("nan"), 0.2]] + good[1:], "realWidth": 15, "realLength": 28},
             {"corners": good, "realWidth": 0, "realLength": 28},

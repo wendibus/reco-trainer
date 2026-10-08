@@ -17,6 +17,10 @@ struct FieldGeometryEditor: View {
     @State private var realLengthText: String
     /// Corners collected so far, in image pixel space (0...frameWidth/frameHeight).
     @State private var corners: [CGPoint]
+    @State private var dragIndex: Int?
+    @State private var dragActive = false
+
+    private static let maxPoints = 32
 
     init(
         imageURL: URL,
@@ -50,8 +54,14 @@ struct FieldGeometryEditor: View {
 
     private var realWidth: Double? { Double(realWidthText.replacingOccurrences(of: ",", with: ".")) }
     private var realLength: Double? { Double(realLengthText.replacingOccurrences(of: ",", with: ".")) }
+    /// Exactly four points are the corners of a rectangular field and need its real
+    /// size; more points trace any other outline, where the size is optional.
     private var canSave: Bool {
-        corners.count == 4 && (realWidth ?? 0) > 0 && (realLength ?? 0) > 0
+        let widthEntered = !realWidthText.trimmingCharacters(in: .whitespaces).isEmpty
+        let lengthEntered = !realLengthText.trimmingCharacters(in: .whitespaces).isEmpty
+        if corners.count == 4 { return (realWidth ?? 0) > 0 && (realLength ?? 0) > 0 }
+        guard corners.count > 4 else { return false }
+        return (!widthEntered || (realWidth ?? -1) >= 0) && (!lengthEntered || (realLength ?? -1) >= 0)
     }
 
     var body: some View {
@@ -62,10 +72,10 @@ struct FieldGeometryEditor: View {
             )).font(.title2.bold())
 
             Text(language.text(
-                "Damit „Automatisch markieren“ nur Personen berücksichtigt, die mit den Füßen auf dem Spielfeld stehen. Gib die echten Feldmaße ein und klicke dann die vier Eckpunkte im Bild an - in der Reihenfolge oben links, oben rechts, unten rechts, unten links.",
-                "So \"Auto-label\" only considers people whose feet are standing on the field. Enter the field's real dimensions, then click its four corners in the image - in order: top left, top right, bottom right, bottom left.",
-                "Para que «Marcado automático» solo considere a personas con los pies sobre el campo. Introduce las medidas reales del campo y luego haz clic en sus cuatro esquinas en la imagen, en este orden: superior izquierda, superior derecha, inferior derecha, inferior izquierda.",
-                "Pour que « Marquage automatique » ne prenne en compte que les personnes ayant les pieds sur le terrain. Saisissez les dimensions réelles du terrain, puis cliquez sur ses quatre coins dans l’image - dans l’ordre : en haut à gauche, en haut à droite, en bas à droite, en bas à gauche."
+                "Damit „Automatisch markieren“ nur Personen berücksichtigt, die mit den Füßen auf dem Spielfeld stehen. Klicke die Eckpunkte des Spielfelds im Bild an - bei einem rechteckigen Feld die vier Ecken in dieser Reihenfolge: oben links, oben rechts, unten rechts, unten links - und gib die echten Feldmaße ein. Bei anderen Formen setzt du einfach weitere Punkte rund um den Rand (bis zu 32); die Maße sind dann optional. Punkte lassen sich verschieben, der letzte Punkt kann wieder entfernt werden.",
+                "So \"Auto-label\" only considers people whose feet are standing on the field. Click the field's corner points in the image - for a rectangular field its four corners in this order: top left, top right, bottom right, bottom left - and enter the field's real dimensions. For other shapes just keep adding points around the outline (up to 32); the dimensions are then optional. Drag a point to move it, or remove the last point again.",
+                "Para que «Marcado automático» solo considere a personas con los pies sobre el campo. Haz clic en los puntos del contorno del campo en la imagen: en un campo rectangular, sus cuatro esquinas en este orden: superior izquierda, superior derecha, inferior derecha, inferior izquierda, e introduce las medidas reales. Para otras formas sigue añadiendo puntos alrededor del borde (hasta 32); las medidas son entonces opcionales. Arrastra un punto para moverlo o quita el último.",
+                "Pour que « Marquage automatique » ne prenne en compte que les personnes ayant les pieds sur le terrain. Cliquez sur les points du contour du terrain dans l’image - pour un terrain rectangulaire, ses quatre coins dans l’ordre : en haut à gauche, en haut à droite, en bas à droite, en bas à gauche - et saisissez les dimensions réelles. Pour d’autres formes, continuez à ajouter des points le long du bord (jusqu’à 32) ; les dimensions sont alors facultatives. Faites glisser un point pour le déplacer ou supprimez le dernier."
             )).font(.callout).foregroundStyle(.secondary)
 
             HStack(spacing: 16) {
@@ -87,15 +97,29 @@ struct FieldGeometryEditor: View {
                         ),
                         systemImage: "hand.tap"
                     ).foregroundStyle(.blue)
-                } else {
+                } else if corners.count == 4 {
                     Label(language.text("Alle 4 Ecken gesetzt", "All 4 corners set", "Las 4 esquinas listas", "Les 4 coins sont placés"), systemImage: "checkmark.circle.fill")
                         .foregroundStyle(.green)
+                } else {
+                    Label(language.text("Punkte: \(corners.count)", "Points: \(corners.count)", "Puntos: \(corners.count)", "Points : \(corners.count)"), systemImage: "checkmark.circle.fill")
+                        .foregroundStyle(.green)
                 }
+                Button(language.text("Letzten Punkt entfernen", "Remove last point", "Quitar el último punto", "Supprimer le dernier point")) {
+                    _ = corners.popLast()
+                }
+                .disabled(corners.isEmpty)
                 Button(language.text("Zurücksetzen", "Reset", "Reiniciar", "Réinitialiser")) {
                     corners.removeAll()
                 }
                 .disabled(corners.isEmpty)
             }
+
+            Text(language.text(
+                "Klicken, um weitere Punkte zu setzen; Punkt ziehen zum Verschieben",
+                "Click to add more points, drag a point to move it",
+                "Haz clic para añadir más puntos; arrastra un punto para moverlo",
+                "Cliquez pour ajouter des points, faites glisser un point pour le déplacer"
+            )).font(.caption).foregroundStyle(.secondary)
 
             GeometryReader { geometry in
                 let container = CGRect(origin: .zero, size: geometry.size)
@@ -120,9 +144,9 @@ struct FieldGeometryEditor: View {
                             var path = Path()
                             path.move(to: screenPoints[0])
                             for point in screenPoints.dropFirst() { path.addLine(to: point) }
-                            if screenPoints.count == 4 { path.closeSubpath() }
+                            if screenPoints.count >= 4 { path.closeSubpath() }
                             context.stroke(path, with: .color(.yellow), lineWidth: 2)
-                            if screenPoints.count == 4 {
+                            if screenPoints.count >= 4 {
                                 context.fill(path, with: .color(.yellow.opacity(0.15)))
                             }
                         }
@@ -134,10 +158,24 @@ struct FieldGeometryEditor: View {
                         }
                     }
                     .contentShape(Rectangle())
-                    .onTapGesture { location in
-                        guard corners.count < 4, fitted.contains(location) else { return }
-                        corners.append(clampedImagePoint(from: location, in: fitted))
-                    }
+                    .gesture(
+                        DragGesture(minimumDistance: 0)
+                            .onChanged { value in
+                                if !dragActive {
+                                    dragActive = true
+                                    dragIndex = nearestCornerIndex(to: value.startLocation, in: fitted)
+                                }
+                                if let index = dragIndex, corners.indices.contains(index) {
+                                    corners[index] = clampedImagePoint(from: value.location, in: fitted)
+                                }
+                            }
+                            .onEnded { value in
+                                defer { dragActive = false; dragIndex = nil }
+                                let travelled = hypot(value.location.x - value.startLocation.x, value.location.y - value.startLocation.y)
+                                guard dragIndex == nil, travelled < 5, corners.count < Self.maxPoints, fitted.contains(value.startLocation) else { return }
+                                corners.append(clampedImagePoint(from: value.startLocation, in: fitted))
+                            }
+                    )
                 }
             }
             .frame(minHeight: 360)
@@ -147,13 +185,14 @@ struct FieldGeometryEditor: View {
                 Spacer()
                 Button(language.text("Abbrechen", "Cancel", "Cancelar", "Annuler"), action: onCancel)
                 Button(language.text("Speichern", "Save", "Guardar", "Enregistrer")) {
-                    guard let realWidth, let realLength else { return }
+                    let width = realWidth ?? 0
+                    let length = realLength ?? 0
                     let geometry = FieldGeometry(
                         corners: corners.map {
                             FieldCorner(x: $0.x / Double(frameWidth), y: $0.y / Double(frameHeight))
                         },
-                        realWidth: realWidth,
-                        realLength: realLength
+                        realWidth: width,
+                        realLength: length
                     )
                     onSave(geometry)
                 }
@@ -162,7 +201,7 @@ struct FieldGeometryEditor: View {
             }
         }
         .padding(24)
-        .frame(width: 720, height: 640)
+        .frame(width: 760, height: 720)
     }
 
     private func aspectFit(imageSize: CGSize, in container: CGRect) -> CGRect {
@@ -175,6 +214,17 @@ struct FieldGeometryEditor: View {
             width: size.width,
             height: size.height
         )
+    }
+
+    /// The marked point under a press, if any (within a finger-sized radius), so a
+    /// press on a point drags it instead of adding a new one.
+    private func nearestCornerIndex(to location: CGPoint, in fitted: CGRect) -> Int? {
+        let hits = corners.enumerated().compactMap { index, corner -> (Int, CGFloat)? in
+            let point = screenPoint(for: corner, in: fitted)
+            let distance = hypot(point.x - location.x, point.y - location.y)
+            return distance <= 14 ? (index, distance) : nil
+        }
+        return hits.min { $0.1 < $1.1 }?.0
     }
 
     private func screenPoint(for imagePoint: CGPoint, in fitted: CGRect) -> CGPoint {

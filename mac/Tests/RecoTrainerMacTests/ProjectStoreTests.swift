@@ -373,6 +373,18 @@ import Testing
     #expect(decoded == corner)
 }
 
+// A field outline can have more than four points (curved or L-shaped fields); it
+// must encode as the same plain [x, y] pairs ml_worker.py reads, in click order.
+@Test func fieldGeometryWithMoreThanFourPointsRoundTrips() throws {
+    let outline = [(0.1, 0.1), (0.9, 0.1), (0.9, 0.5), (0.5, 0.5), (0.5, 0.9), (0.1, 0.9)]
+    let geometry = FieldGeometry(corners: outline.map { FieldCorner(x: $0.0, y: $0.1) }, realWidth: 0, realLength: 0)
+    let data = try JSONEncoder().encode(geometry)
+    let json = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+    let corners = try #require(json["corners"] as? [[Double]])
+    #expect(corners == outline.map { [$0.0, $0.1] })
+    #expect(try JSONDecoder().decode(FieldGeometry.self, from: data) == geometry)
+}
+
 // Regression coverage: fieldGeometry must round-trip through the same
 // save/load path as the rest of the project document (mirrors projectRoundTrip).
 @Test func projectRoundTripPreservesFieldGeometry() throws {
