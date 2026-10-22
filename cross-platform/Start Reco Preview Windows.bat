@@ -12,7 +12,7 @@ if not errorlevel 1 (
 ) else (
   where python >nul 2>nul
   if errorlevel 1 (
-    echo Python 3 was not found. Install Python 3.11 or 3.12 and start again.
+    echo Python 3 was not found. Install Python 3.10 or newer (3.12 recommended) and start again.
     pause
     exit /b 1
   )

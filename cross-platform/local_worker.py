@@ -1023,15 +1023,58 @@ def venv_python_path(venv: Path) -> Path:
     return venv / "bin" / "python3"
 
 
+MIN_PYTHON = (3, 10)
+# Validated versions first, then newer/older supported ones.
+PYTHON_PREFERENCE = (12, 11, 13, 10)
+
+
+def python_version_of(executable: Path) -> tuple[int, int] | None:
+    """Return (major, minor) of the given interpreter, or None if it cannot be run."""
+    try:
+        result = subprocess.run(
+            [str(executable), "-c", "import sys; print(sys.version_info[0], sys.version_info[1])"],
+            capture_output=True, text=True, timeout=20,
+        )
+        major, minor = result.stdout.split()[:2]
+        return int(major), int(minor)
+    except Exception:
+        return None
+
+
+def python_candidates() -> list[Path]:
+    paths: list[Path] = []
+    for minor in PYTHON_PREFERENCE:
+        found = shutil.which(f"python3.{minor}")
+        if found:
+            paths.append(Path(found))
+        paths += [Path(f"/opt/homebrew/bin/python3.{minor}"), Path(f"/usr/local/bin/python3.{minor}")]
+    paths.append(Path(sys.executable))
+    for name in ("python3", "python"):
+        found = shutil.which(name)
+        if found:
+            paths.append(Path(found))
+    seen: set[str] = set()
+    unique: list[Path] = []
+    for path in paths:
+        if str(path) not in seen:
+            seen.add(str(path))
+            unique.append(path)
+    return unique
+
+
 def system_python() -> Path:
-    candidates = [
-        Path("/opt/homebrew/bin/python3.12"), Path("/usr/local/bin/python3.12"),
-        Path("/opt/homebrew/bin/python3.11"), Path("/usr/local/bin/python3.11"), Path(sys.executable),
-    ]
-    for candidate in candidates:
+    """First installed Python >= 3.10 (3.12/3.11 preferred) - rfdetr>=1.9 cannot be installed with older ones."""
+    for candidate in python_candidates():
         if candidate.is_file() and os.access(candidate, os.X_OK):
-            return candidate
-    raise RuntimeError(localized("Python 3.11 oder 3.12 wurde nicht gefunden.", "Python 3.11 or 3.12 was not found.", "No se encontró Python 3.11 o 3.12.", "Python 3.11 ou 3.12 est introuvable."))
+            version = python_version_of(candidate)
+            if version is not None and version >= MIN_PYTHON:
+                return candidate
+    raise RuntimeError(localized(
+        "Es wurde kein Python 3.10 oder neuer gefunden (empfohlen: 3.12). Bitte installieren (z. B. python.org oder „brew install python@3.12“) und „ML einrichten“ erneut starten.",
+        "No Python 3.10 or newer was found (recommended: 3.12). Please install it (e.g. python.org or `brew install python@3.12`) and run \u201cSet up ML\u201d again.",
+        "No se encontró Python 3.10 o posterior (recomendado: 3.12). Instálalo (p. ej. python.org o «brew install python@3.12») y vuelve a ejecutar «Configurar ML».",
+        "Aucun Python 3.10 ou plus récent n’a été trouvé (recommandé : 3.12). Installez-le (p. ex. python.org ou « brew install python@3.12 ») puis relancez « Configurer ML ».",
+    ))
 
 
 def run_logged(command: list[str]) -> None:
@@ -1119,6 +1162,18 @@ def ml_action(action: str, payload: dict) -> None:
         venv = root / ".runtime" / "venv"
         venv_python = venv_python_path(venv)
         if action == "setup":
+            # A venv built earlier with a too-old Python (e.g. macOS's 3.9) can never
+            # install rfdetr>=1.9 ("No matching distribution found"): rebuild it.
+            if venv_python.is_file():
+                existing = python_version_of(venv_python)
+                if existing is not None and existing < MIN_PYTHON:
+                    STATE.append_log(localized(
+                        "Die vorhandene ML-Umgebung nutzt ein zu altes Python und wird neu erstellt.\n",
+                        "The existing ML environment uses a Python that is too old and will be recreated.\n",
+                        "El entorno ML existente usa un Python demasiado antiguo y se volverá a crear.\n",
+                        "L’environnement ML existant utilise un Python trop ancien et va être recréé.\n",
+                    ))
+                    shutil.rmtree(venv, ignore_errors=True)
             if not venv_python.is_file():
                 venv.parent.mkdir(parents=True, exist_ok=True)
                 run_logged([str(system_python()), "-m", "venv", str(venv)])
@@ -1582,16 +1637,22 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def python_version_warning() -> str | None:
-    """Flag a Python other than 3.11/3.12 without touching platform launcher scripts.
+    """Flag a Python older than 3.10 without touching platform launcher scripts.
 
-    Video browsing/upload works on any Python 3, but "Set up ML" installs
-    rfdetr[train,onnx,coreml], which is only validated against 3.11/3.12.
+    Video browsing/upload works on any Python 3, and "Set up ML" picks a suitable
+    Python (>= 3.10, 3.12/3.11 preferred) on its own - it only fails when none is
+    installed at all.
     """
-    if sys.version_info[:2] in {(3, 11), (3, 12)}:
+    if sys.version_info[:2] >= MIN_PYTHON:
         return None
+    try:
+        system_python()
+        return None
+    except RuntimeError:
+        pass
     return (
-        f"Python {sys.version_info[0]}.{sys.version_info[1]} erkannt (empfohlen: 3.11 oder 3.12). "
-        "Video-Vorschau und -Upload funktionieren, aber „ML einrichten“ kann fehlschlagen."
+        f"Python {sys.version_info[0]}.{sys.version_info[1]} erkannt und kein Python 3.10 oder neuer gefunden "
+        "(empfohlen: 3.12). Video-Vorschau und -Upload funktionieren, aber „ML einrichten“ benötigt Python 3.10+."
     )
 
 

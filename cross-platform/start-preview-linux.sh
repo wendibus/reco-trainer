@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -e
 cd "$(dirname "$0")"
-if ! command -v python3 >/dev/null 2>&1; then echo "Python 3.11 or 3.12 is required."; exit 1; fi
+if ! command -v python3 >/dev/null 2>&1; then echo "Python 3.10 or newer (3.12 recommended) is required."; exit 1; fi
 if ! command -v npm >/dev/null 2>&1; then echo "Node.js 22/npm is required."; exit 1; fi
 if ! command -v ffmpeg >/dev/null 2>&1; then echo "FFmpeg is required to prepare videos on Linux."; exit 1; fi
 if [ ! -d node_modules ]; then npm install; fi

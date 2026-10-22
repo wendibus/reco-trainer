@@ -19,7 +19,7 @@ if [[ ! -d node_modules ]]; then
 fi
 
 PYTHON_BIN=""
-for CANDIDATE in /opt/homebrew/bin/python3.12 /usr/local/bin/python3.12 /opt/homebrew/bin/python3.11 /usr/local/bin/python3.11 /usr/bin/python3; do
+for CANDIDATE in /opt/homebrew/bin/python3.12 /usr/local/bin/python3.12 /opt/homebrew/bin/python3.11 /usr/local/bin/python3.11 /opt/homebrew/bin/python3.13 /usr/local/bin/python3.13 /usr/bin/python3; do
   if [[ -x "$CANDIDATE" ]]; then
     PYTHON_BIN="$CANDIDATE"
     break

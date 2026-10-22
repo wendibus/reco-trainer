@@ -140,11 +140,119 @@ class PythonVersionWarningTests(unittest.TestCase):
         local_worker.sys.version_info = (3, 12, 0, "final", 0)
         self.assertIsNone(local_worker.python_version_warning())
 
-    def test_warns_for_other_versions(self):
-        local_worker.sys.version_info = (3, 13, 0, "final", 0)
-        warning = local_worker.python_version_warning()
+    def test_no_warning_for_3_10_and_newer(self):
+        for minor in (10, 13):
+            local_worker.sys.version_info = (3, minor, 0, "final", 0)
+            self.assertIsNone(local_worker.python_version_warning())
+
+    def test_warns_for_old_python_when_no_suitable_python_exists(self):
+        original = local_worker.system_python
+
+        def none_found():
+            raise RuntimeError("none")
+
+        local_worker.system_python = none_found
+        try:
+            local_worker.sys.version_info = (3, 9, 6, "final", 0)
+            warning = local_worker.python_version_warning()
+        finally:
+            local_worker.system_python = original
         self.assertIsNotNone(warning)
-        self.assertIn("3.13", warning)
+        self.assertIn("3.9", warning)
+
+    def test_no_warning_for_old_python_when_a_newer_one_is_installed(self):
+        original = local_worker.system_python
+        local_worker.system_python = lambda: Path("/opt/homebrew/bin/python3.12")
+        try:
+            local_worker.sys.version_info = (3, 9, 6, "final", 0)
+            self.assertIsNone(local_worker.python_version_warning())
+        finally:
+            local_worker.system_python = original
+
+
+class SystemPythonSelectionTests(unittest.TestCase):
+    """rfdetr>=1.9 cannot be installed on Python 3.9 (pip: "No matching distribution
+    found"), so ML setup must pick an interpreter >= 3.10 instead of the first python3.
+    """
+
+    def setUp(self):
+        self.original_candidates = local_worker.python_candidates
+        self.original_version_of = local_worker.python_version_of
+
+    def tearDown(self):
+        local_worker.python_candidates = self.original_candidates
+        local_worker.python_version_of = self.original_version_of
+
+    def _fake(self, root: Path, versions: dict[str, tuple[int, int]]):
+        paths = []
+        for name in versions:
+            path = root / name
+            path.write_text("")
+            path.chmod(0o755)
+            paths.append(path)
+        local_worker.python_candidates = lambda: paths
+        local_worker.python_version_of = lambda path: versions.get(path.name)
+
+    def test_skips_python_3_9_and_picks_the_first_new_enough_interpreter(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            self._fake(Path(temporary), {"python3": (3, 9), "python3.12": (3, 12), "python3.13": (3, 13)})
+            self.assertEqual(local_worker.system_python().name, "python3.12")
+
+    def test_raises_a_helpful_error_when_only_old_pythons_exist(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            self._fake(Path(temporary), {"python3": (3, 9)})
+            with self.assertRaises(RuntimeError) as raised:
+                local_worker.system_python()
+            self.assertIn("3.10", str(raised.exception))
+
+
+class OutdatedVenvTests(unittest.TestCase):
+    """A venv created earlier with Python 3.9 is rebuilt instead of failing on pip again."""
+
+    def setUp(self):
+        local_worker.STATE.update(selected_folder=None, project_root=None, project=None, busy=False, error=None, log=[])
+        self.original_run_logged = local_worker.run_logged
+        self.original_version_of = local_worker.python_version_of
+        self.original_system_python = local_worker.system_python
+        self.commands: list[list[str]] = []
+        local_worker.run_logged = lambda command: self.commands.append(command)
+        local_worker.system_python = lambda: Path("/opt/homebrew/bin/python3.12")
+        local_worker.detect_nvidia_gpu_name = lambda: None
+
+    def tearDown(self):
+        local_worker.run_logged = self.original_run_logged
+        local_worker.python_version_of = self.original_version_of
+        local_worker.system_python = self.original_system_python
+
+    def _project_with_venv(self, root: Path) -> Path:
+        local_worker.atomic_json(root / "project.json", {"sport": "basketball", "frames": []})
+        venv = root / ".runtime" / "venv"
+        venv_python = local_worker.venv_python_path(venv)
+        venv_python.parent.mkdir(parents=True, exist_ok=True)
+        venv_python.write_text("")
+        local_worker.STATE.update(project_root=root)
+        return venv
+
+    def test_recreates_a_venv_built_with_python_3_9(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            venv = self._project_with_venv(root)
+            local_worker.python_version_of = lambda path: (3, 9)
+
+            local_worker.ml_action("setup", {"useCuda": False})
+
+            self.assertTrue(any(command[1:3] == ["-m", "venv"] for command in self.commands))
+            self.assertFalse(local_worker.venv_python_path(venv).exists())
+
+    def test_keeps_a_venv_that_is_new_enough(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            self._project_with_venv(root)
+            local_worker.python_version_of = lambda path: (3, 12)
+
+            local_worker.ml_action("setup", {"useCuda": False})
+
+            self.assertFalse(any(command[1:3] == ["-m", "venv"] for command in self.commands))
 
 
 class VenvPythonPathTests(unittest.TestCase):

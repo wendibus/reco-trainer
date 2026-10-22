@@ -25,7 +25,8 @@ enum MLWorkerError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .missingResource: "Der eingebettete ML-Worker fehlt."
-        case .pythonNotFound: "Python 3.11 oder 3.12 wurde nicht gefunden."
+        case .pythonNotFound:
+            "Es wurde kein Python 3.10 oder neuer gefunden (empfohlen: 3.12). Installiere es z. B. mit „brew install python@3.12“ oder von python.org und starte „ML einrichten“ erneut."
         case .failed(let code, let output): "ML-Worker beendet mit Code \(code):\n\(output)"
         }
     }
@@ -65,8 +66,18 @@ struct MLWorker: Sendable {
     func prepareEnvironment(onOutput: @escaping @Sendable (String) async -> Void) async throws {
         let manager = FileManager.default
         try manager.createDirectory(at: venvURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        // A venv created earlier with a too-old Python (e.g. macOS's own 3.9)
+        // can never install rfdetr>=1.9 - pip then reports "No matching
+        // distribution found". Detect that and rebuild it with a suitable Python.
+        if manager.fileExists(atPath: venvPythonURL.path),
+           let existing = Self.pythonVersion(of: venvPythonURL),
+           !Self.meetsMinimumPython(existing) {
+            await onOutput("Die vorhandene ML-Umgebung nutzt ein zu altes Python und wird neu erstellt.\n")
+            try manager.removeItem(at: venvURL)
+        }
         if !manager.fileExists(atPath: venvPythonURL.path) {
-            let python = try systemPython()
+            let python = try suitablePython()
+            await onOutput("Erstelle ML-Umgebung mit \(python.path) …\n")
             _ = try await run(executable: python, arguments: ["-m", "venv", venvURL.path], onOutput: onOutput)
         }
         _ = try await run(
@@ -295,15 +306,62 @@ struct MLWorker: Sendable {
         return try await run(executable: executable, arguments: arguments, onOutput: onOutput)
     }
 
+    /// Lowest Python version that `rfdetr>=1.9` can be installed with.
+    static let minimumPython = (major: 3, minor: 10)
+
+    /// Preferred first (3.12, 3.11 are the validated versions), then newer/older supported ones.
+    private static let pythonCandidates: [String] = {
+        var paths: [String] = []
+        for minor in [12, 11, 13, 10] {
+            paths += [
+                "/opt/homebrew/bin/python3.\(minor)",
+                "/usr/local/bin/python3.\(minor)",
+                "/Library/Frameworks/Python.framework/Versions/3.\(minor)/bin/python3.\(minor)"
+            ]
+        }
+        paths += ["/opt/homebrew/bin/python3", "/usr/local/bin/python3"]
+        return paths
+    }()
+
+    static func pythonVersion(of executable: URL) -> (major: Int, minor: Int)? {
+        let process = Process()
+        let pipe = Pipe()
+        process.executableURL = executable
+        process.arguments = ["-c", "import sys; print(sys.version_info[0], sys.version_info[1])"]
+        process.standardOutput = pipe
+        process.standardError = FileHandle.nullDevice
+        do { try process.run() } catch { return nil }
+        process.waitUntilExit()
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        let numbers = String(decoding: data, as: UTF8.self)
+            .split(whereSeparator: \.isWhitespace)
+            .compactMap { Int($0) }
+        guard numbers.count >= 2 else { return nil }
+        return (numbers[0], numbers[1])
+    }
+
+    static func meetsMinimumPython(_ version: (major: Int, minor: Int)?) -> Bool {
+        guard let version else { return false }
+        return (version.major, version.minor) >= (minimumPython.major, minimumPython.minor)
+    }
+
+    /// Python used to create the ML venv: the first installed interpreter that is new enough.
+    private func suitablePython() throws -> URL {
+        for path in Self.pythonCandidates where FileManager.default.isExecutableFile(atPath: path) {
+            let url = URL(filePath: path)
+            if Self.meetsMinimumPython(Self.pythonVersion(of: url)) { return url }
+        }
+        throw MLWorkerError.pythonNotFound
+    }
+
+    /// Python for lightweight worker actions that do not need the ML packages
+    /// (doctor, model management): any interpreter works, a suitable one is preferred.
     private func systemPython() throws -> URL {
-        let candidates = [
-            "/opt/homebrew/bin/python3.12",
-            "/usr/local/bin/python3.12",
-            "/opt/homebrew/bin/python3.11",
-            "/usr/local/bin/python3.11",
-            "/usr/bin/python3"
-        ]
-        guard let path = candidates.first(where: { FileManager.default.isExecutableFile(atPath: $0) }) else {
+        if let suitable = try? suitablePython() { return suitable }
+        // Last resort for lightweight actions only: Apple's system Python (usually 3.9). It is never
+        // version-probed above because without the Command Line Tools it is just an installer stub.
+        let fallbacks = Self.pythonCandidates + ["/usr/bin/python3"]
+        guard let path = fallbacks.first(where: { FileManager.default.isExecutableFile(atPath: $0) }) else {
             throw MLWorkerError.pythonNotFound
         }
         return URL(filePath: path)

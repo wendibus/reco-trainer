@@ -31,7 +31,7 @@ Every platform needs internet access **once**, for the first "Set up ML" step: i
 
 ### macOS
 
-Requirements: macOS 14 or newer, Apple silicon, and **Python 3.11 or 3.12** (for example `brew install python@3.12`). The system Python that comes with macOS and the Xcode Command Line Tools is usually older and will not work. Node.js and Xcode are *not* needed for the app.
+Requirements: macOS 14 or newer, Apple silicon, and **Python 3.10 or newer** (3.12 recommended, for example `brew install python@3.12`). Reco Trainer finds a suitable Python on its own and ignores the older system Python that comes with macOS; if none is installed, it tells you what to install. Node.js and Xcode are *not* needed for the app.
 
 1. Download `Reco-Trainer-Mac-<version>.dmg` from the [latest release](https://github.com/wendibus/reco-trainer/releases/latest).
 2. Open it and drag **Reco Trainer** into **Applications**.
@@ -41,7 +41,7 @@ Requirements: macOS 14 or newer, Apple silicon, and **Python 3.11 or 3.12** (for
 
 ### Windows
 
-Requirements: Node.js 22, Python 3.11 or 3.12, and FFmpeg.
+Requirements: Node.js 22, Python 3.10 or newer (3.12 recommended), and FFmpeg.
 
 1. Download and extract `Reco.Trainer.Windows.<version>.zip` from the [latest release](https://github.com/wendibus/reco-trainer/releases/latest).
 2. Open the extracted folder and run `Start Reco Trainer Windows.bat`.
@@ -50,7 +50,7 @@ Requirements: Node.js 22, Python 3.11 or 3.12, and FFmpeg.
 
 ### Linux
 
-Requirements: Node.js 22, Python 3.11 or 3.12, FFmpeg, and Zenity or KDialog for the native folder dialog.
+Requirements: Node.js 22, Python 3.10 or newer (3.12 recommended), FFmpeg, and Zenity or KDialog for the native folder dialog.
 
 1. Download and extract `Reco.Trainer.Linux.<version>.zip` from the [latest release](https://github.com/wendibus/reco-trainer/releases/latest).
 2. Run `chmod +x "Start Reco Trainer Linux.sh"` once, then `./Start\ Reco\ Trainer\ Linux.sh`.

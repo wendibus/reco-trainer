@@ -1,5 +1,12 @@
 # Änderungen
 
+## 0.17.1
+
+- „ML einrichten“ scheitert nicht mehr mit „No matching distribution found for rfdetr[…]>=1.9.0“, wenn nur das ältere System-Python (3.9) gefunden wurde. Reco Trainer sucht jetzt selbst ein Python ab 3.10 (3.12 und 3.11 zuerst, auch Homebrew und python.org), prüft dessen Version und legt die ML-Umgebung damit an.
+- Eine früher mit Python 3.9 angelegte ML-Umgebung (`.runtime/venv`) wird erkannt und automatisch neu erstellt.
+- Ist kein passendes Python installiert, erscheint eine klare Meldung mit dem Hinweis auf „brew install python@3.12“ statt des pip-Fehlers.
+- Windows/Linux/Docker: dieselbe Python-Auswahl und Erkennung veralteter Umgebungen; die Python-Warnung erscheint nur noch, wenn wirklich kein Python 3.10+ vorhanden ist.
+
 ## 0.17.0
 
 - Spielfeld festlegen (Mac-App und Weboberfläche): nicht mehr auf vier Ecken beschränkt. Weitere Punkte rund um den Rand setzen (bis zu 32, z. B. für runde oder L-förmige Felder), Punkte per Ziehen verschieben und den jeweils letzten Punkt wieder entfernen. Bei genau vier Punkten bleibt alles wie bisher (echte Maße nötig); bei mehr Punkten sind die Maße optional und „Automatisch markieren“ prüft, ob die Füße innerhalb der Umrisse im Bild liegen.
