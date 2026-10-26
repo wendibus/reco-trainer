@@ -708,14 +708,15 @@ def extract_frames_for_video(
 
     Returns the generated frame paths (sorted), the sampling rate actually used
     (frames per second of source video, needed by callers to compute each
-    frame's timestamp), and the scaled output width/height (max 1280px wide,
-    height rounded up to an even number since some encoders reject odd heights).
+    frame's timestamp), and the output width/height. Frames keep the video's
+    native resolution (no downscaling): small objects such as players in the far
+    corner of a full-field panorama need every pixel.
     """
     rate = max(target_count / duration, 1 / max(duration, 1.0))
     pattern = output_dir / f"{prefix}-%06d.jpg"
     command = (
         [ffmpeg, "-hide_banner", "-loglevel", "error", "-y", "-i", str(video),
-         "-vf", f"fps={rate:.8f},scale='min(iw,1280)':-2",
+         "-vf", f"fps={rate:.8f}",
          "-frames:v", str(target_count), "-q:v", "2", str(pattern)]
         if ffmpeg else
         [str(apple_extractor), str(video), str(output_dir), prefix, str(target_count)]
@@ -724,12 +725,7 @@ def extract_frames_for_video(
     if result.returncode != 0:
         raise RuntimeError(f"{failure_message}: {video.name}\n{result.stderr.strip()}")
     generated = sorted(output_dir.glob(f"{prefix}-*.jpg"))
-    scale = min(1.0, 1280 / max(width, 1))
-    output_width = max(1, round(width * scale))
-    output_height = max(1, round(height * scale))
-    if output_height % 2:
-        output_height += 1
-    return generated, rate, output_width, output_height
+    return generated, rate, max(1, width), max(1, height)
 
 
 def extract_project(sport: str, requested_frames_per_video: int = DEFAULT_FRAMES_PER_VIDEO) -> None:

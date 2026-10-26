@@ -35,7 +35,7 @@ let generator = AVAssetImageGenerator(asset: asset)
 generator.appliesPreferredTrackTransform = true
 generator.requestedTimeToleranceBefore = CMTime(seconds: 0.12, preferredTimescale: 600)
 generator.requestedTimeToleranceAfter = CMTime(seconds: 0.12, preferredTimescale: 600)
-generator.maximumSize = CGSize(width: 1280, height: 1280)
+// No maximumSize: AVAssetImageGenerator then returns frames at the video's native resolution.
 
 try FileManager.default.createDirectory(at: outputDirectory, withIntermediateDirectories: true)
 

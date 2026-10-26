@@ -294,7 +294,7 @@ class FrameExtractionTests(unittest.TestCase):
         path.write_text(script)
         path.chmod(path.stat().st_mode | stat.S_IEXEC)
 
-    def test_uses_apple_extractor_and_scales_dimensions_to_even_height(self):
+    def test_uses_apple_extractor_and_keeps_native_dimensions(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             output_dir = root / "frames"
@@ -319,9 +319,9 @@ class FrameExtractionTests(unittest.TestCase):
 
             self.assertEqual(len(generated), 5)
             self.assertEqual(rate, 0.5)
-            # 1280/1920 is an exact 2/3 scale factor for this width.
-            self.assertEqual(output_width, 1280)
-            self.assertEqual(output_height % 2, 0)
+            # Frames are no longer downscaled to 1280 px: native size is reported.
+            self.assertEqual(output_width, 1920)
+            self.assertEqual(output_height, 1081)
 
     def test_raises_with_video_name_and_stderr_on_extractor_failure(self):
         with tempfile.TemporaryDirectory() as temporary:

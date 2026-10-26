@@ -1,5 +1,9 @@
 # Änderungen
 
+## 0.17.2
+
+- Windows/Linux/Docker: Die Größenbegrenzung der extrahierten Bilder (bisher höchstens 1280 Pixel Breite) ist entfernt. Bilder behalten jetzt die volle Auflösung des Videos, wie bereits in der Mac-App. Kleine Objekte, etwa Spieler in der entfernten Ecke eines 11-gegen-11-Vollfeldbildes, behalten so ihre Pixel. Bereits vorbereitete Projekte behalten ihre alten Bilder; für volle Auflösung die Videos neu vorbereiten. Größere Bilder brauchen mehr Speicherplatz und Rechenzeit.
+
 ## 0.17.1
 
 - „ML einrichten“ scheitert nicht mehr mit „No matching distribution found for rfdetr[…]>=1.9.0“, wenn nur das ältere System-Python (3.9) gefunden wurde. Reco Trainer sucht jetzt selbst ein Python ab 3.10 (3.12 und 3.11 zuerst, auch Homebrew und python.org), prüft dessen Version und legt die ML-Umgebung damit an.
