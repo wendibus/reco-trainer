@@ -1,5 +1,11 @@
 # Änderungen
 
+## 0.18.0
+
+- Neu: Externe ONNX-Detektoren (YOLO mit eingebautem NMS, Ausgabe 1 × N × 6) lassen sich als `.recomodel`-Paket über „Modell importieren“ einbinden. Sie dienen zum automatischen Vorbeschriften und für den Modellvergleich (Benchmark). Trainieren oder Feinabstimmen ist mit ihnen nicht möglich; das Training läuft weiter mit RF-DETR.
+- Neues Werkzeug `cross-platform/tools/make_onnx_package.py` erzeugt ein solches Paket aus einer `.onnx`-Datei (Name, Sportart, Klassen in Reihenfolge der Klassen-IDs, Eingabegröße). `validate_model_package.py` prüft auch diese Pakete.
+- ONNX-Pakete sind unabhängig von der gewählten RF-DETR-Größe (nano/small) und lassen sich nicht zu kombinierten Modellen zusammenfassen.
+
 ## 0.17.2
 
 - Windows/Linux/Docker: Die Größenbegrenzung der extrahierten Bilder (bisher höchstens 1280 Pixel Breite) ist entfernt. Bilder behalten jetzt die volle Auflösung des Videos, wie bereits in der Mac-App. Kleine Objekte, etwa Spieler in der entfernten Ecke eines 11-gegen-11-Vollfeldbildes, behalten so ihre Pixel. Bereits vorbereitete Projekte behalten ihre alten Bilder; für volle Auflösung die Videos neu vorbereiten. Größere Bilder brauchen mehr Speicherplatz und Rechenzeit.

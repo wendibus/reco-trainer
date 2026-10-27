@@ -28,13 +28,23 @@ def validate(package: Path) -> dict:
             path = Path(name)
             if path.is_absolute() or ".." in path.parts:
                 fail(f"unsafe path: {name}")
-            if name != "manifest.json" and not (name.startswith("weights/") and path.suffix in {".pth", ".ckpt"}):
+            if name != "manifest.json" and not (name.startswith("weights/") and path.suffix in {".pth", ".ckpt", ".onnx"}):
                 fail(f"disallowed content: {name}")
         if "manifest.json" not in names:
             fail("manifest.json is missing")
         if archive.getinfo("manifest.json").file_size > 1024 * 1024:
             fail("manifest is too large")
         manifest = json.loads(archive.read("manifest.json"))
+        onnx_package = manifest.get("format") == "onnx-yolo"
+        if any(name.endswith(".onnx") for name in names) != onnx_package:
+            fail("ONNX weights require manifest format \"onnx-yolo\" (and the reverse)")
+        if onnx_package:
+            class_names = manifest.get("classNames")
+            input_size = manifest.get("inputSize")
+            if not isinstance(class_names, list) or not class_names or not all(isinstance(item, str) and item for item in class_names):
+                fail("ONNX package needs classNames")
+            if not isinstance(input_size, int) or isinstance(input_size, bool) or not 64 <= input_size <= 4096:
+                fail("ONNX package needs a valid inputSize")
         if manifest.get("schemaVersion") != 1:
             fail("unsupported schema version")
         weight_name = manifest.get("weights", {}).get("file")

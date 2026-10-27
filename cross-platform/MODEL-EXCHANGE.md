@@ -24,6 +24,20 @@ Models are not combined by averaging weights. Candidate A and candidate B should
 
 The **Import model** button opens a native file picker. The selected package never leaves the computer. Installed candidates are stored below `.reco-training/models/library/`; `.reco-training/models/active.json` records which compatible model is used for the next automatic labeling or fine-tuning run.
 
+## ONNX detector packages (0.18)
+
+Besides RF-DETR checkpoints, a `.recomodel` can carry one exported **YOLO ONNX detector** with NMS built in (output `1 x N x 6`: `x1, y1, x2, y2, confidence, class id`, for example an Ultralytics `end2end` export). Such a package has `"format": "onnx-yolo"` in its manifest, plus `classNames` (Reco class names in class-id order) and `inputSize` (square input in pixels). It is used for **automatic labeling and the benchmark only**; it cannot be trained or fine-tuned, and it cannot be combined into a combined model. It works with either RF-DETR size selected.
+
+Create one from an ONNX file:
+
+```bash
+python3 tools/make_onnx_package.py best.onnx --name soccer --sport football \
+  --class-names player,ball,referee --input-size 1920 \
+  --license "AGPL-3.0 (Ultralytics YOLO26s fine-tune)" -o soccer.recomodel
+```
+
+Check the license of the original weights before sharing such a package: Ultralytics YOLO weights are AGPL-3.0.
+
 Only import packages from a trusted publisher. The checksum detects accidental changes but does not prove who created the checkpoint. RF-DETR/PyTorch checkpoints should be treated like executable software when they are loaded for inference or training.
 
 ## GitHub CLI example

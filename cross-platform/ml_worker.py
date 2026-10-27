@@ -317,7 +317,7 @@ def active_model_classes(project_root: Path, size: str) -> set[str] | None:
     """
     try:
         active = load_json(project_root / "models" / "active.json")
-        if active.get("modelSize") != size:
+        if active.get("modelSize") != size and active.get("format") != ONNX_FORMAT:
             return None
         library_root = (project_root / "models" / "library").resolve()
         manifest_path = (library_root / str(active["packageID"]) / "manifest.json").resolve()
@@ -338,7 +338,7 @@ def active_model_manifest(project_root: Path, size: str) -> dict[str, Any] | Non
     """
     try:
         active = load_json(project_root / "models" / "active.json")
-        if active.get("modelSize") != size:
+        if active.get("modelSize") != size and active.get("format") != ONNX_FORMAT:
             return None
         library_root = (project_root / "models" / "library").resolve()
         manifest_path = (library_root / str(active["packageID"]) / "manifest.json").resolve()
@@ -377,7 +377,126 @@ def ensemble_member_model(package_dir: Path, member: dict[str, Any], language: s
     return model_class(pretrain_weights=str(weight_path), device=detect_device())
 
 
+ONNX_FORMAT = "onnx-yolo"
+
+
+def is_onnx_manifest(manifest: dict[str, Any] | None) -> bool:
+    return isinstance(manifest, dict) and manifest.get("format") == ONNX_FORMAT
+
+
+class OnnxDetections:
+    """Minimal stand-in for the detections object RF-DETR returns (xyxy,
+    confidence, class_id, data["class_name"]), so every pass that consumes
+    model.predict() works unchanged with an imported ONNX detector."""
+
+    def __init__(self, xyxy: Any, confidence: Any, class_id: Any, class_name: list[str]) -> None:
+        self.xyxy = xyxy
+        self.confidence = confidence
+        self.class_id = class_id
+        self.data = {"class_name": class_name}
+
+
+class OnnxYoloModel:
+    """Inference-only detector for an exported Ultralytics-style YOLO ONNX model with
+    NMS built into the graph (output 1 x N x 6: x1, y1, x2, y2, confidence, class id).
+
+    Used for imported packages with manifest format "onnx-yolo". It can pre-label and be
+    benchmarked, but it cannot be trained or fine-tuned (no RF-DETR checkpoint).
+    """
+
+    def __init__(self, weights_path: Path, class_names: list[str], input_size: int, language: str = "de") -> None:
+        try:
+            import numpy
+            import onnxruntime
+        except ImportError as error:
+            raise SystemExit(localized(
+                language,
+                "onnxruntime ist nicht installiert. In der App zuerst „ML einrichten“ wählen.",
+                "onnxruntime is not installed. Select “Set up ML” in the app first.",
+            )) from error
+        self.np = numpy
+        available = onnxruntime.get_available_providers()
+        providers = [name for name in ("CUDAExecutionProvider", "CPUExecutionProvider") if name in available] or available
+        self.session = onnxruntime.InferenceSession(str(weights_path), providers=providers)
+        self.class_names = class_names
+        self.input_name = self.session.get_inputs()[0].name
+        shape = self.session.get_inputs()[0].shape
+        fixed = [value for value in shape[2:4] if isinstance(value, int) and value > 0]
+        self.input_size = fixed[0] if len(fixed) == 2 and fixed[0] == fixed[1] else int(input_size)
+        output_shape = self.session.get_outputs()[0].shape
+        if len(output_shape) != 3 or output_shape[-1] != 6:
+            raise SystemExit(localized(
+                language,
+                "Das ONNX-Modell muss mit eingebautem NMS exportiert sein (Ausgabe 1 × N × 6).",
+                "The ONNX model must be exported with NMS built in (output 1 × N × 6).",
+            ))
+
+    def _letterbox(self, path: str) -> tuple[Any, float, int, int, int, int]:
+        from PIL import Image
+
+        np = self.np
+        size = self.input_size
+        with Image.open(path) as source:
+            image = source.convert("RGB")
+        width, height = image.size
+        scale = min(size / width, size / height)
+        new_width, new_height = max(1, round(width * scale)), max(1, round(height * scale))
+        resized = image.resize((new_width, new_height), Image.BILINEAR)
+        canvas = Image.new("RGB", (size, size), (114, 114, 114))
+        left = int(round((size - new_width) / 2 - 0.1))
+        top = int(round((size - new_height) / 2 - 0.1))
+        canvas.paste(resized, (left, top))
+        array = np.asarray(canvas, dtype=np.float32).transpose(2, 0, 1)[None] / 255.0
+        return np.ascontiguousarray(array), scale, left, top, width, height
+
+    def predict(self, paths: list[str], threshold: float = 0.25) -> list[OnnxDetections]:
+        np = self.np
+        results: list[OnnxDetections] = []
+        for path in paths:
+            tensor, scale, left, top, width, height = self._letterbox(path)
+            output = self.session.run(None, {self.input_name: tensor})[0][0]
+            rows = output[output[:, 4] >= threshold]
+            boxes = rows[:, :4].astype(np.float64).copy()
+            boxes[:, [0, 2]] = np.clip((boxes[:, [0, 2]] - left) / scale, 0, width)
+            boxes[:, [1, 3]] = np.clip((boxes[:, [1, 3]] - top) / scale, 0, height)
+            class_ids = rows[:, 5].astype(int)
+            names = [self.class_names[value] if 0 <= value < len(self.class_names) else "" for value in class_ids]
+            results.append(OnnxDetections(boxes, rows[:, 4].astype(np.float64), class_ids, names))
+        return results
+
+
+def load_onnx_package_model(package_dir: Path, manifest: dict[str, Any], language: str = "de") -> OnnxYoloModel:
+    weight_name = Path(str(manifest.get("weights", {}).get("file", ""))).name
+    weight_path = (package_dir / "weights" / weight_name).resolve()
+    if package_dir.resolve() not in weight_path.parents or not weight_path.is_file() or weight_path.suffix != ".onnx":
+        raise SystemExit(localized(language, "ONNX-Gewichtsdatei fehlt.", "The ONNX weights file is missing."))
+    class_names = [str(item) for item in manifest.get("classNames", [])]
+    return OnnxYoloModel(weight_path, class_names, int(manifest.get("inputSize") or 640), language)
+
+
+def active_library_manifest(project_root: Path) -> tuple[Path, dict[str, Any]] | None:
+    """(package directory, manifest) of the activated library model, whatever its size."""
+    try:
+        active = load_json(project_root / "models" / "active.json")
+        library_root = (project_root / "models" / "library").resolve()
+        manifest_path = (library_root / str(active["packageID"]) / "manifest.json").resolve()
+        if library_root not in manifest_path.parents or not manifest_path.is_file():
+            return None
+        return manifest_path.parent, load_json(manifest_path)
+    except (OSError, ValueError, TypeError, KeyError, json.JSONDecodeError):
+        return None
+
+
 def model_instance(project_root: Path, size: str, trained: bool, language: str = "de"):
+    if trained:
+        found = active_library_manifest(project_root)
+        if found is not None and is_onnx_manifest(found[1]):
+            emit(localized(
+                language,
+                f"Lade importiertes ONNX-Modell: {found[1].get('displayName') or found[1].get('packageID')}",
+                f"Loading imported ONNX model: {found[1].get('displayName') or found[1].get('packageID')}",
+            ))
+            return load_onnx_package_model(found[0], found[1], language)
     model_class = import_model_class(size, language)
     checkpoint = newest_checkpoint(project_root, size) if trained else None
     kwargs: dict[str, Any] = {"device": detect_device()}
@@ -697,6 +816,13 @@ def benchmark(args: argparse.Namespace) -> None:
                     )
                     predictions.extend(member_predictions)
                     inference_seconds += member_seconds
+            elif is_onnx_manifest(manifest):
+                model = load_onnx_package_model(package_dir, manifest, args.language)
+                loaded_models.append(model)
+                predictions, inference_seconds = run_benchmark_pass(
+                    model, frames, package_classes, str(document["sport"]), threshold, 1,
+                    project_root, package_id, args.language,
+                )
             else:
                 model_class = import_model_class(str(manifest["modelSize"]), args.language)
                 verify_weights_pickle_safety(weight_path, args.language, package_id)
@@ -1396,6 +1522,10 @@ def flag_ensemble_disagreement(
                 for frame_id, boxes in member_boxes.items():
                     secondary_boxes.setdefault(frame_id, []).extend(boxes)
                 del member_model
+        elif is_onnx_manifest(manifest):
+            model = load_onnx_package_model(package_dir, manifest, language)
+            secondary_boxes = predict_boxes(model, project_root, frames, package_classes, category_map, threshold, 1)
+            del model
         else:
             model_class = import_model_class(str(manifest["modelSize"]), language)
             weight_path = (package_dir / "weights" / Path(str(manifest.get("weights", {}).get("file", ""))).name).resolve()
@@ -2103,6 +2233,7 @@ def activate_library_model(project_root: Path, manifest_path: Path, manifest: di
         "modelSize": manifest.get("modelSize"),
         "sport": manifest.get("sport"),
         "description": manifest.get("description"),
+        "format": manifest.get("format"),
         "weights": weights_field,
         "activatedAt": datetime.now(timezone.utc).isoformat(),
     }
@@ -2665,6 +2796,8 @@ def combine_models(args: argparse.Namespace) -> None:
         source_path, source_manifest = found
         if source_manifest.get("ensemble"):
             raise SystemExit(localized(args.language, "Ein kombiniertes Modell kann nicht selbst wieder kombiniert werden.", "A combined model cannot itself be combined again."))
+        if is_onnx_manifest(source_manifest):
+            raise SystemExit(localized(args.language, f"Importierte ONNX-Modelle können nicht kombiniert werden: {package_id}", f"Imported ONNX models cannot be combined: {package_id}"))
         if source_manifest.get("sport") != sport:
             raise SystemExit(localized(args.language, f"Modell {package_id} gehört zu einer anderen Sportart.", f"Model {package_id} belongs to a different sport."))
         unsupported = set(categories) - {str(item) for item in source_manifest.get("classes", [])}
@@ -2834,7 +2967,8 @@ def verify_zip_weight_entry(archive: "zipfile.ZipFile", weight_name: str, expect
                 f"La suma de verificación no coincide{message_label}",
                 f"La somme de contrôle ne correspond pas{message_label}",
             ))
-        verify_weights_pickle_safety(scratch_path, language, label or weight_name)
+        if not weight_name.lower().endswith(".onnx"):
+            verify_weights_pickle_safety(scratch_path, language, label or weight_name)
     finally:
         scratch_path.unlink(missing_ok=True)
 
@@ -2935,11 +3069,25 @@ def validate_model_package_file(package: Path, language: str = "de") -> dict[str
         description = manifest.get("description")
         if description is not None and (not isinstance(description, str) or not description.strip() or len(description) > 500 or any(ord(character) < 32 and character not in "\t\n\r" for character in description)):
             raise SystemExit(localized(language, "Ungültige Paketbeschreibung.", "Invalid package description."))
+        onnx_package = is_onnx_manifest(manifest)
+        if onnx_package:
+            class_names = manifest.get("classNames")
+            input_size = manifest.get("inputSize")
+            if (
+                schema_version != 1
+                or manifest.get("ensemble")
+                or not isinstance(class_names, list) or not class_names
+                or not all(isinstance(item, str) and item for item in class_names)
+                or not set(class_names).issubset({str(item) for item in manifest.get("classes") or []})
+                or not isinstance(input_size, int) or isinstance(input_size, bool) or not 64 <= input_size <= 4096
+            ):
+                raise SystemExit(localized(language, "Ungültige Angaben zum ONNX-Modell im Manifest.", "Invalid ONNX model details in the manifest."))
+        weight_suffixes = {".onnx"} if onnx_package else {".pth", ".ckpt"}
         for name in names:
             path = Path(name)
             if path.is_absolute() or ".." in path.parts:
                 raise SystemExit(localized(language, "Unsicherer Pfad im Modellpaket.", "Unsafe path in model package.", "Ruta no segura en el paquete.", "Chemin non sécurisé dans le paquet."))
-            if name != "manifest.json" and not (name.startswith("weights/") and path.suffix in {".pth", ".ckpt"}):
+            if name != "manifest.json" and not (name.startswith("weights/") and path.suffix in weight_suffixes):
                 raise SystemExit(localized(language, f"Unzulässige Datei im Modellpaket: {name}", f"Disallowed file in model package: {name}"))
             # Defense in depth: reject anything that isn't a plain regular file
             # entry (e.g. a symlink) even though the extraction path below reads
