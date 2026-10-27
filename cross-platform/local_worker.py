@@ -728,6 +728,30 @@ def extract_frames_for_video(
     return generated, rate, max(1, width), max(1, height)
 
 
+def carry_over_imported_frames(root: Path, existing_project: dict | None, frames_dir: Path, sport: str) -> list[dict]:
+    """Keep frames added by "import-labels" when the videos are prepared again.
+
+    Preparing videos rebuilds frames/ from the videos only; imported images (stored in
+    frames/imported/, videoID "import-...") would otherwise be dropped.
+    """
+    imported_root = (root / "frames" / "imported").resolve()
+    kept: list[dict] = []
+    for frame in (existing_project or {}).get("frames", []):
+        if not str(frame.get("videoID", "")).startswith("import-"):
+            continue
+        source = (root / str(frame.get("relativePath", ""))).resolve()
+        if imported_root not in source.parents or not source.is_file():
+            continue
+        target = frames_dir / "imported" / source.name
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source, target)
+        kept.append({
+            **frame,
+            "annotations": [item for item in frame.get("annotations", []) if item.get("category") in SPORT_CATEGORIES[sport]],
+        })
+    return kept
+
+
 def extract_project(sport: str, requested_frames_per_video: int = DEFAULT_FRAMES_PER_VIDEO) -> None:
     try:
         folder = STATE.selected_folder
@@ -789,6 +813,7 @@ def extract_project(sport: str, requested_frames_per_video: int = DEFAULT_FRAMES
                     })
                 completed += duration
                 STATE.update(progress=min(completed / total_duration, 0.98))
+            frames.extend(carry_over_imported_frames(root, existing_project, temporary_frames, sport))
             root.mkdir(parents=True, exist_ok=True)
             frames_dir = root / "frames"
             previous = root / "frames.previous"

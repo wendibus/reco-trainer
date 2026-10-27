@@ -80,6 +80,22 @@ The extracted folders also contain `START-HERE.md` with a step-by-step tour of t
 
 The [User Guide](docs/USER-GUIDE.md) walks through all of this with explanations of *why* each step matters.
 
+## Import labels from other tools
+
+Reco Trainer keeps its labels in the project (`.reco-training/project.json`). **YOLO-txt** and **COCO-JSON** datasets can be imported with the worker command below (there is no button in the app yet):
+
+```bash
+python3 ml_worker.py import-labels --project "/path/to/videos/.reco-training" --source "/path/to/labelled-folder" \
+  [--class-map "0=player,1=ball,2=referee"] [--format yolo|coco] [--candidates] [--overwrite]
+```
+
+- **YOLO:** images next to their `.txt` files, or an Ultralytics layout (`images/...`, `labels/...`). Class names come from `data.yaml` or `classes.txt`, or from `--class-map`. Polygon lines become their bounding box.
+- **COCO:** `*.json` with `images`, `annotations` and `categories`; boxes are `[x, y, width, height]` in pixels.
+- Classes are mapped to the sport's Reco classes (for example `person` -> `player`, `sports ball` -> `ball`). Other classes are skipped and listed in the output.
+- Images are copied to `frames/imported/` and count as reviewed; `--candidates` imports them as suggestions to review first. Importing the same image again is skipped. A frame that already exists with the same file name only receives the labels (`--overwrite` replaces labels it already has).
+- The train/validation split is made per video, and one import counts as one source. Import from several sources, or together with several videos, to get a separate validation set.
+- Close the project in the Mac app before importing and open it again afterwards. If you prepare the videos again in the Mac app, run the import again; the files stay in `frames/imported/`.
+
 ## Privacy and security
 
 - The local worker binds to `127.0.0.1` only and has no media upload endpoint.

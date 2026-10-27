@@ -1,5 +1,11 @@
 # Änderungen
 
+## 0.19.0
+
+- Neu: Beschriftete Bilder aus anderen Quellen lassen sich ins Projekt importieren – YOLO-txt (auch Ultralytics-Ordner mit `images/` und `labels/`, Polygon-Zeilen werden zur Box) und COCO-JSON. Aufruf: `ml_worker.py import-labels --project <Projektordner> --source <Ordner>` (siehe README). Klassen werden auf die Reco-Klassen der Sportart abgebildet (z. B. person → player), unbekannte Klassen werden übersprungen und gemeldet.
+- Importierte Bilder landen in `frames/imported/` und gelten als geprüft (mit `--candidates` als Vorschläge). Doppelte Bilder werden erkannt. Windows/Linux/Docker behalten importierte Frames beim erneuten Vorbereiten der Videos.
+- Noch ohne Schaltfläche in der Oberfläche.
+
 ## 0.18.0
 
 - Neu: Externe ONNX-Detektoren (YOLO mit eingebautem NMS, Ausgabe 1 × N × 6) lassen sich als `.recomodel`-Paket über „Modell importieren“ einbinden. Sie dienen zum automatischen Vorbeschriften und für den Modellvergleich (Benchmark). Trainieren oder Feinabstimmen ist mit ihnen nicht möglich; das Training läuft weiter mit RF-DETR.
