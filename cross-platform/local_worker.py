@@ -449,13 +449,22 @@ def freeze_ground_truth() -> dict:
     return benchmark_snapshot(root)
 
 
-def choose_video_folder(*, expansion: bool = False) -> Path:
-    configured_folder = (
-        os.environ.get("RECO_EXPANSION_FOLDER") or os.environ.get("RECO_TEST_EXPANSION_FOLDER")
-        if expansion else
-        os.environ.get("RECO_VIDEO_FOLDER") or os.environ.get("RECO_TEST_FOLDER")
-    )
+def choose_video_folder(*, expansion: bool = False, labels: bool = False) -> Path:
+    """Native folder picker. labels=True picks a folder of images with YOLO-txt
+    or COCO labels for "Import labels" instead of a video folder."""
+    if labels:
+        configured_folder = os.environ.get("RECO_LABEL_FOLDER")
+    elif expansion:
+        configured_folder = os.environ.get("RECO_EXPANSION_FOLDER") or os.environ.get("RECO_TEST_EXPANSION_FOLDER")
+    else:
+        configured_folder = os.environ.get("RECO_VIDEO_FOLDER") or os.environ.get("RECO_TEST_FOLDER")
+    dialog_title = "Select folder with images and YOLO or COCO labels" if labels else "Select folder containing sports videos"
     prompt = localized(
+        "Ordner mit Bildern und YOLO- oder COCO-Labels auswählen",
+        "Select a folder with images and YOLO or COCO labels",
+        "Selecciona una carpeta con imágenes y etiquetas YOLO o COCO",
+        "Sélectionnez un dossier avec des images et des annotations YOLO ou COCO",
+    ) if labels else localized(
         "Ordner mit neuen, noch nicht verwendeten Sportvideos auswählen" if expansion else "Ordner mit Sportvideos auswählen",
         "Select a folder with new, not yet used sports videos" if expansion else "Select a folder with sports videos",
         "Selecciona una carpeta con vídeos deportivos nuevos aún no usados" if expansion else "Selecciona una carpeta con vídeos deportivos",
@@ -476,7 +485,7 @@ def choose_video_folder(*, expansion: bool = False) -> Path:
         script = (
             "Add-Type -AssemblyName System.Windows.Forms; "
             "$dialog = New-Object System.Windows.Forms.FolderBrowserDialog; "
-            "$dialog.Description = 'Select folder containing sports videos'; "
+            f"$dialog.Description = '{dialog_title}'; "
             "if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { $dialog.SelectedPath }"
         )
         result = subprocess.run([powershell, "-NoProfile", "-Command", script], capture_output=True, text=True, check=False)
@@ -485,7 +494,7 @@ def choose_video_folder(*, expansion: bool = False) -> Path:
         selected = Path(result.stdout.strip()).resolve()
     else:
         dialog = shutil.which("zenity")
-        command = [dialog, "--file-selection", "--directory", "--title=Select folder containing sports videos"] if dialog else None
+        command = [dialog, "--file-selection", "--directory", f"--title={dialog_title}"] if dialog else None
         if command is None and shutil.which("kdialog"):
             command = [shutil.which("kdialog"), "--getexistingdirectory", str(Path.home())]
         if command is None:
@@ -1170,6 +1179,29 @@ def run_json(command: list[str], on_progress: Callable[[int, int], None] | None 
     return json.loads(last_line)
 
 
+def label_import_message(summary: dict, candidates: bool) -> str:
+    """One status line for the final JSON of `ml_worker.py import-labels`."""
+    images = int(summary.get("imported", 0)) + int(summary.get("matched", 0))
+    boxes = int(summary.get("annotations", 0))
+    duplicates = int(summary.get("duplicates", 0))
+    label_format = str(summary.get("format", "")).upper()
+    parts = [localized(
+        f"Labels importiert ({label_format}): {images} Bilder, {boxes} Boxen.",
+        f"Labels imported ({label_format}): {images} images, {boxes} boxes.",
+        f"Etiquetas importadas ({label_format}): {images} imágenes, {boxes} cuadros.",
+        f"Annotations importées ({label_format}) : {images} images, {boxes} boîtes.",
+    )]
+    if candidates and images:
+        parts.append(localized("Als Vorschläge in der Prüfwarteschlange.", "Added as suggestions to the review queue.", "Añadidas como sugerencias a la cola de revisión.", "Ajoutées comme suggestions à la file de vérification."))
+    if duplicates:
+        parts.append(localized(f"{duplicates} bereits vorhanden, übersprungen.", f"{duplicates} already present, skipped.", f"{duplicates} ya presentes, omitidas.", f"{duplicates} déjà présentes, ignorées."))
+    skipped = summary.get("skippedClasses") or {}
+    if skipped:
+        classes = ", ".join(f"{name} ({count})" for name, count in sorted(skipped.items()))
+        parts.append(localized(f"Nicht übernommene Klassen: {classes}.", f"Classes not imported: {classes}.", f"Clases no importadas: {classes}.", f"Classes non importées : {classes}."))
+    return " ".join(parts)
+
+
 def ml_action(action: str, payload: dict) -> None:
     try:
         root = STATE.project_root
@@ -1248,6 +1280,15 @@ def ml_action(action: str, payload: dict) -> None:
                 # to checksum-only validation via the system Python otherwise.
                 executable = venv_python if venv_python.is_file() else system_python()
                 args = ["install-package", "--project", str(root), "--file", str(package_file), "--language", language]
+            elif action == "import-labels":
+                source = Path(str(payload.get("source", ""))).resolve()
+                if not source.is_dir():
+                    raise RuntimeError(localized("Der ausgewählte Ordner ist nicht verfügbar.", "The selected folder is not available.", "La carpeta seleccionada no está disponible.", "Le dossier sélectionné n’est pas disponible."))
+                # Standard library only - the system Python is enough, no ML environment needed.
+                executable = system_python()
+                args = ["import-labels", "--project", str(root), "--source", str(source), "--format", "auto", "--language", language]
+                if payload.get("candidates"):
+                    args.append("--candidates")
             elif action == "package-model":
                 executable = venv_python if venv_python.is_file() else system_python()
                 args = ["package", "--project", str(root), "--model", model, "--name", str(payload.get("name", "")), "--language", language]
@@ -1300,6 +1341,12 @@ def ml_action(action: str, payload: dict) -> None:
                 args = ["refine-boxes", "--project", str(root), "--language", language]
             else:
                 raise RuntimeError(localized("Unbekannter ML-Vorgang.", "Unknown ML operation.", "Operación de ML desconocida.", "Opération ML inconnue."))
+            if action == "import-labels":
+                summary = run_json([str(executable), str(worker), *args])
+                message = label_import_message(summary, bool(payload.get("candidates")))
+                STATE.append_log(message)
+                STATE.update(project=load_project(root), operation="ready", busy=False, progress=1.0, message=message)
+                return
             run_logged([str(executable), str(worker), *args])
         project = load_project(root)
         STATE.update(project=project, operation="ready", busy=False, progress=1.0, message=localized("Lokaler Vorgang abgeschlossen.", "Local operation completed.", "Operación local completada.", "Opération locale terminée."))
@@ -1645,6 +1692,14 @@ class Handler(BaseHTTPRequestHandler):
                 package_file = select_model_package()
                 threading.Thread(target=ml_action, args=("import-model", {**payload, "file": str(package_file)}), daemon=True).start()
                 self.json_response({"ok": True, "fileName": package_file.name})
+            elif self.path == "/api/import-labels":
+                if STATE.busy:
+                    raise RuntimeError(localized("Ein lokaler Vorgang läuft bereits.", "A local operation is already running.", "Ya hay una operación local en curso.", "Une opération locale est déjà en cours."))
+                if STATE.project_root is None or not (STATE.project_root / "project.json").is_file():
+                    raise RuntimeError(localized("Zuerst Videos lokal vorbereiten.", "Prepare videos locally first.", "Primero prepara los vídeos localmente.", "Préparez d’abord les vidéos localement."))
+                label_folder = choose_video_folder(labels=True)
+                threading.Thread(target=ml_action, args=("import-labels", {**payload, "source": str(label_folder)}), daemon=True).start()
+                self.json_response({"ok": True, "folder": str(label_folder)})
             elif self.path in {"/api/setup", "/api/autolabel", "/api/train", "/api/export-coreml", "/api/export-onnx", "/api/refine-boxes", "/api/package-model", "/api/combine-models", "/api/benchmark", "/api/activate-model", "/api/rename-model", "/api/delete-model"}:
                 if STATE.busy:
                     raise RuntimeError(localized("Ein lokaler Vorgang läuft bereits.", "A local operation is already running.", "Ya hay una operación local en curso.", "Une opération locale est déjà en cours."))

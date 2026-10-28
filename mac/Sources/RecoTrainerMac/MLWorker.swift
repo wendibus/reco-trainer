@@ -270,6 +270,27 @@ struct MLWorker: Sendable {
         return try Self.decodeLastJSONLine(InstalledModelResponse.self, from: output)
     }
 
+    /// Imports YOLO-txt or COCO labelled images from `sourceFolder`. Standard
+    /// library only, so the system Python is enough; the worker prints its
+    /// localized summary lines before the final JSON.
+    func importLabels(
+        sourceFolder: URL,
+        asCandidates: Bool,
+        language: AppLanguage
+    ) async throws -> LabelImportSummary {
+        var arguments = [
+            try workerURL.path, "import-labels", "--project", projectRoot.path,
+            "--source", sourceFolder.path, "--format", "auto", "--language", language.rawValue
+        ]
+        if asCandidates { arguments.append("--candidates") }
+        let output = try await runPython(arguments: arguments, preferVenv: false)
+        do {
+            return try Self.decodeLastJSONLine(LabelImportSummary.self, from: output)
+        } catch {
+            throw MLWorkerError.failed(-1, output)
+        }
+    }
+
     func activateModel(packageID: String, language: AppLanguage) async throws -> ActivatedModelResponse {
         let output = try await runPython(
             arguments: [try workerURL.path, "activate-model", "--project", projectRoot.path, "--package-id", packageID, "--language", language.rawValue],

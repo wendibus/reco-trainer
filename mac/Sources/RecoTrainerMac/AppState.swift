@@ -8,6 +8,7 @@ enum LocalPickerPurpose: String, Identifiable, Sendable {
     case activeLearningFolder
     case independentValidationFolder
     case modelPackage
+    case labelFolder
     case simulationVideo
 
     var id: String { rawValue }
@@ -30,7 +31,7 @@ final class AppState: ObservableObject {
     /// CFBundleShortVersionString (Info.plist) and VERSION (package-platforms.sh)
     /// at every release. Used both for the "what's new" sheet and for deciding
     /// whether a fetched GitHub release is actually newer than what's running.
-    static let appVersion = "0.19.0"
+    static let appVersion = "0.19.1"
 
     @Published var language: AppLanguage = .de
     @Published var sport: Sport = .football
@@ -107,6 +108,8 @@ final class AppState: ObservableObject {
     @Published var ballTrackingLookaheadFrames = 8
     @Published var errorMessage: String?
     @Published var localPickerPurpose: LocalPickerPurpose?
+    /// Set by importLabels(asCandidates:) and read when the picker confirms a folder.
+    private var importLabelsAsCandidates = false
     @Published private(set) var installedModelCount = 0
     @Published var managedModels: [ManagedModelRecord] = []
     @Published private var continuationCheckpoints: [ModelSize: String] = [:]
@@ -230,7 +233,7 @@ final class AppState: ObservableObject {
             return selectedFolder ?? URL(filePath: "/Volumes", directoryHint: .isDirectory)
         case .activeLearningFolder, .independentValidationFolder:
             return URL(filePath: "/Volumes", directoryHint: .isDirectory)
-        case .modelPackage:
+        case .modelPackage, .labelFolder:
             return FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
                 ?? FileManager.default.homeDirectoryForCurrentUser
         case .simulationVideo:
@@ -259,6 +262,9 @@ final class AppState: ObservableObject {
         case .modelPackage:
             guard let store else { return }
             importModelPackage(from: url, store: store)
+        case .labelFolder:
+            guard let store else { return }
+            importLabels(from: url, asCandidates: importLabelsAsCandidates, store: store)
         case .simulationVideo:
             startBallTrackingSimulation(video: url)
         }
@@ -1037,6 +1043,57 @@ final class AppState: ObservableObject {
             }
             isWorking = false
         }
+    }
+
+    /// "Labels importieren": YOLO-txt or COCO labels from another tool. With
+    /// asCandidates the boxes land as unreviewed suggestions in the review queue.
+    func importLabels(asCandidates: Bool) {
+        guard store != nil, project != nil else { return }
+        importLabelsAsCandidates = asCandidates
+        localPickerPurpose = .labelFolder
+    }
+
+    private func importLabels(from folderURL: URL, asCandidates: Bool, store: ProjectStore) {
+        isWorking = true
+        errorMessage = nil
+        status = tr("Importiere Labels …", "Importing labels …", "Importando etiquetas …", "Import des annotations …")
+        Task {
+            do {
+                let summary = try await MLWorker(projectRoot: store.rootURL)
+                    .importLabels(sourceFolder: folderURL, asCandidates: asCandidates, language: language)
+                let loaded = try store.load()
+                project = loaded
+                if asCandidates, summary.imported + summary.matched > 0 {
+                    selectedFrameID = loaded.frames.first(where: { $0.reviewStatus == "candidate" })?.id
+                }
+                status = labelImportStatus(summary, asCandidates: asCandidates)
+            } catch {
+                errorMessage = error.localizedDescription
+                status = tr("Label-Import fehlgeschlagen.", "Label import failed.", "Falló la importación de etiquetas.", "Échec de l’import des annotations.")
+            }
+            isWorking = false
+        }
+    }
+
+    private func labelImportStatus(_ summary: LabelImportSummary, asCandidates: Bool) -> String {
+        let images = summary.imported + summary.matched
+        var text = tr(
+            "Labels importiert (\(summary.format.uppercased())): \(images) Bilder, \(summary.annotations) Boxen.",
+            "Labels imported (\(summary.format.uppercased())): \(images) images, \(summary.annotations) boxes.",
+            "Etiquetas importadas (\(summary.format.uppercased())): \(images) imágenes, \(summary.annotations) cuadros.",
+            "Annotations importées (\(summary.format.uppercased())) : \(images) images, \(summary.annotations) boîtes."
+        )
+        if asCandidates, images > 0 {
+            text += " " + tr("Als Vorschläge in der Prüfwarteschlange.", "Added as suggestions to the review queue.", "Añadidas como sugerencias a la cola de revisión.", "Ajoutées comme suggestions à la file de vérification.")
+        }
+        if summary.duplicates > 0 {
+            text += " " + tr("\(summary.duplicates) bereits vorhanden, übersprungen.", "\(summary.duplicates) already present, skipped.", "\(summary.duplicates) ya presentes, omitidas.", "\(summary.duplicates) déjà présentes, ignorées.")
+        }
+        if !summary.skippedClasses.isEmpty {
+            let classes = summary.skippedClasses.sorted { $0.key < $1.key }.map { "\($0.key) (\($0.value))" }.joined(separator: ", ")
+            text += " " + tr("Nicht übernommene Klassen: \(classes).", "Classes not imported: \(classes).", "Clases no importadas: \(classes).", "Classes non importées : \(classes).")
+        }
+        return text
     }
 
     func activateModel(_ model: ManagedModelRecord) {

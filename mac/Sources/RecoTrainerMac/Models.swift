@@ -226,6 +226,19 @@ struct InstalledModelResponse: Codable, Sendable {
     var active: ActiveModelRecord
 }
 
+/// Final JSON line of `ml_worker.py import-labels`.
+struct LabelImportSummary: Codable, Sendable {
+    var imported: Int
+    var matched: Int
+    var duplicates: Int
+    var annotations: Int
+    var format: String
+    var skippedClasses: [String: Int]
+    var imagesWithoutLabels: Int
+    var invalidLines: Int
+    var unreadableImages: Int
+}
+
 struct ManagedModelRecord: Codable, Identifiable, Sendable {
     var packageID: String
     var displayName: String?

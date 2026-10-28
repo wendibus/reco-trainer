@@ -925,6 +925,26 @@ struct ContentView: View {
                     showPackageNamePrompt = true
                 }
                 Button(app.tr("Modell importieren", "Import model", "Importar modelo", "Importer un modèle"), action: app.importModelPackage)
+                Menu {
+                    Button(app.tr("Als geprüfte Labels importieren", "Import as reviewed labels", "Importar como etiquetas revisadas", "Importer comme annotations vérifiées")) {
+                        app.importLabels(asCandidates: false)
+                    }
+                    Button(app.tr("Als Vorschläge importieren", "Import as suggestions", "Importar como sugerencias", "Importer comme suggestions")) {
+                        app.importLabels(asCandidates: true)
+                    }
+                } label: {
+                    Text(app.tr("Labels importieren", "Import labels", "Importar etiquetas", "Importer des annotations"))
+                } primaryAction: {
+                    app.importLabels(asCandidates: false)
+                }
+                .fixedSize()
+                .disabled(app.project == nil)
+                .help(app.tr(
+                    "Übernimmt Bilder mit YOLO-txt- oder COCO-Labels aus einem Ordner (z. B. aus CVAT oder Roboflow). Klassennamen kommen aus data.yaml, classes.txt oder der COCO-Datei; unbekannte Klassen werden übersprungen.",
+                    "Imports images with YOLO-txt or COCO labels from a folder (e.g. from CVAT or Roboflow). Class names come from data.yaml, classes.txt, or the COCO file; unknown classes are skipped.",
+                    "Importa imágenes con etiquetas YOLO-txt o COCO desde una carpeta (p. ej., de CVAT o Roboflow). Los nombres de clase se toman de data.yaml, classes.txt o del archivo COCO; las clases desconocidas se omiten.",
+                    "Importe des images avec annotations YOLO-txt ou COCO depuis un dossier (p. ex. CVAT ou Roboflow). Les noms de classe proviennent de data.yaml, classes.txt ou du fichier COCO ; les classes inconnues sont ignorées."
+                ))
             }
             .disabled(app.isWorking)
 
@@ -1270,6 +1290,8 @@ private struct LocalFilePicker: View {
             language.text("Ordner mit nie trainierten Videos auswählen", "Select folder with never-trained videos", "Seleccionar carpeta con vídeos nunca entrenados", "Sélectionner le dossier des vidéos jamais entraînées")
         case .modelPackage:
             language.text("Reco-Modellpaket auswählen", "Select Reco model package", "Seleccionar paquete de modelo Reco", "Sélectionner le paquet de modèle Reco")
+        case .labelFolder:
+            language.text("Ordner mit Bildern und YOLO- oder COCO-Labels auswählen", "Select folder with images and YOLO or COCO labels", "Seleccionar carpeta con imágenes y etiquetas YOLO o COCO", "Sélectionner le dossier avec images et annotations YOLO ou COCO")
         case .simulationVideo:
             language.text("Kurzes Video für die Balltracking-Simulation auswählen", "Select a short clip for the ball-tracking simulation", "Seleccionar un vídeo corto para la simulación de seguimiento del balón", "Sélectionner une courte vidéo pour la simulation de suivi du ballon")
         }
@@ -1420,6 +1442,9 @@ private struct LocalFilePicker: View {
     private var selectionTitle: String {
         if purpose == .modelPackage {
             return language.text("Modell importieren", "Import model", "Importar modelo", "Importer le modèle")
+        }
+        if purpose == .labelFolder {
+            return language.text("Labels aus diesem Ordner importieren", "Import labels from this folder", "Importar etiquetas de esta carpeta", "Importer les annotations de ce dossier")
         }
         if purpose == .simulationVideo {
             return language.text("Video verwenden", "Use this video", "Usar este vídeo", "Utiliser cette vidéo")

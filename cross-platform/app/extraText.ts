@@ -5,6 +5,7 @@ export type ExtraText = {
   onnx: string; coreml: string; coremlMacOnly: string;
   fieldSet: string; fieldEdit: string; fieldHelp: string; fieldNudge: string; notNow: string;
   showFolder: string;
+  importLabels: string; importLabelsCandidates: string; importLabelsHelp: string;
   editorIntro: string; widthLabel: string; lengthLabel: string;
   cornerLabels: [string, string, string, string];
   cornerPrompt: (index: number, label: string) => string;
@@ -20,6 +21,8 @@ export const extraText: Record<ExtraLanguage, ExtraText> = {
     fieldHelp: 'Markiere die Eckpunkte des Spielfelds (vier Ecken oder mehr Punkte entlang des Randes), damit „Automatisch markieren“ nur Personen berücksichtigt, die mit den Füßen auf dem Feld stehen.',
     fieldNudge: 'Spielfeld markieren, damit automatisches Markieren nur Personen auf dem Feld berücksichtigt.', notNow: 'Nicht jetzt',
     showFolder: 'Trainingsordner anzeigen',
+    importLabels: 'Labels importieren', importLabelsCandidates: 'Als Vorschläge',
+    importLabelsHelp: 'Übernimmt Bilder mit YOLO-txt- oder COCO-Labels aus einem Ordner (z. B. aus CVAT oder Roboflow). Klassennamen kommen aus data.yaml, classes.txt oder der COCO-Datei; unbekannte Klassen werden übersprungen. „Als Vorschläge“ legt die Boxen ungeprüft in die Prüfwarteschlange.',
     editorIntro: "Damit „Automatisch markieren“ nur Personen berücksichtigt, die mit den Füßen auf dem Spielfeld stehen. Klicke die Eckpunkte des Spielfelds im Bild an - bei einem rechteckigen Feld die vier Ecken in dieser Reihenfolge: oben links, oben rechts, unten rechts, unten links - und gib die echten Feldmaße ein. Bei anderen Formen setzt du einfach weitere Punkte rund um den Rand (bis zu 32); die Maße sind dann optional. Punkte lassen sich verschieben, der letzte Punkt kann wieder entfernt werden.",
     widthLabel: 'Breite (m)', lengthLabel: 'Länge (m)',
     cornerLabels: ['Oben links', 'Oben rechts', 'Unten rechts', 'Unten links'],
@@ -34,6 +37,8 @@ export const extraText: Record<ExtraLanguage, ExtraText> = {
     fieldHelp: 'Mark the field\'s corner points (four corners or more points along the edge) so "Auto-label" only considers people whose feet are standing on the field.',
     fieldNudge: 'Mark the field boundaries so auto-label only considers people standing on the field.', notNow: 'Not now',
     showFolder: 'Show training folder',
+    importLabels: 'Import labels', importLabelsCandidates: 'As suggestions',
+    importLabelsHelp: 'Imports images with YOLO-txt or COCO labels from a folder (e.g. from CVAT or Roboflow). Class names come from data.yaml, classes.txt, or the COCO file; unknown classes are skipped. “As suggestions” puts the boxes unreviewed into the review queue.',
     editorIntro: "So \"Auto-label\" only considers people whose feet are standing on the field. Click the field's corner points in the image - for a rectangular field its four corners in this order: top left, top right, bottom right, bottom left - and enter the field's real dimensions. For other shapes just keep adding points around the outline (up to 32); the dimensions are then optional. Drag a point to move it, or remove the last point again.",
     widthLabel: 'Width (m)', lengthLabel: 'Length (m)',
     cornerLabels: ['Top left', 'Top right', 'Bottom right', 'Bottom left'],
@@ -48,6 +53,8 @@ export const extraText: Record<ExtraLanguage, ExtraText> = {
     fieldHelp: 'Marca los puntos del campo (cuatro esquinas o más puntos a lo largo del borde) para que «Marcado automático» solo considere a personas con los pies sobre el campo.',
     fieldNudge: 'Marca los límites del campo para que el marcado automático solo considere a personas dentro del campo.', notNow: 'Ahora no',
     showFolder: 'Mostrar carpeta de entrenamiento',
+    importLabels: 'Importar etiquetas', importLabelsCandidates: 'Como sugerencias',
+    importLabelsHelp: 'Importa imágenes con etiquetas YOLO-txt o COCO desde una carpeta (p. ej., de CVAT o Roboflow). Los nombres de clase se toman de data.yaml, classes.txt o del archivo COCO; las clases desconocidas se omiten. «Como sugerencias» coloca los cuadros sin revisar en la cola de revisión.',
     editorIntro: "Para que «Marcado automático» solo considere a personas con los pies sobre el campo. Haz clic en los puntos del contorno del campo en la imagen: en un campo rectangular, sus cuatro esquinas en este orden: superior izquierda, superior derecha, inferior derecha, inferior izquierda, e introduce las medidas reales. Para otras formas sigue añadiendo puntos alrededor del borde (hasta 32); las medidas son entonces opcionales. Arrastra un punto para moverlo o quita el último.",
     widthLabel: 'Ancho (m)', lengthLabel: 'Largo (m)',
     cornerLabels: ['Superior izquierda', 'Superior derecha', 'Inferior derecha', 'Inferior izquierda'],
@@ -62,6 +69,8 @@ export const extraText: Record<ExtraLanguage, ExtraText> = {
     fieldHelp: 'Marquez les points du terrain (quatre coins ou davantage de points le long du bord) pour que « Marquage automatique » ne prenne en compte que les personnes ayant les pieds sur le terrain.',
     fieldNudge: 'Marquez les limites du terrain pour que le marquage automatique ne prenne en compte que les personnes sur le terrain.', notNow: 'Pas maintenant',
     showFolder: 'Afficher le dossier d’entraînement',
+    importLabels: 'Importer des annotations', importLabelsCandidates: 'Comme suggestions',
+    importLabelsHelp: 'Importe des images avec annotations YOLO-txt ou COCO depuis un dossier (p. ex. CVAT ou Roboflow). Les noms de classe proviennent de data.yaml, classes.txt ou du fichier COCO ; les classes inconnues sont ignorées. « Comme suggestions » place les boîtes non vérifiées dans la file de vérification.',
     editorIntro: "Pour que « Marquage automatique » ne prenne en compte que les personnes ayant les pieds sur le terrain. Cliquez sur les points du contour du terrain dans l’image - pour un terrain rectangulaire, ses quatre coins dans l’ordre : en haut à gauche, en haut à droite, en bas à droite, en bas à gauche - et saisissez les dimensions réelles. Pour d’autres formes, continuez à ajouter des points le long du bord (jusqu’à 32) ; les dimensions sont alors facultatives. Faites glisser un point pour le déplacer ou supprimez le dernier.",
     widthLabel: 'Largeur (m)', lengthLabel: 'Longueur (m)',
     cornerLabels: ['En haut à gauche', 'En haut à droite', 'En bas à droite', 'En bas à gauche'],

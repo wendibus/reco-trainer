@@ -1,5 +1,11 @@
 # Änderungen
 
+## 0.19.1
+
+- Neu: Schaltfläche „Labels importieren“ in der Mac-App (neben „Modell importieren“) und in der Weboberfläche. Einen Ordner mit Bildern und YOLO-txt- oder COCO-Labels wählen; Reco Trainer übernimmt sie ins geöffnete Projekt und meldet die Anzahl der Bilder und Boxen sowie nicht übernommene Klassen. Über das Menü der Schaltfläche (Mac) bzw. „Labels importieren: Als Vorschläge“ (Web) landen die Boxen stattdessen ungeprüft in der Prüfwarteschlange.
+- Für den Import ist keine ML-Umgebung nötig. Klassennamen kommen aus `data.yaml`, `classes.txt` oder der COCO-Datei; für eine eigene Klassenzuordnung (`--class-map`) bleibt der Befehl `ml_worker.py import-labels`.
+- Das Projekt wird nach dem Import automatisch neu geladen.
+
 ## 0.19.0
 
 - Neu: Beschriftete Bilder aus anderen Quellen lassen sich ins Projekt importieren – YOLO-txt (auch Ultralytics-Ordner mit `images/` und `labels/`, Polygon-Zeilen werden zur Box) und COCO-JSON. Aufruf: `ml_worker.py import-labels --project <Projektordner> --source <Ordner>` (siehe README). Klassen werden auf die Reco-Klassen der Sportart abgebildet (z. B. person → player), unbekannte Klassen werden übersprungen und gemeldet.

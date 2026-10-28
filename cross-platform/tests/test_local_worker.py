@@ -445,6 +445,42 @@ class ParityActionTests(unittest.TestCase):
             self.assertTrue(list((root / "backups").glob("project-*-boxen.json")))
         self.assertIsNone(local_worker.STATE.error)
 
+    def test_import_labels_uses_the_system_python_and_reports_the_summary(self):
+        commands: list[list[str]] = []
+        summary = {"imported": 2, "matched": 1, "duplicates": 1, "annotations": 7, "format": "yolo",
+                   "skippedClasses": {"ghost": 2}, "imagesWithoutLabels": 0, "invalidLines": 0, "unreadableImages": 0}
+
+        def fake_run_json(command):
+            commands.append(command)
+            return summary
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "project"
+            root.mkdir()
+            source = Path(temporary) / "labels"
+            source.mkdir()
+            self._project(root)
+            # No venv: importing labels needs only the standard library.
+            with mock.patch.object(local_worker, "run_json", fake_run_json), \
+                    mock.patch.object(local_worker, "system_python", lambda: Path("/usr/bin/python3")):
+                local_worker.ml_action("import-labels", {"language": "en", "source": str(source), "candidates": True})
+            self.assertEqual(len(commands), 1)
+            self.assertEqual(commands[0][0], "/usr/bin/python3")
+            self.assertEqual(commands[0][2:], ["import-labels", "--project", str(root), "--source", str(source.resolve()), "--format", "auto", "--language", "en", "--candidates"])
+        self.assertIsNone(local_worker.STATE.error)
+        self.assertEqual(local_worker.STATE.operation, "ready")
+        self.assertEqual(
+            local_worker.STATE.message,
+            "Labels imported (YOLO): 3 images, 7 boxes. Added as suggestions to the review queue. "
+            "1 already present, skipped. Classes not imported: ghost (2).",
+        )
+
+    def test_import_labels_rejects_a_missing_source_folder(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            self._project(Path(temporary))
+            local_worker.ml_action("import-labels", {"language": "en", "source": str(Path(temporary) / "missing")})
+        self.assertIn("not available", local_worker.STATE.error or "")
+
     def test_refine_boxes_asks_for_ml_setup_when_there_is_no_environment(self):
         with tempfile.TemporaryDirectory() as temporary:
             self._project(Path(temporary))
