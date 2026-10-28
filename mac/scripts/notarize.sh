@@ -2,7 +2,8 @@
 set -euo pipefail
 
 ROOT_DIR="${0:A:h}/.."
-DMG_PATH="$ROOT_DIR/dist/Reco-Trainer-Mac-0.6.0.dmg"
+VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$ROOT_DIR/Packaging/Info.plist")"
+DMG_PATH="$ROOT_DIR/dist/Reco-Trainer-Mac-$VERSION.dmg"
 
 if [[ -z "${RECO_SIGN_IDENTITY:-}" || "$RECO_SIGN_IDENTITY" == "-" ]]; then
   echo "RECO_SIGN_IDENTITY muss eine gültige 'Developer ID Application'-Identität enthalten." >&2
@@ -13,6 +14,8 @@ if [[ -z "${RECO_NOTARY_PROFILE:-}" ]]; then
   exit 2
 fi
 
+# package-dmg.sh must write to the default dist folder used for DMG_PATH.
+unset RECO_DIST_DIR
 "$ROOT_DIR/scripts/package-dmg.sh"
 xcrun notarytool submit "$DMG_PATH" --keychain-profile "$RECO_NOTARY_PROFILE" --wait
 xcrun stapler staple "$DMG_PATH"
