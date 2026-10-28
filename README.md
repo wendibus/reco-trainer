@@ -35,7 +35,7 @@ Requirements: macOS 14 or newer, Apple silicon, and **Python 3.10 or newer** (3.
 
 1. Download `Reco-Trainer-Mac-<version>.dmg` from the [latest release](https://github.com/wendibus/reco-trainer/releases/latest).
 2. Open it and drag **Reco Trainer** into **Applications**.
-3. Start the app. It is signed with a Developer ID certificate but not yet Apple-notarized, so macOS may show a warning on first launch. Control-click the app, choose **Open**, and confirm once (or use **System Settings → Privacy & Security → Open Anyway**).
+3. Start the app. It is signed with a Developer ID certificate and notarized by Apple (from 0.19.1; 0.17.2 was notarized afterwards), so macOS opens it without a security warning.
 4. Choose your language, then watch the short walkthrough video or click through the guided tour.
 5. Pick a sport and a video folder, then run **Set up ML** once.
 
@@ -124,7 +124,7 @@ Please **do not** attach private match footage, extracted frames, datasets, `.re
 
 - Windows, Linux and Docker still need broader real-system testing.
 - Training uses Apple silicon or an NVIDIA GPU when available; AMD GPUs are not accelerated, and Docker runs on the CPU.
-- The Mac app is signed but not Apple-notarized.
+- The Mac app is signed and Apple-notarized from 0.19.1 on (0.17.2 as well); older releases are signed only and need **Open** from the context menu on first launch.
 - Automatic labels are suggestions and must be reviewed.
 - Benchmark results are only meaningful with accurate, representative and previously unseen test data.
 - The benchmark compares object detection; tracking stability across a complete video is not yet a ranking metric (the ball-tracking simulation is a visual check only).
