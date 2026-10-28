@@ -537,12 +537,15 @@ def select_folder() -> Path:
     return selected
 
 
-def select_model_package() -> Path:
-    configured = os.environ.get("RECO_MODEL_PACKAGE") or os.environ.get("RECO_TEST_MODEL_PACKAGE")
+def select_model_package(suffix: str = ".recomodel") -> Path:
+    """Native file picker for a .recomodel package, or with suffix=".onnx" for a
+    YOLO ONNX export that "Import ONNX model" wraps into a package."""
+    onnx = suffix == ".onnx"
+    configured = os.environ.get("RECO_ONNX_MODEL") if onnx else (os.environ.get("RECO_MODEL_PACKAGE") or os.environ.get("RECO_TEST_MODEL_PACKAGE"))
     if configured:
         selected = Path(configured).expanduser().resolve()
     elif sys.platform == "darwin":
-        prompt = localized("Reco-Modellpaket auswählen", "Select Reco model package", "Selecciona un paquete de modelo de Reco", "Sélectionnez un paquet de modèle Reco")
+        prompt = localized("ONNX-Modell auswählen", "Select ONNX model", "Selecciona un modelo ONNX", "Sélectionnez un modèle ONNX") if onnx else localized("Reco-Modellpaket auswählen", "Select Reco model package", "Selecciona un paquete de modelo de Reco", "Sélectionnez un paquet de modèle Reco")
         script = f'POSIX path of (choose file with prompt "{prompt}")'
         result = subprocess.run(["/usr/bin/osascript", "-e", script], capture_output=True, text=True, check=False)
         if result.returncode != 0:
@@ -555,8 +558,8 @@ def select_model_package() -> Path:
         script = (
             "Add-Type -AssemblyName System.Windows.Forms; "
             "$dialog = New-Object System.Windows.Forms.OpenFileDialog; "
-            "$dialog.Filter = 'Reco model package (*.recomodel)|*.recomodel'; "
-            "if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { $dialog.FileName }"
+            + ("$dialog.Filter = 'ONNX model (*.onnx)|*.onnx'; " if onnx else "$dialog.Filter = 'Reco model package (*.recomodel)|*.recomodel'; ")
+            + "if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { $dialog.FileName }"
         )
         result = subprocess.run([powershell, "-NoProfile", "-Command", script], capture_output=True, text=True, check=False)
         if result.returncode != 0 or not result.stdout.strip():
@@ -564,15 +567,15 @@ def select_model_package() -> Path:
         selected = Path(result.stdout.strip()).resolve()
     else:
         dialog = shutil.which("zenity")
-        command = [dialog, "--file-selection", "--title=Select Reco model package", "--file-filter=Reco models | *.recomodel"] if dialog else None
+        command = [dialog, "--file-selection", "--title=Select ONNX model" if onnx else "--title=Select Reco model package", f"--file-filter={'ONNX models' if onnx else 'Reco models'} | *{suffix}"] if dialog else None
         if command is None and shutil.which("kdialog"):
-            command = [shutil.which("kdialog"), "--getopenfilename", str(Path.home()), "*.recomodel"]
+            command = [shutil.which("kdialog"), "--getopenfilename", str(Path.home()), f"*{suffix}"]
         if command is None:
             inboxes = []
             if STATE.selected_folder:
-                inboxes.extend(STATE.selected_folder.glob("*.recomodel"))
+                inboxes.extend(STATE.selected_folder.glob(f"*{suffix}"))
             if STATE.project_root:
-                inboxes.extend((STATE.project_root / "inbox").glob("*.recomodel"))
+                inboxes.extend((STATE.project_root / "inbox").glob(f"*{suffix}"))
             candidates = sorted({path.resolve() for path in inboxes if path.is_file()})
             if len(candidates) == 1:
                 return candidates[0]
@@ -586,8 +589,8 @@ def select_model_package() -> Path:
         if result.returncode != 0 or not result.stdout.strip():
             raise RuntimeError(localized("Modellauswahl wurde abgebrochen.", "Model selection was cancelled.", "Se canceló la selección del modelo.", "La sélection du modèle a été annulée."))
         selected = Path(result.stdout.strip()).resolve()
-    if not selected.is_file() or selected.suffix.lower() != ".recomodel":
-        raise RuntimeError(localized("Bitte eine vorhandene .recomodel-Datei auswählen.", "Please select an existing .recomodel file.", "Selecciona un archivo .recomodel existente.", "Veuillez sélectionner un fichier .recomodel existant."))
+    if not selected.is_file() or selected.suffix.lower() != suffix:
+        raise RuntimeError(localized(f"Bitte eine vorhandene {suffix}-Datei auswählen.", f"Please select an existing {suffix} file.", f"Selecciona un archivo {suffix} existente.", f"Veuillez sélectionner un fichier {suffix} existant."))
     return selected
 
 
@@ -1280,6 +1283,21 @@ def ml_action(action: str, payload: dict) -> None:
                 # to checksum-only validation via the system Python otherwise.
                 executable = venv_python if venv_python.is_file() else system_python()
                 args = ["install-package", "--project", str(root), "--file", str(package_file), "--language", language]
+            elif action == "import-onnx":
+                onnx_file = Path(str(payload.get("file", ""))).resolve()
+                if not onnx_file.is_file() or onnx_file.suffix.lower() != ".onnx":
+                    raise RuntimeError(localized("Die ausgewählte ONNX-Datei ist nicht verfügbar.", "The selected ONNX file is not available.", "El archivo ONNX seleccionado no está disponible.", "Le fichier ONNX sélectionné n’est pas disponible."))
+                try:
+                    input_size = int(payload.get("inputSize") or 640)
+                except (TypeError, ValueError):
+                    input_size = 640
+                # Packaging and installing an ONNX model needs no ML libraries.
+                executable = system_python()
+                args = [
+                    "install-onnx", "--project", str(root), "--file", str(onnx_file),
+                    "--name", str(payload.get("name", "")), "--class-names", str(payload.get("classNames", "")),
+                    "--input-size", str(input_size), "--license", str(payload.get("license", "")), "--language", language,
+                ]
             elif action == "import-labels":
                 source = Path(str(payload.get("source", ""))).resolve()
                 if not source.is_dir():
@@ -1692,6 +1710,14 @@ class Handler(BaseHTTPRequestHandler):
                 package_file = select_model_package()
                 threading.Thread(target=ml_action, args=("import-model", {**payload, "file": str(package_file)}), daemon=True).start()
                 self.json_response({"ok": True, "fileName": package_file.name})
+            elif self.path == "/api/import-onnx":
+                if STATE.busy:
+                    raise RuntimeError(localized("Ein lokaler Vorgang läuft bereits.", "A local operation is already running.", "Ya hay una operación local en curso.", "Une opération locale est déjà en cours."))
+                if not str(payload.get("classNames", "")).strip():
+                    raise RuntimeError(localized("Bitte die Klassen des Modells angeben.", "Please enter the model's classes.", "Indica las clases del modelo.", "Veuillez indiquer les classes du modèle."))
+                onnx_file = select_model_package(".onnx")
+                threading.Thread(target=ml_action, args=("import-onnx", {**payload, "file": str(onnx_file)}), daemon=True).start()
+                self.json_response({"ok": True, "fileName": onnx_file.name})
             elif self.path == "/api/import-labels":
                 if STATE.busy:
                     raise RuntimeError(localized("Ein lokaler Vorgang läuft bereits.", "A local operation is already running.", "Ya hay una operación local en curso.", "Une opération locale est déjà en cours."))

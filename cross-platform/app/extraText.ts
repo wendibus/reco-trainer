@@ -6,6 +6,7 @@ export type ExtraText = {
   fieldSet: string; fieldEdit: string; fieldHelp: string; fieldNudge: string; notNow: string;
   showFolder: string;
   importLabels: string; importLabelsCandidates: string; importLabelsHelp: string;
+  importOnnx: string; importOnnxHelp: string; onnxName: string; onnxClasses: string; onnxClassesHint: (allowed: string) => string; onnxInputSize: string; onnxInputSizeHint: string; onnxLicense: string; onnxChooseFile: string;
   editorIntro: string; widthLabel: string; lengthLabel: string;
   cornerLabels: [string, string, string, string];
   cornerPrompt: (index: number, label: string) => string;
@@ -23,6 +24,10 @@ export const extraText: Record<ExtraLanguage, ExtraText> = {
     showFolder: 'Trainingsordner anzeigen',
     importLabels: 'Labels importieren', importLabelsCandidates: 'Als Vorschläge',
     importLabelsHelp: 'Übernimmt Bilder mit YOLO-txt- oder COCO-Labels aus einem Ordner (z. B. aus CVAT oder Roboflow). Klassennamen kommen aus data.yaml, classes.txt oder der COCO-Datei; unbekannte Klassen werden übersprungen. „Als Vorschläge“ legt die Boxen ungeprüft in die Prüfwarteschlange.',
+    importOnnx: 'ONNX-Modell importieren', onnxName: 'Name', onnxClasses: 'Klassen (Reihenfolge der Klassen-IDs)',
+    importOnnxHelp: 'Für YOLO-Modelle, die mit eingebautem NMS exportiert wurden (Ausgabe 1 × N × 6, z. B. Ultralytics „end2end“). Das Modell dient zum automatischen Markieren und zum Modellvergleich; trainieren lässt es sich nicht.',
+    onnxClassesHint: (allowed) => `Erlaubt: ${allowed}. Übliche Namen wie „person“ oder „sports ball“ werden zugeordnet.`,
+    onnxInputSize: 'Eingabegröße (px)', onnxInputSizeHint: 'Nur nötig, wenn das Modell keine feste quadratische Eingabe hat.', onnxLicense: 'Lizenz (optional)', onnxChooseFile: 'ONNX-Datei wählen und importieren',
     editorIntro: "Damit „Automatisch markieren“ nur Personen berücksichtigt, die mit den Füßen auf dem Spielfeld stehen. Klicke die Eckpunkte des Spielfelds im Bild an - bei einem rechteckigen Feld die vier Ecken in dieser Reihenfolge: oben links, oben rechts, unten rechts, unten links - und gib die echten Feldmaße ein. Bei anderen Formen setzt du einfach weitere Punkte rund um den Rand (bis zu 32); die Maße sind dann optional. Punkte lassen sich verschieben, der letzte Punkt kann wieder entfernt werden.",
     widthLabel: 'Breite (m)', lengthLabel: 'Länge (m)',
     cornerLabels: ['Oben links', 'Oben rechts', 'Unten rechts', 'Unten links'],
@@ -39,6 +44,10 @@ export const extraText: Record<ExtraLanguage, ExtraText> = {
     showFolder: 'Show training folder',
     importLabels: 'Import labels', importLabelsCandidates: 'As suggestions',
     importLabelsHelp: 'Imports images with YOLO-txt or COCO labels from a folder (e.g. from CVAT or Roboflow). Class names come from data.yaml, classes.txt, or the COCO file; unknown classes are skipped. “As suggestions” puts the boxes unreviewed into the review queue.',
+    importOnnx: 'Import ONNX model', onnxName: 'Name', onnxClasses: 'Classes (class-id order)',
+    importOnnxHelp: 'For YOLO models exported with NMS built in (output 1 × N × 6, e.g. Ultralytics “end2end”). The model is used for auto-labeling and the model comparison; it cannot be trained.',
+    onnxClassesHint: (allowed) => `Allowed: ${allowed}. Common names such as “person” or “sports ball” are mapped.`,
+    onnxInputSize: 'Input size (px)', onnxInputSizeHint: 'Only needed when the model has no fixed square input.', onnxLicense: 'License (optional)', onnxChooseFile: 'Choose ONNX file and import',
     editorIntro: "So \"Auto-label\" only considers people whose feet are standing on the field. Click the field's corner points in the image - for a rectangular field its four corners in this order: top left, top right, bottom right, bottom left - and enter the field's real dimensions. For other shapes just keep adding points around the outline (up to 32); the dimensions are then optional. Drag a point to move it, or remove the last point again.",
     widthLabel: 'Width (m)', lengthLabel: 'Length (m)',
     cornerLabels: ['Top left', 'Top right', 'Bottom right', 'Bottom left'],
@@ -55,6 +64,10 @@ export const extraText: Record<ExtraLanguage, ExtraText> = {
     showFolder: 'Mostrar carpeta de entrenamiento',
     importLabels: 'Importar etiquetas', importLabelsCandidates: 'Como sugerencias',
     importLabelsHelp: 'Importa imágenes con etiquetas YOLO-txt o COCO desde una carpeta (p. ej., de CVAT o Roboflow). Los nombres de clase se toman de data.yaml, classes.txt o del archivo COCO; las clases desconocidas se omiten. «Como sugerencias» coloca los cuadros sin revisar en la cola de revisión.',
+    importOnnx: 'Importar modelo ONNX', onnxName: 'Nombre', onnxClasses: 'Clases (orden de ID)',
+    importOnnxHelp: 'Para modelos YOLO exportados con NMS integrado (salida 1 × N × 6, p. ej. Ultralytics «end2end»). El modelo sirve para el marcado automático y la comparación; no se puede entrenar.',
+    onnxClassesHint: (allowed) => `Permitidas: ${allowed}. Se asignan nombres habituales como «person» o «sports ball».`,
+    onnxInputSize: 'Tamaño de entrada (px)', onnxInputSizeHint: 'Solo es necesario si el modelo no tiene una entrada cuadrada fija.', onnxLicense: 'Licencia (opcional)', onnxChooseFile: 'Elegir archivo ONNX e importar',
     editorIntro: "Para que «Marcado automático» solo considere a personas con los pies sobre el campo. Haz clic en los puntos del contorno del campo en la imagen: en un campo rectangular, sus cuatro esquinas en este orden: superior izquierda, superior derecha, inferior derecha, inferior izquierda, e introduce las medidas reales. Para otras formas sigue añadiendo puntos alrededor del borde (hasta 32); las medidas son entonces opcionales. Arrastra un punto para moverlo o quita el último.",
     widthLabel: 'Ancho (m)', lengthLabel: 'Largo (m)',
     cornerLabels: ['Superior izquierda', 'Superior derecha', 'Inferior derecha', 'Inferior izquierda'],
@@ -71,6 +84,10 @@ export const extraText: Record<ExtraLanguage, ExtraText> = {
     showFolder: 'Afficher le dossier d’entraînement',
     importLabels: 'Importer des annotations', importLabelsCandidates: 'Comme suggestions',
     importLabelsHelp: 'Importe des images avec annotations YOLO-txt ou COCO depuis un dossier (p. ex. CVAT ou Roboflow). Les noms de classe proviennent de data.yaml, classes.txt ou du fichier COCO ; les classes inconnues sont ignorées. « Comme suggestions » place les boîtes non vérifiées dans la file de vérification.',
+    importOnnx: 'Importer un modèle ONNX', onnxName: 'Nom', onnxClasses: 'Classes (ordre des ID)',
+    importOnnxHelp: 'Pour les modèles YOLO exportés avec NMS intégré (sortie 1 × N × 6, p. ex. Ultralytics « end2end »). Le modèle sert au marquage automatique et à la comparaison ; il ne peut pas être entraîné.',
+    onnxClassesHint: (allowed) => `Autorisées : ${allowed}. Les noms courants comme « person » ou « sports ball » sont convertis.`,
+    onnxInputSize: 'Taille d’entrée (px)', onnxInputSizeHint: 'Nécessaire uniquement si le modèle n’a pas d’entrée carrée fixe.', onnxLicense: 'Licence (facultatif)', onnxChooseFile: 'Choisir le fichier ONNX et importer',
     editorIntro: "Pour que « Marquage automatique » ne prenne en compte que les personnes ayant les pieds sur le terrain. Cliquez sur les points du contour du terrain dans l’image - pour un terrain rectangulaire, ses quatre coins dans l’ordre : en haut à gauche, en haut à droite, en bas à droite, en bas à gauche - et saisissez les dimensions réelles. Pour d’autres formes, continuez à ajouter des points le long du bord (jusqu’à 32) ; les dimensions sont alors facultatives. Faites glisser un point pour le déplacer ou supprimez le dernier.",
     widthLabel: 'Largeur (m)', lengthLabel: 'Longueur (m)',
     cornerLabels: ['En haut à gauche', 'En haut à droite', 'En bas à droite', 'En bas à gauche'],

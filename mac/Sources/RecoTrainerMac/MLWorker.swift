@@ -291,6 +291,27 @@ struct MLWorker: Sendable {
         }
     }
 
+    /// Wraps a YOLO ONNX export (NMS built in) in a .recomodel package for the
+    /// project's sport and installs it; same response as installModelPackage.
+    func installOnnxModel(
+        fileURL: URL,
+        name: String,
+        classNames: String,
+        inputSize: Int,
+        license: String,
+        language: AppLanguage
+    ) async throws -> InstalledModelResponse {
+        let output = try await runPython(
+            arguments: [
+                try workerURL.path, "install-onnx", "--project", projectRoot.path,
+                "--file", fileURL.path, "--name", name, "--class-names", classNames,
+                "--input-size", String(inputSize), "--license", license, "--language", language.rawValue
+            ],
+            preferVenv: false
+        )
+        return try Self.decodeLastJSONLine(InstalledModelResponse.self, from: output)
+    }
+
     func activateModel(packageID: String, language: AppLanguage) async throws -> ActivatedModelResponse {
         let output = try await runPython(
             arguments: [try workerURL.path, "activate-model", "--project", projectRoot.path, "--package-id", packageID, "--language", language.rawValue],

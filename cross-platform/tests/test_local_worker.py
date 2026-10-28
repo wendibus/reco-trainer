@@ -475,6 +475,28 @@ class ParityActionTests(unittest.TestCase):
             "1 already present, skipped. Classes not imported: ghost (2).",
         )
 
+    def test_import_onnx_passes_the_form_values_to_the_worker(self):
+        commands: list[list[str]] = []
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "project"
+            root.mkdir()
+            weights = Path(temporary) / "best.onnx"
+            weights.write_bytes(b"onnx")
+            self._project(root)
+            with mock.patch.object(local_worker, "run_logged", lambda command: commands.append(command)), \
+                    mock.patch.object(local_worker, "system_python", lambda: Path("/usr/bin/python3")):
+                local_worker.ml_action("import-onnx", {
+                    "language": "en", "file": str(weights), "name": "Soccer", "classNames": "person,ball",
+                    "inputSize": "1280", "license": "AGPL-3.0",
+                })
+            self.assertEqual(len(commands), 1)
+            self.assertEqual(commands[0][0], "/usr/bin/python3")
+            self.assertEqual(commands[0][2:], [
+                "install-onnx", "--project", str(root), "--file", str(weights.resolve()), "--name", "Soccer",
+                "--class-names", "person,ball", "--input-size", "1280", "--license", "AGPL-3.0", "--language", "en",
+            ])
+        self.assertIsNone(local_worker.STATE.error)
+
     def test_import_labels_rejects_a_missing_source_folder(self):
         with tempfile.TemporaryDirectory() as temporary:
             self._project(Path(temporary))

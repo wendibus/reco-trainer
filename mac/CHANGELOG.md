@@ -1,5 +1,12 @@
 # Änderungen
 
+## 0.19.2
+
+- Behoben (Mac): Die Schaltflächen unter dem Bild standen alle in einer Zeile; bei normaler Fensterbreite wurden die letzten – darunter „Modell importieren“ und „Labels importieren“ – abgeschnitten und waren unsichtbar. Sie stehen jetzt in zwei Zeilen (Arbeiten · Modelle und Daten) und brechen bei schmalem Fenster um.
+- Neu: YOLO-Modelle im ONNX-Format (mit eingebautem NMS) lassen sich direkt importieren – auf dem Mac über „Modell importieren“ (die Auswahl zeigt jetzt auch `.onnx`-Dateien), in der Weboberfläche über „ONNX-Modell importieren“. Ein Formular fragt nach Name, Klassen (Reihenfolge der Klassen-IDs), Eingabegröße und Lizenz; Reco Trainer erstellt daraus das Paket (abgelegt in `inbox/`), installiert und aktiviert es. Übliche Klassennamen wie „person“ werden zugeordnet. Eine ML-Umgebung ist dafür nicht nötig.
+- Neuer Worker-Befehl `ml_worker.py install-onnx`.
+- „Neu in Reco Trainer“ zeigt jetzt die Neuerungen von 0.19.x.
+
 ## 0.19.1
 
 - Neu: Schaltfläche „Labels importieren“ in der Mac-App (neben „Modell importieren“) und in der Weboberfläche. Einen Ordner mit Bildern und YOLO-txt- oder COCO-Labels wählen; Reco Trainer übernimmt sie ins geöffnete Projekt und meldet die Anzahl der Bilder und Boxen sowie nicht übernommene Klassen. Über das Menü der Schaltfläche (Mac) bzw. „Labels importieren: Als Vorschläge“ (Web) landen die Boxen stattdessen ungeprüft in der Prüfwarteschlange.

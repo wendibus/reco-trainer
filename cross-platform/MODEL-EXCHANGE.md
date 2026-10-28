@@ -28,7 +28,9 @@ The **Import model** button opens a native file picker. The selected package nev
 
 Besides RF-DETR checkpoints, a `.recomodel` can carry one exported **YOLO ONNX detector** with NMS built in (output `1 x N x 6`: `x1, y1, x2, y2, confidence, class id`, for example an Ultralytics `end2end` export). Such a package has `"format": "onnx-yolo"` in its manifest, plus `classNames` (Reco class names in class-id order) and `inputSize` (square input in pixels). It is used for **automatic labeling and the benchmark only**; it cannot be trained or fine-tuned, and it cannot be combined into a combined model. It works with either RF-DETR size selected.
 
-Create one from an ONNX file:
+The easiest way: choose **Import model** and pick the `.onnx` file directly (Mac app), or use **Import ONNX model** (web UI). Reco Trainer asks for the classes in class-id order (common names such as `person` or `sports ball` are mapped), builds the package for the project's sport, keeps it in `.reco-training/inbox/` and installs it.
+
+Or create one on the command line:
 
 ```bash
 python3 tools/make_onnx_package.py best.onnx --name soccer --sport football \

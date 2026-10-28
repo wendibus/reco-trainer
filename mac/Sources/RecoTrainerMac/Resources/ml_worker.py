@@ -3045,6 +3045,72 @@ def package_model(args: argparse.Namespace) -> None:
     ))
 
 
+def install_onnx_model(args: argparse.Namespace) -> None:
+    """Wrap an exported YOLO ONNX detector (NMS built in) in a .recomodel package
+    for the project's sport and install it like "Import model" does.
+
+    Same manifest as tools/make_onnx_package.py. Class names are given in model
+    class-id order; common external names are mapped (person -> player). The
+    package is kept in the project's inbox/ so it can be shared later.
+    """
+    project_root = Path(args.project).resolve()
+    document = require_project(project_root, args.language)
+    sport = str(document.get("sport", ""))
+    onnx_file = Path(args.file).expanduser().resolve()
+    if not onnx_file.is_file() or onnx_file.suffix.lower() != ".onnx":
+        raise SystemExit(localized(args.language, "Die ONNX-Datei wurde nicht gefunden.", "The ONNX file was not found.", "No se encontró el archivo ONNX.", "Le fichier ONNX est introuvable."))
+    name = package_file_slug(args.name or onnx_file.stem)
+    allowed = sport_categories(sport)
+    raw_names = [item.strip() for item in str(args.class_names).split(",") if item.strip()]
+    class_names = [normalized_label_class(item, allowed) for item in raw_names]
+    unsupported = [raw for raw, mapped in zip(raw_names, class_names) if mapped is None]
+    if not raw_names or unsupported:
+        raise SystemExit(localized(
+            args.language,
+            f"Klassen in der Reihenfolge der Klassen-IDs angeben, erlaubt: {', '.join(allowed)}" + (f" (nicht erkannt: {', '.join(unsupported)})" if unsupported else ""),
+            f"Give the classes in class-id order, allowed: {', '.join(allowed)}" + (f" (not recognised: {', '.join(unsupported)})" if unsupported else ""),
+            f"Indica las clases en el orden de sus ID, permitidas: {', '.join(allowed)}" + (f" (no reconocidas: {', '.join(unsupported)})" if unsupported else ""),
+            f"Indiquez les classes dans l’ordre des ID, autorisées : {', '.join(allowed)}" + (f" (non reconnues : {', '.join(unsupported)})" if unsupported else ""),
+        ))
+    if not 64 <= int(args.input_size) <= 4096:
+        raise SystemExit(localized(args.language, "Die Eingabegröße muss zwischen 64 und 4096 liegen.", "The input size must be between 64 and 4096.", "El tamaño de entrada debe estar entre 64 y 4096.", "La taille d’entrée doit être comprise entre 64 et 4096."))
+    resolved = [str(item) for item in class_names]
+    weight_name = f"weights/{name}.onnx"
+    manifest = {
+        "schemaVersion": 1,
+        "packageID": name,
+        "displayName": str(args.name).strip()[:120] or name,
+        "createdAt": datetime.now(timezone.utc).isoformat(),
+        "sport": sport,
+        "modelSize": "small",
+        "classes": sorted(set(resolved)),
+        "classNames": resolved,
+        "format": ONNX_FORMAT,
+        "inputSize": int(args.input_size),
+        "source": "external",
+        "description": (
+            f"Imported {sport} object detector (ONNX, input {int(args.input_size)} px) for "
+            f"{', '.join(resolved)}. Pre-labeling and benchmarking only; it cannot be fine-tuned."
+        )[:500],
+        "framework": {"name": "ONNX (YOLO, NMS built in)"},
+        "weights": {"file": weight_name, "sha256": sha256_file(onnx_file)},
+        "privacy": "This package contains model weights and aggregate metadata only. It contains no videos, frames, source paths, or video file names.",
+        "license": str(args.license).strip()[:300] or "Unknown - the publisher must confirm the license of the imported weights.",
+    }
+    inbox = project_root / "inbox"
+    inbox.mkdir(parents=True, exist_ok=True)
+    package = inbox / f"{name}.recomodel"
+    with zipfile.ZipFile(package, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=6) as archive:
+        archive.writestr("manifest.json", json.dumps(manifest, ensure_ascii=False, indent=2, sort_keys=True) + "\n")
+        archive.write(onnx_file, weight_name)
+    emit(localized(
+        args.language,
+        f"ONNX-Modellpaket erstellt: inbox/{package.name} (Klassen: {', '.join(resolved)})",
+        f"ONNX model package created: inbox/{package.name} (classes: {', '.join(resolved)})",
+    ))
+    install_model_package(argparse.Namespace(project=str(project_root), file=str(package), language=args.language))
+
+
 def verify_model_package(args: argparse.Namespace) -> None:
     package = Path(args.file).expanduser().resolve()
     manifest = validate_model_package_file(package, args.language)
@@ -3735,6 +3801,16 @@ def build_parser() -> argparse.ArgumentParser:
     install_parser.add_argument("--file", required=True)
     install_parser.add_argument("--language", choices=["de", "en", "es", "fr"], default="de")
     install_parser.set_defaults(func=install_model_package)
+
+    install_onnx_parser = commands.add_parser("install-onnx")
+    install_onnx_parser.add_argument("--project", required=True)
+    install_onnx_parser.add_argument("--file", required=True, help="YOLO ONNX export with NMS built in (output 1 x N x 6)")
+    install_onnx_parser.add_argument("--name", default="")
+    install_onnx_parser.add_argument("--class-names", required=True, help='Reco class names in class-id order, e.g. "player,ball,referee"')
+    install_onnx_parser.add_argument("--input-size", type=int, default=640, help="used only when the model has no fixed square input")
+    install_onnx_parser.add_argument("--license", default="")
+    install_onnx_parser.add_argument("--language", choices=["de", "en", "es", "fr"], default="de")
+    install_onnx_parser.set_defaults(func=install_onnx_model)
 
     combine_parser = commands.add_parser("combine-models")
     combine_parser.add_argument("--project", required=True)

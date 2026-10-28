@@ -194,6 +194,20 @@ struct ContentView: View {
                 showReleaseNotes = false
             }
         }
+        .sheet(item: Binding(
+            get: { app.pendingOnnxImport.map(PendingOnnxFile.init) },
+            set: { if $0 == nil { app.pendingOnnxImport = nil } }
+        )) { pending in
+            OnnxImportSheet(
+                fileURL: pending.url,
+                sport: app.sport,
+                language: app.language,
+                onImport: { name, classNames, inputSize, license in
+                    app.installOnnxModel(from: pending.url, name: name, classNames: classNames, inputSize: inputSize, license: license)
+                },
+                onCancel: { app.pendingOnnxImport = nil }
+            )
+        }
         .sheet(isPresented: $showFieldGeometryEditor) {
             if let frame = app.selectedFrame ?? app.project?.frames.first, let store = app.store {
                 FieldGeometryEditor(
@@ -874,77 +888,83 @@ struct ContentView: View {
                 ))
             }
 
-            HStack {
-                Button(app.tr("Hardware prüfen", "Check hardware", "Comprobar hardware", "Vérifier le matériel"), action: app.checkHardware)
-                Button(app.tr("ML einrichten", "Set up ML", "Configurar ML", "Configurer le ML"), action: app.prepareEnvironment)
-                Button(
-                    app.project?.fieldGeometry == nil
-                        ? app.tr("Spielfeld festlegen", "Set field boundaries", "Definir el campo", "Définir le terrain")
-                        : app.tr("Spielfeld bearbeiten", "Edit field boundaries", "Editar el campo", "Modifier le terrain")
-                ) { showFieldGeometryEditor = true }
-                    .disabled(app.project == nil || (app.selectedFrame ?? app.project?.frames.first) == nil)
-                    .help(app.tr(
-                        "Markiere die Eckpunkte des Spielfelds (vier Ecken oder mehr Punkte entlang des Randes), damit „Automatisch markieren“ nur Personen berücksichtigt, die mit den Füßen auf dem Feld stehen.",
-                        "Mark the field's corner points (four corners or more points along the edge) so \"Auto-label\" only considers people whose feet are standing on the field.",
-                        "Marca los puntos del campo (cuatro esquinas o más puntos a lo largo del borde) para que «Marcado automático» solo considere a personas con los pies sobre el campo.",
-                        "Marquez les points du terrain (quatre coins ou davantage de points le long du bord) pour que « Marquage automatique » ne prenne en compte que les personnes ayant les pieds sur le terrain."
-                    ))
-                Button(
-                    app.tr("Automatisch markieren", "Auto-label", "Marcar automáticamente", "Marquage automatique"),
-                    action: app.autoLabel
-                )
-                    .disabled(app.project == nil || app.autoLabelCategories.isEmpty)
-                Button(
-                    app.tr(
-                        "Boxen mit OpenCV verfeinern",
-                        "Refine boxes with OpenCV",
-                        "Refinar cuadros con OpenCV",
-                        "Affiner les boîtes avec OpenCV"
-                    ),
-                    action: app.refineBoxes
-                )
-                    .disabled(app.project == nil)
-                    .help(app.tr(
-                        "Zieht Ball-, Spieler-, Schiedsrichter- und weitere unterstützte Boxen lokal nach, auch von Hand gezeichnete. Nur plausible, eng anliegende Anpassungen werden übernommen; die ursprünglichen Koordinaten bleiben je Box gespeichert.",
-                        "Locally tightens ball, player, referee, and other supported boxes, including hand-drawn ones. Only plausible, closely-matching adjustments are applied; each box's original coordinates remain stored.",
-                        "Ajusta localmente cuadros de balón, jugador, árbitro y otras clases compatibles, incluidos los dibujados a mano. Solo se aplican ajustes plausibles y cercanos; las coordenadas originales de cada cuadro permanecen guardadas.",
-                        "Resserre localement les boîtes ballon, joueur, arbitre et autres classes prises en charge, y compris dessinées à la main. Seuls les ajustements plausibles et proches sont appliqués ; les coordonnées d’origine de chaque boîte restent enregistrées."
-                    ))
-                Button(
-                    app.continuationCheckpointName == nil
-                        ? app.tr("Lokal trainieren", "Train locally", "Entrenar localmente", "Entraîner localement")
-                        : app.tr("Letztes Modell weitertrainieren", "Continue latest model", "Continuar el último modelo", "Continuer le dernier modèle"),
-                    action: app.train
-                )
-                    .buttonStyle(.borderedProminent)
-                Divider().frame(height: 22)
-                Button(app.tr("CPU-Modell (ONNX)", "CPU model (ONNX)", "Modelo CPU (ONNX)", "Modèle CPU (ONNX)"), action: app.exportCPU)
-                Button(app.tr("Apple-Modell (Core ML)", "Apple model (Core ML)", "Modelo Apple (Core ML)", "Modèle Apple (Core ML)"), action: app.exportCoreML)
-                Button(app.tr("Paket erstellen", "Exchange package", "Crear paquete de intercambio", "Créer un paquet d’échange")) {
-                    packageNameDraft = "\(app.sport.title(language: app.language)) · \(app.modelSize.title(language: app.language))"
-                    showPackageNamePrompt = true
+            VStack(alignment: .leading, spacing: 8) {
+                FlowLayout(spacing: 8) {
+                    Button(app.tr("Hardware prüfen", "Check hardware", "Comprobar hardware", "Vérifier le matériel"), action: app.checkHardware)
+                    Button(app.tr("ML einrichten", "Set up ML", "Configurar ML", "Configurer le ML"), action: app.prepareEnvironment)
+                    Button(
+                        app.project?.fieldGeometry == nil
+                            ? app.tr("Spielfeld festlegen", "Set field boundaries", "Definir el campo", "Définir le terrain")
+                            : app.tr("Spielfeld bearbeiten", "Edit field boundaries", "Editar el campo", "Modifier le terrain")
+                    ) { showFieldGeometryEditor = true }
+                        .disabled(app.project == nil || (app.selectedFrame ?? app.project?.frames.first) == nil)
+                        .help(app.tr(
+                            "Markiere die Eckpunkte des Spielfelds (vier Ecken oder mehr Punkte entlang des Randes), damit „Automatisch markieren“ nur Personen berücksichtigt, die mit den Füßen auf dem Feld stehen.",
+                            "Mark the field's corner points (four corners or more points along the edge) so \"Auto-label\" only considers people whose feet are standing on the field.",
+                            "Marca los puntos del campo (cuatro esquinas o más puntos a lo largo del borde) para que «Marcado automático» solo considere a personas con los pies sobre el campo.",
+                            "Marquez les points du terrain (quatre coins ou davantage de points le long du bord) pour que « Marquage automatique » ne prenne en compte que les personnes ayant les pieds sur le terrain."
+                        ))
+                    Button(
+                        app.tr("Automatisch markieren", "Auto-label", "Marcar automáticamente", "Marquage automatique"),
+                        action: app.autoLabel
+                    )
+                        .disabled(app.project == nil || app.autoLabelCategories.isEmpty)
+                    Button(
+                        app.tr(
+                            "Boxen mit OpenCV verfeinern",
+                            "Refine boxes with OpenCV",
+                            "Refinar cuadros con OpenCV",
+                            "Affiner les boîtes avec OpenCV"
+                        ),
+                        action: app.refineBoxes
+                    )
+                        .disabled(app.project == nil)
+                        .help(app.tr(
+                            "Zieht Ball-, Spieler-, Schiedsrichter- und weitere unterstützte Boxen lokal nach, auch von Hand gezeichnete. Nur plausible, eng anliegende Anpassungen werden übernommen; die ursprünglichen Koordinaten bleiben je Box gespeichert.",
+                            "Locally tightens ball, player, referee, and other supported boxes, including hand-drawn ones. Only plausible, closely-matching adjustments are applied; each box's original coordinates remain stored.",
+                            "Ajusta localmente cuadros de balón, jugador, árbitro y otras clases compatibles, incluidos los dibujados a mano. Solo se aplican ajustes plausibles y cercanos; las coordenadas originales de cada cuadro permanecen guardadas.",
+                            "Resserre localement les boîtes ballon, joueur, arbitre et autres classes prises en charge, y compris dessinées à la main. Seuls les ajustements plausibles et proches sont appliqués ; les coordonnées d’origine de chaque boîte restent enregistrées."
+                        ))
+                    Button(
+                        app.continuationCheckpointName == nil
+                            ? app.tr("Lokal trainieren", "Train locally", "Entrenar localmente", "Entraîner localement")
+                            : app.tr("Letztes Modell weitertrainieren", "Continue latest model", "Continuar el último modelo", "Continuer le dernier modèle"),
+                        action: app.train
+                    )
+                        .buttonStyle(.borderedProminent)
                 }
-                Button(app.tr("Modell importieren", "Import model", "Importar modelo", "Importer un modèle"), action: app.importModelPackage)
-                Menu {
-                    Button(app.tr("Als geprüfte Labels importieren", "Import as reviewed labels", "Importar como etiquetas revisadas", "Importer comme annotations vérifiées")) {
+                // Second row: exporting, packaging and importing models and labels.
+                // One row of all buttons was clipped at normal window widths; both
+                // rows wrap instead when the window is narrow.
+                FlowLayout(spacing: 8) {
+                    Button(app.tr("CPU-Modell (ONNX)", "CPU model (ONNX)", "Modelo CPU (ONNX)", "Modèle CPU (ONNX)"), action: app.exportCPU)
+                    Button(app.tr("Apple-Modell (Core ML)", "Apple model (Core ML)", "Modelo Apple (Core ML)", "Modèle Apple (Core ML)"), action: app.exportCoreML)
+                    Button(app.tr("Paket erstellen", "Exchange package", "Crear paquete de intercambio", "Créer un paquet d’échange")) {
+                        packageNameDraft = "\(app.sport.title(language: app.language)) · \(app.modelSize.title(language: app.language))"
+                        showPackageNamePrompt = true
+                    }
+                    Button(app.tr("Modell importieren", "Import model", "Importar modelo", "Importer un modèle"), action: app.importModelPackage)
+                    Menu {
+                        Button(app.tr("Als geprüfte Labels importieren", "Import as reviewed labels", "Importar como etiquetas revisadas", "Importer comme annotations vérifiées")) {
+                            app.importLabels(asCandidates: false)
+                        }
+                        Button(app.tr("Als Vorschläge importieren", "Import as suggestions", "Importar como sugerencias", "Importer comme suggestions")) {
+                            app.importLabels(asCandidates: true)
+                        }
+                    } label: {
+                        Text(app.tr("Labels importieren", "Import labels", "Importar etiquetas", "Importer des annotations"))
+                    } primaryAction: {
                         app.importLabels(asCandidates: false)
                     }
-                    Button(app.tr("Als Vorschläge importieren", "Import as suggestions", "Importar como sugerencias", "Importer comme suggestions")) {
-                        app.importLabels(asCandidates: true)
-                    }
-                } label: {
-                    Text(app.tr("Labels importieren", "Import labels", "Importar etiquetas", "Importer des annotations"))
-                } primaryAction: {
-                    app.importLabels(asCandidates: false)
+                    .fixedSize()
+                    .disabled(app.project == nil)
+                    .help(app.tr(
+                        "Übernimmt Bilder mit YOLO-txt- oder COCO-Labels aus einem Ordner (z. B. aus CVAT oder Roboflow). Klassennamen kommen aus data.yaml, classes.txt oder der COCO-Datei; unbekannte Klassen werden übersprungen.",
+                        "Imports images with YOLO-txt or COCO labels from a folder (e.g. from CVAT or Roboflow). Class names come from data.yaml, classes.txt, or the COCO file; unknown classes are skipped.",
+                        "Importa imágenes con etiquetas YOLO-txt o COCO desde una carpeta (p. ej., de CVAT o Roboflow). Los nombres de clase se toman de data.yaml, classes.txt o del archivo COCO; las clases desconocidas se omiten.",
+                        "Importe des images avec annotations YOLO-txt ou COCO depuis un dossier (p. ex. CVAT ou Roboflow). Les noms de classe proviennent de data.yaml, classes.txt ou du fichier COCO ; les classes inconnues sont ignorées."
+                    ))
                 }
-                .fixedSize()
-                .disabled(app.project == nil)
-                .help(app.tr(
-                    "Übernimmt Bilder mit YOLO-txt- oder COCO-Labels aus einem Ordner (z. B. aus CVAT oder Roboflow). Klassennamen kommen aus data.yaml, classes.txt oder der COCO-Datei; unbekannte Klassen werden übersprungen.",
-                    "Imports images with YOLO-txt or COCO labels from a folder (e.g. from CVAT or Roboflow). Class names come from data.yaml, classes.txt, or the COCO file; unknown classes are skipped.",
-                    "Importa imágenes con etiquetas YOLO-txt o COCO desde una carpeta (p. ej., de CVAT o Roboflow). Los nombres de clase se toman de data.yaml, classes.txt o del archivo COCO; las clases desconocidas se omiten.",
-                    "Importe des images avec annotations YOLO-txt ou COCO depuis un dossier (p. ex. CVAT ou Roboflow). Les noms de classe proviennent de data.yaml, classes.txt ou du fichier COCO ; les classes inconnues sont ignorées."
-                ))
             }
             .disabled(app.isWorking)
 
@@ -1289,7 +1309,7 @@ private struct LocalFilePicker: View {
         case .independentValidationFolder:
             language.text("Ordner mit nie trainierten Videos auswählen", "Select folder with never-trained videos", "Seleccionar carpeta con vídeos nunca entrenados", "Sélectionner le dossier des vidéos jamais entraînées")
         case .modelPackage:
-            language.text("Reco-Modellpaket auswählen", "Select Reco model package", "Seleccionar paquete de modelo Reco", "Sélectionner le paquet de modèle Reco")
+            language.text("Reco-Modellpaket oder ONNX-Modell auswählen", "Select a Reco model package or ONNX model", "Seleccionar paquete de modelo Reco o modelo ONNX", "Sélectionner un paquet de modèle Reco ou un modèle ONNX")
         case .labelFolder:
             language.text("Ordner mit Bildern und YOLO- oder COCO-Labels auswählen", "Select folder with images and YOLO or COCO labels", "Seleccionar carpeta con imágenes y etiquetas YOLO o COCO", "Sélectionner le dossier avec images et annotations YOLO ou COCO")
         case .simulationVideo:
@@ -1385,7 +1405,7 @@ private struct LocalFilePicker: View {
                             language.text("Keine Unterordner", "No subfolders", "Sin subcarpetas", "Aucun sous-dossier"),
                             systemImage: "folder",
                             description: Text(purpose == .modelPackage
-                                ? language.text("Keine .recomodel-Datei in diesem Ordner.", "No .recomodel file in this folder.", "No hay ningún archivo .recomodel.", "Aucun fichier .recomodel dans ce dossier.")
+                                ? language.text("Keine .recomodel- oder .onnx-Datei in diesem Ordner.", "No .recomodel or .onnx file in this folder.", "No hay ningún archivo .recomodel u .onnx.", "Aucun fichier .recomodel ou .onnx dans ce dossier.")
                                 : purpose == .simulationVideo
                                 ? language.text("Kein Video in diesem Ordner.", "No video in this folder.", "No hay ningún vídeo en esta carpeta.", "Aucune vidéo dans ce dossier.")
                                 : language.text("Dieser Ordner kann trotzdem ausgewählt werden.", "This folder can still be selected.", "Esta carpeta se puede seleccionar igualmente.", "Ce dossier peut tout de même être sélectionné."))
@@ -1489,7 +1509,7 @@ private struct LocalFilePicker: View {
                         && containsAlreadyUsedVideo(in: candidate, knownVideoIDs: knownVideoIDs)
                     return LocalFileEntry(url: candidate, isDirectory: true, isAlreadyUsed: isAlreadyUsed)
                 }
-                if purpose == .modelPackage, candidate.pathExtension.lowercased() == "recomodel" {
+                if purpose == .modelPackage, ["recomodel", "onnx"].contains(candidate.pathExtension.lowercased()) {
                     return LocalFileEntry(url: candidate, isDirectory: false)
                 }
                 if purpose == .simulationVideo, FrameExtractor.supportedExtensions.contains(candidate.pathExtension.lowercased()) {
@@ -1532,6 +1552,127 @@ private struct LocalFilePicker: View {
             if knownVideoIDs.contains(FrameExtractor.stableID(for: candidate.path)) { return true }
         }
         return false
+    }
+}
+
+private struct PendingOnnxFile: Identifiable {
+    let url: URL
+    var id: String { url.path }
+}
+
+/// Asks for what a plain .onnx file does not say about itself: the Reco class
+/// of each class id and, for models without a fixed input, the input size.
+private struct OnnxImportSheet: View {
+    let fileURL: URL
+    let sport: Sport
+    let language: AppLanguage
+    let onImport: (String, String, Int, String) -> Void
+    let onCancel: () -> Void
+
+    @State private var name = ""
+    @State private var classNames = ""
+    @State private var inputSize = 640
+    @State private var license = ""
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text(language.text("ONNX-Modell importieren", "Import ONNX model", "Importar modelo ONNX", "Importer un modèle ONNX")).font(.headline)
+            Text(fileURL.lastPathComponent).font(.callout.monospaced()).foregroundStyle(.secondary)
+            Text(language.text(
+                "Für YOLO-Modelle, die mit eingebautem NMS exportiert wurden (Ausgabe 1 × N × 6, z. B. Ultralytics „end2end“). Das Modell dient zum automatischen Markieren und zum Modellvergleich; trainieren lässt es sich nicht.",
+                "For YOLO models exported with NMS built in (output 1 × N × 6, e.g. Ultralytics “end2end”). The model is used for auto-labeling and the model comparison; it cannot be trained.",
+                "Para modelos YOLO exportados con NMS integrado (salida 1 × N × 6, p. ej. Ultralytics «end2end»). El modelo sirve para el marcado automático y la comparación; no se puede entrenar.",
+                "Pour les modèles YOLO exportés avec NMS intégré (sortie 1 × N × 6, p. ex. Ultralytics « end2end »). Le modèle sert au marquage automatique et à la comparaison ; il ne peut pas être entraîné."
+            ))
+            .font(.callout)
+            .fixedSize(horizontal: false, vertical: true)
+            Form {
+                TextField(language.text("Name", "Name", "Nombre", "Nom"), text: $name)
+                TextField(language.text("Klassen (Reihenfolge der Klassen-IDs)", "Classes (class-id order)", "Clases (orden de ID)", "Classes (ordre des ID)"), text: $classNames, prompt: Text("player, ball, referee"))
+                Text(language.text(
+                    "Erlaubt für \(sport.title(language: language)): \(sport.categories.joined(separator: ", ")). Übliche Namen wie „person“ oder „sports ball“ werden zugeordnet.",
+                    "Allowed for \(sport.title(language: language)): \(sport.categories.joined(separator: ", ")). Common names such as “person” or “sports ball” are mapped.",
+                    "Permitidas para \(sport.title(language: language)): \(sport.categories.joined(separator: ", ")). Se asignan nombres habituales como «person» o «sports ball».",
+                    "Autorisées pour \(sport.title(language: language)) : \(sport.categories.joined(separator: ", ")). Les noms courants comme « person » ou « sports ball » sont convertis."
+                ))
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+                Stepper(value: $inputSize, in: 64...4096, step: 32) {
+                    Text(language.text("Eingabegröße: \(inputSize) px", "Input size: \(inputSize) px", "Tamaño de entrada: \(inputSize) px", "Taille d’entrée : \(inputSize) px"))
+                }
+                .help(language.text(
+                    "Nur nötig, wenn das Modell keine feste quadratische Eingabe hat; sonst wird die Größe aus dem Modell gelesen.",
+                    "Only needed when the model has no fixed square input; otherwise the size is read from the model.",
+                    "Solo es necesario si el modelo no tiene una entrada cuadrada fija; si no, el tamaño se lee del modelo.",
+                    "Nécessaire uniquement si le modèle n’a pas d’entrée carrée fixe ; sinon la taille est lue dans le modèle."
+                ))
+                TextField(language.text("Lizenz (optional)", "License (optional)", "Licencia (opcional)", "Licence (facultatif)"), text: $license, prompt: Text("AGPL-3.0"))
+            }
+            HStack {
+                Spacer()
+                Button(language.text("Abbrechen", "Cancel", "Cancelar", "Annuler"), action: onCancel)
+                    .keyboardShortcut(.cancelAction)
+                Button(language.text("Importieren", "Import", "Importar", "Importer")) {
+                    onImport(name.trimmingCharacters(in: .whitespacesAndNewlines), classNames, inputSize, license.trimmingCharacters(in: .whitespacesAndNewlines))
+                }
+                .buttonStyle(.borderedProminent)
+                .keyboardShortcut(.defaultAction)
+                .disabled(classNames.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            }
+        }
+        .padding(24)
+        .frame(width: 480)
+        .onAppear { name = fileURL.deletingPathExtension().lastPathComponent }
+    }
+}
+
+/// Lays its subviews out left to right and wraps to a new line when the next
+/// one does not fit, so a row of buttons never gets clipped.
+private struct FlowLayout: Layout {
+    var spacing: CGFloat = 8
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let rows = arrange(subviews, width: proposal.width ?? .infinity)
+        let width = rows.map(\.width).max() ?? 0
+        let height = rows.map(\.height).reduce(0, +) + spacing * CGFloat(max(rows.count - 1, 0))
+        return CGSize(width: width, height: height)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        var y = bounds.minY
+        for row in arrange(subviews, width: bounds.width) {
+            var x = bounds.minX
+            for index in row.indices {
+                let size = subviews[index].sizeThatFits(.unspecified)
+                subviews[index].place(at: CGPoint(x: x, y: y + (row.height - size.height) / 2), proposal: ProposedViewSize(size))
+                x += size.width + spacing
+            }
+            y += row.height + spacing
+        }
+    }
+
+    private struct Row {
+        var indices: [Int] = []
+        var width: CGFloat = 0
+        var height: CGFloat = 0
+    }
+
+    private func arrange(_ subviews: Subviews, width: CGFloat) -> [Row] {
+        var rows: [Row] = [Row()]
+        for index in subviews.indices {
+            let size = subviews[index].sizeThatFits(.unspecified)
+            let needed = rows[rows.count - 1].indices.isEmpty ? size.width : rows[rows.count - 1].width + spacing + size.width
+            if needed > width, !rows[rows.count - 1].indices.isEmpty {
+                rows.append(Row())
+            }
+            var row = rows[rows.count - 1]
+            row.width = row.indices.isEmpty ? size.width : row.width + spacing + size.width
+            row.height = max(row.height, size.height)
+            row.indices.append(index)
+            rows[rows.count - 1] = row
+        }
+        return rows
     }
 }
 
@@ -1596,8 +1737,31 @@ private struct WhatsNewSheet: View {
     private var changes: [(String, String)] {
         [
             (
-                language.text("Spielfeld mit beliebig vielen Punkten", "Field boundaries with any number of points", "Límites del campo con cualquier número de puntos", "Limites du terrain avec un nombre quelconque de points"),
-                language.text("Beim Festlegen des Spielfelds sind nicht mehr nur vier Ecken möglich: Du kannst weitere Punkte rund um den Rand setzen (bis zu 32, z. B. für runde oder L-förmige Felder), Punkte per Ziehen verschieben und den jeweils letzten Punkt wieder entfernen. Bei vier Punkten bleibt alles wie bisher; bei mehr Punkten sind die echten Maße optional. Das gilt für die Mac-App und die Windows/Linux/Docker-Oberfläche.", "Setting the field boundaries is no longer limited to four corners: you can add more points around the edge (up to 32, e.g. for curved or L-shaped fields), drag points to move them, and remove the last point again. With four points everything works as before; with more points the real dimensions are optional. This applies to the Mac app and the Windows/Linux/Docker interface.", "Al definir el campo ya no estás limitado a cuatro esquinas: puedes añadir más puntos alrededor del borde (hasta 32, p. ej. para campos curvos o en forma de L), arrastrar los puntos para moverlos y quitar de nuevo el último. Con cuatro puntos todo funciona como antes; con más puntos las medidas reales son opcionales. Es válido para la app de Mac y la interfaz de Windows/Linux/Docker.", "La définition du terrain n’est plus limitée à quatre coins : vous pouvez ajouter d’autres points le long du bord (jusqu’à 32, p. ex. pour des terrains courbes ou en forme de L), faire glisser les points pour les déplacer et supprimer à nouveau le dernier. Avec quatre points, tout fonctionne comme avant ; avec davantage de points, les dimensions réelles sont facultatives. Cela vaut pour l’application Mac et l’interface Windows/Linux/Docker.")
+                language.text("Labels importieren", "Import labels", "Importar etiquetas", "Importer des annotations"),
+                language.text(
+                    "Bilder mit YOLO-txt- oder COCO-Labels aus anderen Programmen (z. B. CVAT oder Roboflow) lassen sich mit „Labels importieren“ ins Projekt übernehmen – als geprüfte Labels oder über das Menü der Schaltfläche als Vorschläge zur Prüfung.",
+                    "Images with YOLO-txt or COCO labels from other tools (e.g. CVAT or Roboflow) can be added to the project with “Import labels” – as reviewed labels, or as suggestions to review via the button’s menu.",
+                    "Las imágenes con etiquetas YOLO-txt o COCO de otras herramientas (p. ej. CVAT o Roboflow) se pueden añadir al proyecto con «Importar etiquetas»: como etiquetas revisadas o, desde el menú del botón, como sugerencias para revisar.",
+                    "Les images avec annotations YOLO-txt ou COCO d’autres outils (p. ex. CVAT ou Roboflow) peuvent être ajoutées au projet avec « Importer des annotations » – comme annotations vérifiées ou, via le menu du bouton, comme suggestions à vérifier."
+                )
+            ),
+            (
+                language.text("YOLO-Modelle (ONNX) direkt importieren", "Import YOLO models (ONNX) directly", "Importar modelos YOLO (ONNX) directamente", "Importer directement des modèles YOLO (ONNX)"),
+                language.text(
+                    "„Modell importieren“ nimmt jetzt auch eine .onnx-Datei. Nach Angabe der Klassen erstellt Reco Trainer das Modellpaket selbst. Das Modell dient zum automatischen Markieren und zum Modellvergleich.",
+                    "“Import model” now also accepts an .onnx file. After you enter its classes, Reco Trainer builds the model package itself. The model is used for auto-labeling and the model comparison.",
+                    "«Importar modelo» ahora también acepta un archivo .onnx. Tras indicar sus clases, Reco Trainer crea el paquete del modelo. El modelo sirve para el marcado automático y la comparación de modelos.",
+                    "« Importer un modèle » accepte désormais aussi un fichier .onnx. Après la saisie de ses classes, Reco Trainer crée lui-même le paquet. Le modèle sert au marquage automatique et à la comparaison des modèles."
+                )
+            ),
+            (
+                language.text("Übersichtlichere Schaltflächen", "Tidier buttons", "Botones más ordenados", "Boutons mieux organisés"),
+                language.text(
+                    "Die Schaltflächen unter dem Bild stehen jetzt in zwei Zeilen und brechen bei schmalem Fenster um, statt abgeschnitten zu werden.",
+                    "The buttons below the image are now in two rows and wrap in a narrow window instead of being cut off.",
+                    "Los botones bajo la imagen ahora están en dos filas y pasan a la línea siguiente en una ventana estrecha en lugar de cortarse.",
+                    "Les boutons sous l’image sont désormais sur deux lignes et passent à la ligne dans une fenêtre étroite au lieu d’être coupés."
+                )
             )
         ]
     }

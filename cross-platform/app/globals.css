@@ -268,6 +268,13 @@ select { height:34px; padding:0 9px; border:1px solid #cbd3df; border-radius:7px
 .walkthrough-next { display:inline-flex; align-items:center; justify-content:space-between; gap:14px; padding-left:16px; padding-right:8px; }
 .forward-arrow { width:27px; height:27px; display:grid; place-items:center; flex:0 0 auto; border-radius:50%; background:#fff; color:var(--blue); font-size:18px; line-height:1; }
 .language-backdrop { z-index:60; }
+.onnx-dialog { width:min(520px,100%); padding:26px; border-radius:16px; background:#fff; box-shadow:0 28px 80px rgba(8,20,42,.34); display:grid; gap:12px; }
+.onnx-dialog h2 { margin:0; font-size:20px; }
+.onnx-dialog > p { margin:0; color:#637087; font-size:13px; }
+.onnx-dialog label { display:grid; gap:4px; font-size:12px; font-weight:650; color:#29384f; }
+.onnx-dialog input { padding:7px 9px; border:1px solid #c8d1dd; border-radius:7px; font:inherit; font-weight:400; }
+.onnx-dialog small { color:#637087; font-weight:400; }
+.onnx-actions { display:flex; justify-content:flex-end; gap:8px; }
 .language-dialog { width:min(610px,100%); padding:32px; border-radius:20px; background:#fff; box-shadow:0 28px 80px rgba(8,20,42,.34); text-align:center; }
 .language-globe { width:58px; height:58px; display:grid; place-items:center; margin:0 auto 15px; border-radius:17px; background:linear-gradient(145deg,#2778ff,#0b4ed4); color:#fff; font-size:22px; font-weight:800; }
 .language-dialog h2 { margin:0; font-size:24px; letter-spacing:-.025em; }

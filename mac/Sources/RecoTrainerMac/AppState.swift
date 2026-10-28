@@ -31,7 +31,7 @@ final class AppState: ObservableObject {
     /// CFBundleShortVersionString (Info.plist) and VERSION (package-platforms.sh)
     /// at every release. Used both for the "what's new" sheet and for deciding
     /// whether a fetched GitHub release is actually newer than what's running.
-    static let appVersion = "0.19.1"
+    static let appVersion = "0.19.2"
 
     @Published var language: AppLanguage = .de
     @Published var sport: Sport = .football
@@ -108,6 +108,9 @@ final class AppState: ObservableObject {
     @Published var ballTrackingLookaheadFrames = 8
     @Published var errorMessage: String?
     @Published var localPickerPurpose: LocalPickerPurpose?
+    /// An .onnx file picked under "Import model"; ContentView asks for its
+    /// classes before installOnnxModel(...) wraps and installs it.
+    @Published var pendingOnnxImport: URL?
     /// Set by importLabels(asCandidates:) and read when the picker confirms a folder.
     private var importLabelsAsCandidates = false
     @Published private(set) var installedModelCount = 0
@@ -261,7 +264,11 @@ final class AppState: ObservableObject {
             startIndependentValidation(from: url, selectedFolder: selectedFolder, store: store)
         case .modelPackage:
             guard let store else { return }
-            importModelPackage(from: url, store: store)
+            if url.pathExtension.lowercased() == "onnx" {
+                pendingOnnxImport = url
+            } else {
+                importModelPackage(from: url, store: store)
+            }
         case .labelFolder:
             guard let store else { return }
             importLabels(from: url, asCandidates: importLabelsAsCandidates, store: store)
@@ -1040,6 +1047,34 @@ final class AppState: ObservableObject {
             } catch {
                 errorMessage = error.localizedDescription
                 status = tr("Modellimport fehlgeschlagen.", "Model import failed.", "Falló la importación del modelo.", "Échec de l’import du modèle.")
+            }
+            isWorking = false
+        }
+    }
+
+    func installOnnxModel(from fileURL: URL, name: String, classNames: String, inputSize: Int, license: String) {
+        guard let store else { return }
+        pendingOnnxImport = nil
+        isWorking = true
+        errorMessage = nil
+        status = tr("Erstelle und installiere ONNX-Modellpaket …", "Packaging and installing the ONNX model …", "Empaquetando e instalando el modelo ONNX …", "Création et installation du paquet ONNX …")
+        Task {
+            do {
+                let imported = try await MLWorker(projectRoot: store.rootURL).installOnnxModel(
+                    fileURL: fileURL, name: name, classNames: classNames, inputSize: inputSize, license: license, language: language
+                )
+                activeModelPackageID = imported.active.packageID
+                activeModelDescription = imported.active.description
+                await refreshModelState()
+                status = tr(
+                    "ONNX-Modell „\(imported.active.packageID)“ installiert und aktiviert. Es dient zum automatischen Markieren und zum Modellvergleich; das Paket liegt in inbox/.",
+                    "ONNX model “\(imported.active.packageID)” installed and activated. It is used for auto-labeling and the model comparison; the package is in inbox/.",
+                    "Modelo ONNX «\(imported.active.packageID)» instalado y activado. Sirve para el marcado automático y la comparación de modelos; el paquete está en inbox/.",
+                    "Modèle ONNX « \(imported.active.packageID) » installé et activé. Il sert au marquage automatique et à la comparaison des modèles ; le paquet se trouve dans inbox/."
+                )
+            } catch {
+                errorMessage = error.localizedDescription
+                status = tr("ONNX-Import fehlgeschlagen.", "ONNX import failed.", "Falló la importación ONNX.", "Échec de l’import ONNX.")
             }
             isWorking = false
         }

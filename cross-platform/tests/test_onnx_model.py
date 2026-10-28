@@ -225,3 +225,55 @@ class OnnxPackageTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class InstallOnnxTests(unittest.TestCase):
+    """install-onnx: wrap a plain .onnx file and install it from the app."""
+
+    def setUp(self):
+        self.temporary = tempfile.TemporaryDirectory()
+        self.root = Path(self.temporary.name)
+        self.project = self.root / "project"
+        self.project.mkdir()
+        ml_worker.atomic_json(self.project / "project.json", {"sport": "football", "frames": []})
+        self.weights = self.root / "best.onnx"
+        self.weights.write_bytes(b"not a real graph - install does not load it")
+
+    def tearDown(self):
+        self.temporary.cleanup()
+
+    def install(self, **overrides) -> dict:
+        values = dict(project=str(self.project), file=str(self.weights), name="Soccer YOLO",
+                      class_names="person, sports ball, referee", input_size=1280, license="", language="en")
+        values.update(overrides)
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            ml_worker.install_onnx_model(argparse.Namespace(**values))
+        return json.loads(output.getvalue().strip().splitlines()[-1])
+
+    def test_builds_a_package_in_the_inbox_and_activates_it(self):
+        result = self.install()
+        self.assertTrue(result["installed"])
+        manifest = result["manifest"]
+        self.assertEqual(manifest["packageID"], "Soccer-YOLO")
+        self.assertEqual(manifest["displayName"], "Soccer YOLO")
+        self.assertEqual(manifest["classNames"], ["player", "ball", "referee"])
+        self.assertEqual(manifest["format"], ml_worker.ONNX_FORMAT)
+        self.assertEqual(manifest["inputSize"], 1280)
+        package = self.project / "inbox" / "Soccer-YOLO.recomodel"
+        self.assertTrue(package.is_file())
+        with zipfile.ZipFile(package) as archive:
+            self.assertEqual(sorted(archive.namelist()), ["manifest.json", "weights/Soccer-YOLO.onnx"])
+        self.assertTrue((self.project / "models" / "library" / "Soccer-YOLO" / "weights" / "Soccer-YOLO.onnx").is_file())
+
+    def test_rejects_classes_the_sport_does_not_have(self):
+        with self.assertRaises(SystemExit) as raised:
+            self.install(class_names="player,hoop")
+        self.assertIn("not recognised: hoop", str(raised.exception))
+        self.assertFalse((self.project / "inbox").exists())
+
+    def test_rejects_a_file_that_is_not_onnx(self):
+        other = self.root / "best.pt"
+        other.write_bytes(b"x")
+        with self.assertRaises(SystemExit):
+            self.install(file=str(other))
