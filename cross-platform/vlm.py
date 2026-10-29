@@ -122,9 +122,12 @@ def frame_check_prompt(boxes: list[dict[str, Any]], width: int, height: int) -> 
     )
 
 
+# Neutral on purpose: telling the model the image "was anonymized" makes it answer "all faces
+# blurred" even for an untouched frame. It is shown enlarged head crops (see head_mosaic in
+# ml_worker), because faces in a wide shot are too small for it to judge at all.
 ANONYMIZATION_PROMPT = (
-    "This sports frame was anonymized: faces and heads should be blurred. "
-    "Can you still clearly recognize any person's face, so that the person could be identified? "
+    "Look at the people in this image. How many faces are clearly visible and sharp enough that you "
+    "could recognize the person again? Blurred or pixelated faces do not count. "
     'Answer only with JSON: {"recognizable_faces": <number>, "comment": "<one short sentence>"}'
 )
 

@@ -93,6 +93,13 @@ class AnonymizerTests(unittest.TestCase):
         self.assertEqual(report.heads, 1)
         self.assertFalse(np.array_equal(result[45:60, 240:270], image[45:60, 240:270]))
 
+    def test_head_mosaic_shows_the_largest_people_enlarged(self):
+        image = textured_image()
+        people = [(10.0, 10.0, 20.0, 60.0), (100.0, 60.0, 60.0, 180.0), (200.0, 20.0, 30.0, 90.0)]
+        mosaic = ml_worker.head_mosaic(image, people, tiles=2, tile=128)
+        self.assertEqual(mosaic.shape, (128, 256, 3))  # the two largest people, side by side
+        self.assertIsNone(ml_worker.head_mosaic(image, []))
+
     def test_unknown_method_is_rejected(self):
         with self.assertRaises(ValueError):
             anonymize.Anonymizer(face_model=None, method="black-box")

@@ -2493,6 +2493,34 @@ def people_detector(project_root: Path, size: str, language: str):
     return detect
 
 
+def head_mosaic(image: Any, people: list[tuple[float, float, float, float]], tiles: int = 6, tile: int = 256) -> Any | None:
+    """Enlarged head-and-shoulders crops of the largest people, side by side in one image, so the
+    VLM can judge faces that are only a few pixels tall in a wide shot. None without people."""
+    import cv2
+    import numpy as np
+    height, width = image.shape[:2]
+    chosen = sorted(people, key=lambda box: box[3], reverse=True)[:tiles]
+    if not chosen:
+        return None
+    crops = []
+    for x, y, w, h in chosen:
+        x0, y0 = int(max(0, x - w * 0.25)), int(max(0, y - h * 0.08))
+        x1, y1 = int(min(width, x + w * 1.25)), int(min(height, y + h * 0.42))
+        crop = image[y0:y1, x0:x1]
+        if crop.size == 0:
+            continue
+        scale = tile / max(crop.shape[:2])
+        crop = cv2.resize(crop, (max(1, int(crop.shape[1] * scale)), max(1, int(crop.shape[0] * scale))), interpolation=cv2.INTER_CUBIC)
+        canvas = np.full((tile, tile, 3), 127, dtype=image.dtype)
+        canvas[:crop.shape[0], :crop.shape[1]] = crop
+        crops.append(canvas)
+    if not crops:
+        return None
+    columns = min(3, len(crops))
+    rows = [np.hstack(crops[index:index + columns] + [np.full((tile, tile, 3), 127, dtype=image.dtype)] * (columns - len(crops[index:index + columns]))) for index in range(0, len(crops), columns)]
+    return np.vstack(rows)
+
+
 def export_dataset(args: argparse.Namespace) -> None:
     project_root = Path(args.project).resolve()
     document = require_project(project_root, args.language)
@@ -2589,12 +2617,14 @@ def export_dataset(args: argparse.Namespace) -> None:
                     if not ok:
                         continue
                     image_bytes = encoded.tobytes()
-                    if vlm_server is not None and stable_bucket(f"vlm:{frame.get('id')}") / 0xFFFFFFFF < args.vlm_sample:
-                        # A sample of the anonymized images is shown to the local VLM as a second check.
+                    mosaic = head_mosaic(result, [(a["x"], a["y"], a["width"], a["height"]) for a in scaled if a.get("category") in {"player", "goalkeeper", "referee"}] + list(extra)) if vlm_server is not None else None
+                    if mosaic is not None and stable_bucket(f"vlm:{frame.get('id')}") / 0xFFFFFFFF < args.vlm_sample:
+                        # A sample of the anonymized images goes to the local VLM as a second check,
+                        # as enlarged head crops (faces in a wide shot are too small for it otherwise).
                         import tempfile
                         import vlm
                         with tempfile.NamedTemporaryFile(suffix=".jpg") as probe:
-                            probe.write(image_bytes)
+                            probe.write(cv2.imencode(".jpg", mosaic, [int(cv2.IMWRITE_JPEG_QUALITY), 92])[1].tobytes())
                             probe.flush()
                             try:
                                 answer = vlm.parse_json_answer(vlm.ask_image(vlm_server.url, Path(probe.name), vlm.ANONYMIZATION_PROMPT))
