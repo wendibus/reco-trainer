@@ -43,7 +43,7 @@ jobs:
   mac-launcher:
     # The Swift launcher cannot be compiled on Linux, so macOS builds and tests it on every push.
     # Compiler errors and failed tests are also surfaced as annotations on the run.
-    runs-on: macos-14
+    runs-on: macos-15
     defaults:
       run:
         working-directory: mac
