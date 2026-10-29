@@ -1,5 +1,14 @@
 # Änderungen
 
+## 0.22.0
+
+- Neu: Hardware-Stufen (stark, mittel, schwach) – erkannt über NVIDIA-VRAM bzw. den Arbeitsspeicher des Apple-Chips, nur CPU = schwach. Sie bestimmen, welche Modelle genutzt werden, und lassen sich unter „Erweiterte Optionen“ festlegen.
+- Neu: Vorschlagsmodell (Teacher) – solange kein eigenes Modell eine Klasse kennt, schlägt das größte RF-DETR-Basismodell vor, das die Hardware zulässt (L, M oder S; Apache-2.0). Wählbar unter „Erweiterte Optionen“.
+- Neu: Zweite Meinung mit Florence-2 (MIT) – ist kein zweites eigenes Modell installiert, prüft Florence-2 Personen und Ball und markiert Bilder mit Abweichungen zur Prüfung. Es schreibt selbst keine Boxen.
+- Neu: Boxen verfeinern mit SAM 2 (Apache-2.0) als wählbare, experimentelle Methode; es übernimmt nur kleine Korrekturen, die Originalkoordinaten bleiben gespeichert. OpenCV bleibt Standard – in einem ersten Vergleich war SAM 2 nicht messbar besser.
+- Neu: Fehlt der Ball zwischen zwei nahen Bildern eines Videos (höchstens 1 s Abstand), wird seine Position interpoliert und als Vorschlag zur Prüfung eingetragen.
+- Neu: „Erweiterte Optionen“ zeigt alle Modelle mit Zweck, Lizenz und Ladezustand. SAM 2 und Florence-2 werden bei Bedarf auf eine feste Version festgelegt geladen.
+
 ## 0.21.0
 
 - Neu: Jeder längere Vorgang läuft als Job mit Fortschrittsfenster – Schritt („Schritt 2/3“), Balken (unbestimmt, wenn die Menge unbekannt ist), Prozent, verstrichene und geschätzte Restzeit, „Abbrechen“ mit Rückfrage. Das Fenster lässt sich zu einer Statusleiste minimieren und übersteht ein Neuladen der Seite; weitere Vorgänge warten in einer Warteschlange. Der Fortschritt kommt per Server-Sent Events.

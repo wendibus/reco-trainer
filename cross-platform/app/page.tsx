@@ -51,7 +51,7 @@ const DEFAULT_API = import.meta.env.DEV ? 'http://127.0.0.1:8766' : window.locat
 // Single source of truth for this web UI's own version - bump alongside
 // VERSION in cross-platform/scripts/package-platforms.sh at every release.
 // Compared against GitHub's latest release tag to power the update banner.
-const CURRENT_VERSION = '0.21.0';
+const CURRENT_VERSION = '0.22.0';
 // One clearly different colour per class, so boxes can be told apart at a glance.
 // Auto-label suggestions are dashed (not recoloured), so the colour always means the class.
 const CATEGORY_COLORS: Record<string, string> = {

@@ -125,13 +125,18 @@ Reco Trainer only downloads models under **Apache-2.0** or **MIT**, each with a 
 | RF-DETR Nano / Small / Medium / Large (COCO) | training base, auto-label, finding people for anonymization | Apache-2.0 |
 | YuNet face detector (OpenCV Zoo) | anonymization | MIT |
 | PP-OCRv3 text detector (OpenCV Zoo) | hiding text (optional) | Apache-2.0 |
+| SAM 2.1 Hiera Small / Base+ | refining boxes (optional) | Apache-2.0 |
+| Florence-2 Base / Large | second opinion during auto-label | MIT |
 
-RF-DETR XL/2XL (PML 1.0), SAM 3 and Ultralytics models are not used.
+RF-DETR XL/2XL (PML 1.0), SAM 3 and Ultralytics models are not used. Hugging Face models are pinned to one exact revision.
 
 ## Hardware
 
-- **Comfortable:** an NVIDIA GPU with 16 GB VRAM (CUDA) or Apple silicon (Metal/MPS).
-- **Works:** CPU only - training and the anonymized export are much slower; the export then uses the smallest people detector. A plain export needs no ML environment at all.
+Reco Trainer picks a **hardware tier** and uses the models that fit (override under **Advanced options**):
+
+- **Strong** - NVIDIA GPU with 16 GB VRAM or Apple silicon with 32 GB or more: RF-DETR Large as suggestion model, Florence-2 Large as second opinion, SAM 2 Base+ when chosen.
+- **Medium** - NVIDIA with 8 GB or Apple with 16 GB: RF-DETR Medium, Florence-2 Base, SAM 2 Small.
+- **Weak** - CPU only: RF-DETR Small and Florence-2 Base, no SAM 2. Training and the anonymized export are much slower; a plain export needs no ML environment at all.
 
 ## Privacy and security
 
