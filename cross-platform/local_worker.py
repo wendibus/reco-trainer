@@ -16,6 +16,7 @@ import os
 import platform
 import re
 import shutil
+import signal
 import subprocess
 import sys
 import threading
@@ -226,6 +227,10 @@ class LocalState:
         self.simulation: dict | None = None
         # Extraction progress for the progress dialog: video n of m, frames done/target, start time.
         self.detail: dict | None = None
+        # Multi-step jobs: {"index": 2, "count": 5, "label": "..."} ("Step 2/5: ...").
+        self.stage: dict | None = None
+        # Summary of the last finished job (for example a dataset export), shown in its dialog.
+        self.result: dict | None = None
         # Updated from the "language" field of every request body (see
         # do_POST()) - every status/error message this file itself generates
         # (as opposed to ml_worker.py subprocess output, which already gets an
@@ -237,6 +242,7 @@ class LocalState:
         with self.lock:
             for key, value in values.items():
                 setattr(self, key, value)
+        notify_change()
 
     def append_log(self, line: str) -> None:
         with self.lock:
@@ -245,7 +251,7 @@ class LocalState:
                 self.log.append(clean)
                 self.log = self.log[-250:]
 
-    def snapshot(self) -> dict:
+    def _snapshot(self) -> dict:
         with self.lock:
             frames = (self.project or {}).get("frames", [])
             training_frames = [frame for frame in frames if frame.get("reviewStatus") != "candidate" and not frame.get("heldOut")]
@@ -283,17 +289,36 @@ class LocalState:
                 "log": "\n".join(self.log[-80:]),
                 "simulation": self.simulation,
                 "detail": self.detail,
-                "cancellable": self.busy and self.operation in CANCELLABLE_OPERATIONS,
+                "stage": self.stage,
             }
+
+    def snapshot(self) -> dict:
+        data = self._snapshot()
+        jobs = JOBS.snapshot()
+        data["jobs"] = jobs
+        current = jobs["current"]
+        data["cancellable"] = bool(current and current["cancellable"] and current["status"] == "running")
+        return data
+
+
+# Every change to STATE or the job list wakes up /api/events (server-sent events).
+CHANGED = threading.Condition()
+_CHANGE_COUNTER = 0
+
+
+def notify_change() -> None:
+    global _CHANGE_COUNTER
+    with CHANGED:
+        _CHANGE_COUNTER += 1
+        CHANGED.notify_all()
 
 
 STATE = LocalState()
 
-# Frame extraction (preparing videos, extending the dataset) can be cancelled from the
-# progress dialog: /api/cancel sets this event, the running ffmpeg/extractor process is
-# stopped and the half-written frames are removed. The project stays as it was.
+# Cooperative cancel for the running job: /api/cancel (or /api/jobs/<id>/cancel) sets this
+# event and stops every tracked subprocess with its whole process tree (ml_worker.py with
+# its data loaders, pip, ffmpeg, the frame extractor). Each job then tidies up after itself.
 CANCEL_REQUESTED = threading.Event()
-CANCELLABLE_OPERATIONS = {"scanning", "extracting", "active-learning-scan", "active-learning-extract"}
 
 
 class OperationCancelled(Exception):
@@ -305,26 +330,209 @@ def raise_if_cancelled() -> None:
         raise OperationCancelled()
 
 
+ACTIVE_PROCESSES: set[subprocess.Popen] = set()
+_PROCESS_LOCK = threading.Lock()
+
+
+def popen_tracked(command: list[str], **kwargs) -> subprocess.Popen:
+    """Popen in its own process group/session so a cancel can stop the whole tree."""
+    if os.name == "nt":
+        kwargs["creationflags"] = kwargs.get("creationflags", 0) | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+    else:
+        kwargs["start_new_session"] = True
+    process = subprocess.Popen(command, **kwargs)
+    with _PROCESS_LOCK:
+        ACTIVE_PROCESSES.add(process)
+    return process
+
+
+def untrack(process: subprocess.Popen) -> None:
+    with _PROCESS_LOCK:
+        ACTIVE_PROCESSES.discard(process)
+
+
+def terminate_process_tree(process: subprocess.Popen, grace: float = 5.0) -> None:
+    if process.poll() is not None:
+        return
+    try:
+        if os.name == "nt":
+            subprocess.run(["taskkill", "/T", "/F", "/PID", str(process.pid)], capture_output=True, check=False)
+        else:
+            os.killpg(process.pid, signal.SIGTERM)
+    except (ProcessLookupError, PermissionError, OSError):
+        pass
+    try:
+        process.wait(timeout=grace)
+    except subprocess.TimeoutExpired:
+        try:
+            if os.name == "nt":
+                process.kill()
+            else:
+                os.killpg(process.pid, signal.SIGKILL)
+        except (ProcessLookupError, PermissionError, OSError):
+            pass
+        process.wait()
+
+
+def terminate_active_processes() -> None:
+    with _PROCESS_LOCK:
+        processes = list(ACTIVE_PROCESSES)
+    for process in processes:
+        terminate_process_tree(process)
+
+
 def run_extraction_command(command: list[str], on_tick: Callable[[], None] | None = None) -> tuple[int, str]:
     """Run ffmpeg or the Apple extractor; stop it as soon as a cancel is requested."""
-    process = subprocess.Popen(command, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="replace")
-    while True:
-        try:
-            _, stderr = process.communicate(timeout=0.4)
-            return process.returncode, stderr or ""
-        except subprocess.TimeoutExpired:
-            if CANCEL_REQUESTED.is_set():
-                process.terminate()
+    process = popen_tracked(command, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="replace")
+    try:
+        while True:
+            try:
+                _, stderr = process.communicate(timeout=0.4)
+                if CANCEL_REQUESTED.is_set():
+                    raise OperationCancelled()
+                return process.returncode, stderr or ""
+            except subprocess.TimeoutExpired:
+                if CANCEL_REQUESTED.is_set():
+                    terminate_process_tree(process, grace=3.0)
+                    if process.stderr:
+                        process.stderr.close()
+                    raise OperationCancelled() from None
+                if on_tick:
+                    on_tick()
+    finally:
+        untrack(process)
+
+
+def output_snapshot(directories: list[Path]) -> dict[Path, float]:
+    """mtimes of the top-level entries of a job's output folders, taken when it starts."""
+    entries: dict[Path, float] = {}
+    for directory in directories:
+        if directory.is_dir():
+            for entry in directory.iterdir():
                 try:
-                    process.wait(timeout=3)
-                except subprocess.TimeoutExpired:
-                    process.kill()
-                    process.wait()
-                if process.stderr:
-                    process.stderr.close()
-                raise OperationCancelled() from None
-            if on_tick:
-                on_tick()
+                    entries[entry] = entry.stat().st_mtime
+                except OSError:
+                    pass
+    return entries
+
+
+def remove_job_outputs(directories: list[Path], before: dict[Path, float]) -> None:
+    """After a cancel: delete what the job created or rewrote, so no half-written export remains."""
+    for directory in directories:
+        if not directory.is_dir():
+            continue
+        for entry in directory.iterdir():
+            try:
+                previous = before.get(entry)
+                if previous is not None and entry.stat().st_mtime <= previous:
+                    continue
+                if entry.is_dir() and not entry.is_symlink():
+                    shutil.rmtree(entry, ignore_errors=True)
+                else:
+                    entry.unlink(missing_ok=True)
+            except OSError:
+                pass
+
+
+class JobManager:
+    """One job runs at a time; further jobs wait in a queue (two GPU jobs would only
+    push each other out of memory). Each job is a function that reports through STATE
+    (progress, message, detail, stage) and ends by setting STATE.operation to
+    "ready", "error" or "cancelled" - the job's final status is derived from that."""
+
+    def __init__(self) -> None:
+        self.lock = threading.RLock()
+        self.current: dict | None = None
+        self.queue: list[tuple[dict, Callable, tuple, dict]] = []
+        self.finished: list[dict] = []
+
+    def submit(self, kind: str, target: Callable, *args, cancellable: bool = True, **kwargs) -> dict:
+        job = {
+            "id": uuid.uuid4().hex[:12], "type": kind, "status": "queued", "cancellable": cancellable,
+            "createdAt": time.time(), "startedAt": None, "finishedAt": None, "error": None, "result": None,
+        }
+        with self.lock:
+            self.queue.append((job, target, args, kwargs))
+        notify_change()
+        self._start_next()
+        return dict(job)
+
+    def _start_next(self) -> None:
+        with self.lock:
+            if self.current is not None or not self.queue:
+                return
+            job, target, args, kwargs = self.queue.pop(0)
+            job.update(status="running", startedAt=time.time())
+            self.current = job
+        CANCEL_REQUESTED.clear()
+        STATE.update(busy=True, error=None, stage=None, detail=None, progress=0.0, result=None)
+        threading.Thread(target=self._run, args=(job, target, args, kwargs), daemon=True).start()
+
+    def _run(self, job: dict, target: Callable, args: tuple, kwargs: dict) -> None:
+        try:
+            target(*args, **kwargs)
+        except OperationCancelled:
+            STATE.update(operation="cancelled", busy=False)
+        except Exception as error:  # a job function should handle its own errors; this is the safety net
+            STATE.append_log(str(error))
+            STATE.update(operation="error", busy=False, error=str(error))
+        finally:
+            with STATE.lock:
+                operation, error, message, result = STATE.operation, STATE.error, STATE.message, getattr(STATE, "result", None)
+            status = "cancelled" if operation == "cancelled" else "failed" if operation == "error" else "done"
+            with self.lock:
+                job.update(status=status, finishedAt=time.time(), error=error if status == "failed" else None, message=message, result=result)
+                self.current = None
+                self.finished.insert(0, job)
+                del self.finished[10:]
+            CANCEL_REQUESTED.clear()
+            STATE.update(busy=False, stage=None, detail=None)
+            self._start_next()
+
+    def has_pending(self) -> bool:
+        with self.lock:
+            return self.current is not None or bool(self.queue)
+
+    def cancel(self, job_id: str | None = None) -> dict:
+        with self.lock:
+            for index, (queued, *_rest) in enumerate(self.queue):
+                if queued["id"] == job_id:
+                    del self.queue[index]
+                    queued.update(status="cancelled", finishedAt=time.time())
+                    self.finished.insert(0, queued)
+                    notify_change()
+                    return dict(queued)
+            current = self.current
+            if current is None or (job_id is not None and current["id"] != job_id):
+                raise RuntimeError(localized("Dieser Vorgang läuft nicht mehr.", "This operation is no longer running.", "Esta operación ya no está en curso.", "Cette opération n’est plus en cours."))
+            if not current["cancellable"]:
+                raise RuntimeError(localized("Dieser Vorgang lässt sich nicht abbrechen.", "This operation cannot be cancelled.", "Esta operación no se puede cancelar.", "Cette opération ne peut pas être annulée."))
+            current["status"] = "cancelling"
+        CANCEL_REQUESTED.set()
+        STATE.update(message=localized("Wird abgebrochen …", "Cancelling …", "Cancelando …", "Annulation …"))
+        threading.Thread(target=terminate_active_processes, daemon=True).start()
+        return dict(current)
+
+    def snapshot(self) -> dict:
+        with self.lock:
+            current = dict(self.current) if self.current else None
+            queue = [dict(job) for job, *_rest in self.queue]
+            recent = [dict(job) for job in self.finished[:5]]
+        if current:
+            with STATE.lock:
+                progress = float(STATE.progress or 0.0)
+                current.update(message=STATE.message, detail=STATE.detail, stage=STATE.stage, operation=STATE.operation)
+            # 0 means "no measurable progress yet" (pip, model loading): the dialog shows an indeterminate bar.
+            current["progress"] = progress if progress > 0 else None
+            elapsed = time.time() - (current["startedAt"] or time.time())
+            current["elapsedSeconds"] = elapsed
+            current["etaSeconds"] = elapsed * (1 - progress) / progress if 0.03 < progress < 1 else None
+        return {"current": current, "queue": queue, "recent": recent}
+
+
+JOBS = JobManager()
+# Finish in a moment; not worth a Cancel button.
+QUICK_ACTIONS = {"activate-model", "rename-model", "delete-model"}
 
 
 def project_root_for(folder: Path) -> Path:
@@ -847,7 +1055,6 @@ def extract_project(sport: str, requested_frames_per_video: int = DEFAULT_FRAMES
         backup_project(root, "vorbereitung")
         ffmpeg = shutil.which("ffmpeg")
         apple_extractor = native_frame_extractor(root) if not ffmpeg or not shutil.which("ffprobe") else None
-        CANCEL_REQUESTED.clear()
         STATE.update(operation="scanning", busy=True, progress=0.01, detail=None, message=localized("Suche lokale Videos …", "Searching for local videos …", "Buscando vídeos locales …", "Recherche de vidéos locales …"), error=None, log=[])
         videos = discover_videos(folder)
         if not videos:
@@ -982,7 +1189,7 @@ def expand_dataset(folder: Path, payload: dict, held_out: bool = False) -> None:
         # while videos are being discovered/probed, which for many files (a
         # GoPro game split into a dozen+ chapter files) can itself take a
         # visible moment.
-        CANCEL_REQUESTED.clear()
+        STATE.update(stage={"index": 1, "count": 2, "label": localized("Bilder extrahieren", "Extract images", "Extraer imágenes", "Extraire les images")})
         STATE.update(operation="active-learning-scan", busy=True, progress=0.01, detail=None, error=None, log=[], message=localized("Suche lokale Videos …", "Searching for local videos …", "Buscando vídeos locales …", "Recherche de vidéos locales …"))
         videos = discover_videos(folder)
         if not videos:
@@ -1060,6 +1267,7 @@ def expand_dataset(folder: Path, payload: dict, held_out: bool = False) -> None:
             f"{len(new_frames)} Kandidaten extrahiert. Lokale Erkennung startet …", f"{len(new_frames)} candidates extracted. Local detection starting …",
             f"{len(new_frames)} candidatos extraídos. Iniciando la detección local …", f"{len(new_frames)} candidats extraits. Démarrage de la détection locale …",
         ))
+        STATE.update(detail=None, stage={"index": 2, "count": 2, "label": localized("Automatisch markieren", "Auto-label", "Marcado automático", "Marquage automatique")})
         autolabel_payload = {**payload, "candidateOnly": True, "threshold": payload.get("threshold", 0.12)}
         if held_out:
             autolabel_payload["categories"] = list(SPORT_CATEGORIES.get(project.get("sport"), []))
@@ -1154,6 +1362,8 @@ def simulate_ball_tracking(video: Path, payload: dict) -> None:
             operation="ready", busy=False, progress=1.0,
             message=localized(f"{len(frames)} Bilder simuliert.", f"{len(frames)} images simulated.", f"{len(frames)} imágenes simuladas.", f"{len(frames)} images simulées."),
         )
+    except OperationCancelled:
+        STATE.update(operation="cancelled", busy=False, progress=0.0, error=None, message=localized("Simulation abgebrochen.", "Simulation cancelled.", "Simulación cancelada.", "Simulation annulée."))
     except Exception as error:
         STATE.append_log(str(error))
         STATE.update(operation="error", busy=False, error=str(error), message=localized("Balltracking-Simulation fehlgeschlagen.", "Ball-tracking simulation failed.", "La simulación de seguimiento del balón falló.", "La simulation de suivi du ballon a échoué."))
@@ -1246,25 +1456,43 @@ def run_logged(command: list[str]) -> None:
     # UnicodeEncodeError instead of completing. PYTHONIOENCODING fixes the
     # child's own writes; encoding="utf-8" here fixes how this parent process
     # decodes what it reads back.
-    process = subprocess.Popen(
+    process = popen_tracked(
         command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding="utf-8", errors="replace",
         bufsize=1, env={**os.environ, "PYTHONUNBUFFERED": "1", "PYTORCH_ENABLE_MPS_FALLBACK": "1", "PYTHONIOENCODING": "utf-8"},
     )
     assert process.stdout is not None
-    for line in process.stdout:
-        STATE.append_log(line)
-        clean = line.strip()
-        match = re.search(r"(?:^|\s)(\d+)\s*/\s*(\d+)(?:\s|$)", clean)
-        values = {"message": clean or STATE.message}
-        if match and int(match.group(2)) > 0:
-            values["progress"] = min(0.99, int(match.group(1)) / int(match.group(2)))
-        STATE.update(**values)
-    code = process.wait()
+    try:
+        for line in process.stdout:
+            stage = STAGE_LINE.match(line.strip())
+            if stage:
+                STATE.update(stage={"index": int(stage.group(1)), "count": int(stage.group(2)), "label": stage.group(3).strip()}, progress=0.0)
+                continue
+            progress = PROGRESS_LINE.match(line.strip())
+            if progress:
+                if int(progress.group(2)) > 0:
+                    STATE.update(progress=min(0.99, int(progress.group(1)) / int(progress.group(2))))
+                continue
+            STATE.append_log(line)
+            clean = line.strip()
+            match = re.search(r"(?:^|\s)(\d+)\s*/\s*(\d+)(?:\s|$)", clean)
+            values = {"message": clean or STATE.message}
+            if match and int(match.group(2)) > 0:
+                values["progress"] = min(0.99, int(match.group(1)) / int(match.group(2)))
+            STATE.update(**values)
+        code = process.wait()
+    finally:
+        untrack(process)
+        if hasattr(process.stdout, "close"):
+            process.stdout.close()
+    if CANCEL_REQUESTED.is_set():
+        raise OperationCancelled()
     if code != 0:
         raise RuntimeError(localized(f"Lokaler ML-Worker wurde mit Code {code} beendet.", f"The local ML worker exited with code {code}.", f"El proceso local de ML terminó con el código {code}.", f"Le processus ML local s’est terminé avec le code {code}."))
 
 
 PROGRESS_LINE = re.compile(r"^RECO_PROGRESS (\d+) (\d+)\s*$")
+# Multi-step ml_worker commands announce "RECO_STAGE <index> <count> <label>".
+STAGE_LINE = re.compile(r"^RECO_STAGE (\d+) (\d+) (.*)$")
 
 
 def run_json(command: list[str], on_progress: Callable[[int, int], None] | None = None) -> dict:
@@ -1277,7 +1505,7 @@ def run_json(command: list[str], on_progress: Callable[[int, int], None] | None 
     stderr (stdout stays reserved for the result); those go to on_progress and
     are kept out of any error message.
     """
-    process = subprocess.Popen(
+    process = popen_tracked(
         command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="replace",
         env={**os.environ, "PYTHONUNBUFFERED": "1", "PYTORCH_ENABLE_MPS_FALLBACK": "1", "PYTHONIOENCODING": "utf-8"},
     )
@@ -1296,9 +1524,16 @@ def run_json(command: list[str], on_progress: Callable[[int, int], None] | None 
     reader = threading.Thread(target=read_stderr, daemon=True)
     reader.start()
     assert process.stdout is not None
-    stdout = process.stdout.read()
-    returncode = process.wait()
-    reader.join()
+    try:
+        stdout = process.stdout.read()
+        returncode = process.wait()
+        reader.join()
+    finally:
+        untrack(process)
+        if hasattr(process.stdout, "close"):
+            process.stdout.close()
+    if CANCEL_REQUESTED.is_set():
+        raise OperationCancelled()
     if returncode != 0:
         raise RuntimeError("".join(stderr_lines).strip() or stdout.strip() or localized(f"Lokaler ML-Worker wurde mit Code {returncode} beendet.", f"The local ML worker exited with code {returncode}.", f"El proceso local de ML terminó con el código {returncode}.", f"Le processus ML local s’est terminé avec le code {returncode}."))
     # RF-DETR/PyTorch can print their own notices to stdout while loading the
@@ -1331,11 +1566,55 @@ def label_import_message(summary: dict, candidates: bool) -> str:
     return " ".join(parts)
 
 
+def job_output_dirs(root: Path, action: str) -> list[Path]:
+    """Folders a job writes into; after a cancel, entries it created or rewrote there are removed.
+    Training is left out on purpose: its checkpoints are what a later run resumes from."""
+    return {
+        "export-coreml": [root / "exports" / "coreml"],
+        "export-onnx": [root / "exports" / "onnx"],
+        "package-model": [root / "exports" / "share"],
+        "combine-models": [root / "exports" / "share", root / "models" / "library"],
+        "benchmark": [root / "benchmarks" / "runs"],
+        "import-labels": [root / "frames" / "imported"],
+        "import-model": [root / "models" / "library"],
+        "import-onnx": [root / "models" / "library", root / "inbox"],
+        "export-dataset": [root / "exports" / "datasets"],
+        "download-models": [root / ".runtime" / "models"],
+    }.get(action, [])
+
+
+def cancelled_message(action: str) -> str:
+    if action == "train":
+        return localized(
+            "Training abgebrochen. Der zuletzt gespeicherte Checkpoint bleibt erhalten; „Lokal trainieren“ setzt dort fort.",
+            "Training cancelled. The last saved checkpoint is kept; “Train locally” continues from there.",
+            "Entrenamiento cancelado. Se conserva el último checkpoint guardado; «Entrenar localmente» continúa desde ahí.",
+            "Entraînement annulé. Le dernier checkpoint enregistré est conservé ; « Entraîner localement » reprend à partir de là.",
+        )
+    if action == "setup":
+        return localized(
+            "Einrichtung abgebrochen. „ML einrichten“ erneut starten, um sie abzuschließen.",
+            "Setup cancelled. Start “Set up ML” again to complete it.",
+            "Configuración cancelada. Vuelve a iniciar «Configurar ML» para completarla.",
+            "Configuration annulée. Relancez « Configurer le ML » pour la terminer.",
+        )
+    return localized(
+        "Abgebrochen. Das Projekt ist unverändert; halbfertige Dateien wurden entfernt.",
+        "Cancelled. The project is unchanged; half-written files were removed.",
+        "Cancelado. El proyecto no ha cambiado; se eliminaron los archivos a medio escribir.",
+        "Annulé. Le projet est inchangé ; les fichiers incomplets ont été supprimés.",
+    )
+
+
 def ml_action(action: str, payload: dict) -> None:
+    output_dirs: list[Path] = []
+    before: dict[Path, float] = {}
     try:
         root = STATE.project_root
         if root is None or not (root / "project.json").is_file():
             raise RuntimeError(localized("Zuerst Videos lokal vorbereiten.", "Prepare videos locally first.", "Primero prepara los vídeos localmente.", "Préparez d’abord les vidéos localement."))
+        output_dirs = job_output_dirs(root, action)
+        before = output_snapshot(output_dirs)
         language = payload.get("language", "de")
         if language not in {"de", "en", "es", "fr"}:
             language = "de"
@@ -1494,6 +1773,12 @@ def ml_action(action: str, payload: dict) -> None:
             run_logged([str(executable), str(worker), *args])
         project = load_project(root)
         STATE.update(project=project, operation="ready", busy=False, progress=1.0, message=localized("Lokaler Vorgang abgeschlossen.", "Local operation completed.", "Operación local completada.", "Opération locale terminée."))
+    except OperationCancelled:
+        remove_job_outputs(output_dirs, before)
+        message = cancelled_message(action)
+        STATE.append_log(message)
+        root = STATE.project_root
+        STATE.update(project=load_project(root) if root else STATE.project, operation="cancelled", busy=False, progress=0.0, error=None, message=message)
     except Exception as error:
         STATE.append_log(str(error))
         STATE.update(operation="error", busy=False, error=str(error), message=localized("Lokaler ML-Vorgang fehlgeschlagen.", "Local ML operation failed.", "La operación local de ML falló.", "L’opération ML locale a échoué."))
@@ -1722,6 +2007,12 @@ class Handler(BaseHTTPRequestHandler):
         if route.path == "/api/status":
             self.json_response(STATE.snapshot())
             return
+        if route.path == "/api/jobs":
+            self.json_response(JOBS.snapshot())
+            return
+        if route.path == "/api/events":
+            self.stream_events()
+            return
         if route.path == "/api/frame":
             root = STATE.project_root
             project = STATE.project or {}
@@ -1765,6 +2056,38 @@ class Handler(BaseHTTPRequestHandler):
             self.wfile.write(data)
             return
         self.serve_static(route.path)
+
+    def stream_events(self) -> None:
+        """Server-sent events: the job list (current job with progress, queue, recent results)
+        whenever it changes, at most ~4 times a second, plus a keep-alive comment. The full
+        /api/status stays the fallback and the source for project data."""
+        self.send_response(HTTPStatus.OK)
+        self.add_cors()
+        self.send_header("Content-Type", "text/event-stream; charset=utf-8")
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("Connection", "keep-alive")
+        self.end_headers()
+        seen = -1
+        last_sent = 0.0
+        try:
+            while True:
+                with CHANGED:
+                    if _CHANGE_COUNTER == seen:
+                        CHANGED.wait(timeout=15)
+                    counter = _CHANGE_COUNTER
+                if counter == seen:
+                    self.wfile.write(b": keep-alive\n\n")
+                else:
+                    pause = 0.25 - (time.time() - last_sent)
+                    if pause > 0:
+                        time.sleep(pause)
+                    seen = counter
+                    last_sent = time.time()
+                    payload = json.dumps(JOBS.snapshot(), ensure_ascii=False)
+                    self.wfile.write(f"event: jobs\ndata: {payload}\n\n".encode("utf-8"))
+                self.wfile.flush()
+        except (BrokenPipeError, ConnectionResetError, OSError):
+            return
 
     def serve_static(self, request_path: str) -> None:
         """Serve the built interface (ui/) so end users need neither Node.js nor npm.
@@ -1856,38 +2179,32 @@ class Handler(BaseHTTPRequestHandler):
                 if language in {"de", "en", "es", "fr"}:
                     STATE.language = language
             if self.path == "/api/select-folder":
+                if JOBS.has_pending():
+                    raise RuntimeError(localized("Bitte warten, bis die laufenden Vorgänge beendet sind.", "Please wait until the running operations have finished.", "Espera a que terminen las operaciones en curso.", "Veuillez attendre la fin des opérations en cours."))
                 folder = select_folder()
                 self.json_response({"ok": True, "folder": str(folder), "status": STATE.snapshot()})
             elif self.path == "/api/cancel":
-                if not STATE.busy or STATE.operation not in CANCELLABLE_OPERATIONS:
-                    raise RuntimeError(localized("Dieser Vorgang lässt sich nicht abbrechen.", "This operation cannot be cancelled.", "Esta operación no se puede cancelar.", "Cette opération ne peut pas être annulée."))
-                CANCEL_REQUESTED.set()
-                STATE.update(message=localized("Wird abgebrochen …", "Cancelling …", "Cancelando …", "Annulation …"))
-                self.json_response({"ok": True})
+                job = JOBS.cancel(payload.get("jobId") or None)
+                self.json_response({"ok": True, "job": job})
+            elif match := re.fullmatch(r"/api/jobs/([0-9a-f]{12})/cancel", self.path):
+                job = JOBS.cancel(match.group(1))
+                self.json_response({"ok": True, "job": job})
             elif self.path == "/api/prepare":
-                if STATE.busy:
-                    raise RuntimeError(localized("Ein lokaler Vorgang läuft bereits.", "A local operation is already running.", "Ya hay una operación local en curso.", "Une opération locale est déjà en cours."))
                 count = frames_per_video(payload.get("framesPerVideo"))
-                threading.Thread(target=extract_project, args=(payload.get("sport", "basketball"), count), daemon=True).start()
-                self.json_response({"ok": True})
+                job = JOBS.submit("prepare", extract_project, payload.get("sport", "basketball"), count)
+                self.json_response({"ok": True, "job": job})
             elif self.path == "/api/active-learning":
-                if STATE.busy:
-                    raise RuntimeError(localized("Ein lokaler Vorgang läuft bereits.", "A local operation is already running.", "Ya hay una operación local en curso.", "Une opération locale est déjà en cours."))
                 folder = choose_video_folder(expansion=True)
-                threading.Thread(target=expand_dataset, args=(folder, payload), daemon=True).start()
-                self.json_response({"ok": True, "folder": str(folder)})
+                job = JOBS.submit("active-learning", expand_dataset, folder, payload)
+                self.json_response({"ok": True, "folder": str(folder), "job": job})
             elif self.path == "/api/independent-validation":
-                if STATE.busy:
-                    raise RuntimeError(localized("Ein lokaler Vorgang läuft bereits.", "A local operation is already running.", "Ya hay una operación local en curso.", "Une opération locale est déjà en cours."))
                 folder = choose_video_folder(expansion=True)
-                threading.Thread(target=expand_dataset, args=(folder, payload), kwargs={"held_out": True}, daemon=True).start()
-                self.json_response({"ok": True, "folder": str(folder)})
+                job = JOBS.submit("independent-validation", expand_dataset, folder, payload, held_out=True)
+                self.json_response({"ok": True, "folder": str(folder), "job": job})
             elif self.path == "/api/simulate-ball-tracking":
-                if STATE.busy:
-                    raise RuntimeError(localized("Ein lokaler Vorgang läuft bereits.", "A local operation is already running.", "Ya hay una operación local en curso.", "Une opération locale est déjà en cours."))
                 video = select_video_file()
-                threading.Thread(target=simulate_ball_tracking, args=(video, payload), daemon=True).start()
-                self.json_response({"ok": True, "video": str(video)})
+                job = JOBS.submit("simulate-ball-tracking", simulate_ball_tracking, video, payload)
+                self.json_response({"ok": True, "video": str(video), "job": job})
             elif self.path == "/api/annotations":
                 save_annotations(payload)
                 self.json_response({"ok": True, "status": STATE.snapshot()})
@@ -1912,33 +2229,25 @@ class Handler(BaseHTTPRequestHandler):
                     raise RuntimeError(localized("Ein lokaler Vorgang läuft bereits.", "A local operation is already running.", "Ya hay una operación local en curso.", "Une opération locale est déjà en cours."))
                 self.json_response({"ok": True, "benchmark": freeze_ground_truth()})
             elif self.path == "/api/import-model":
-                if STATE.busy:
-                    raise RuntimeError(localized("Ein lokaler Vorgang läuft bereits.", "A local operation is already running.", "Ya hay una operación local en curso.", "Une opération locale est déjà en cours."))
                 package_file = select_model_package()
-                threading.Thread(target=ml_action, args=("import-model", {**payload, "file": str(package_file)}), daemon=True).start()
-                self.json_response({"ok": True, "fileName": package_file.name})
+                job = JOBS.submit("import-model", ml_action, "import-model", {**payload, "file": str(package_file)})
+                self.json_response({"ok": True, "fileName": package_file.name, "job": job})
             elif self.path == "/api/import-onnx":
-                if STATE.busy:
-                    raise RuntimeError(localized("Ein lokaler Vorgang läuft bereits.", "A local operation is already running.", "Ya hay una operación local en curso.", "Une opération locale est déjà en cours."))
                 if not str(payload.get("classNames", "")).strip():
                     raise RuntimeError(localized("Bitte die Klassen des Modells angeben.", "Please enter the model's classes.", "Indica las clases del modelo.", "Veuillez indiquer les classes du modèle."))
                 onnx_file = select_model_package(".onnx")
-                threading.Thread(target=ml_action, args=("import-onnx", {**payload, "file": str(onnx_file)}), daemon=True).start()
-                self.json_response({"ok": True, "fileName": onnx_file.name})
+                job = JOBS.submit("import-onnx", ml_action, "import-onnx", {**payload, "file": str(onnx_file)})
+                self.json_response({"ok": True, "fileName": onnx_file.name, "job": job})
             elif self.path == "/api/import-labels":
-                if STATE.busy:
-                    raise RuntimeError(localized("Ein lokaler Vorgang läuft bereits.", "A local operation is already running.", "Ya hay una operación local en curso.", "Une opération locale est déjà en cours."))
                 if STATE.project_root is None or not (STATE.project_root / "project.json").is_file():
                     raise RuntimeError(localized("Zuerst Videos lokal vorbereiten.", "Prepare videos locally first.", "Primero prepara los vídeos localmente.", "Préparez d’abord les vidéos localement."))
                 label_folder = choose_video_folder(labels=True)
-                threading.Thread(target=ml_action, args=("import-labels", {**payload, "source": str(label_folder)}), daemon=True).start()
-                self.json_response({"ok": True, "folder": str(label_folder)})
+                job = JOBS.submit("import-labels", ml_action, "import-labels", {**payload, "source": str(label_folder)})
+                self.json_response({"ok": True, "folder": str(label_folder), "job": job})
             elif self.path in {"/api/setup", "/api/autolabel", "/api/train", "/api/export-coreml", "/api/export-onnx", "/api/refine-boxes", "/api/package-model", "/api/combine-models", "/api/benchmark", "/api/activate-model", "/api/rename-model", "/api/delete-model"}:
-                if STATE.busy:
-                    raise RuntimeError(localized("Ein lokaler Vorgang läuft bereits.", "A local operation is already running.", "Ya hay una operación local en curso.", "Une opération locale est déjà en cours."))
                 action = self.path.removeprefix("/api/")
-                threading.Thread(target=ml_action, args=(action, payload), daemon=True).start()
-                self.json_response({"ok": True})
+                job = JOBS.submit(action, ml_action, action, payload, cancellable=action not in QUICK_ACTIONS)
+                self.json_response({"ok": True, "job": job})
             else:
                 self.send_error(HTTPStatus.NOT_FOUND)
         except Exception as error:
@@ -1984,6 +2293,16 @@ def main() -> None:
     # The interface is served from this very port, so its own origin must be allowed.
     ALLOWED_ORIGINS.update({f"http://localhost:{args.port}", f"http://127.0.0.1:{args.port}"})
     server = ThreadingHTTPServer((HOST, args.port), Handler)
+    server.daemon_threads = True
+
+    def shut_down(_signum, _frame) -> None:
+        # Jobs run in their own process groups; stop them too, or a training run would
+        # outlive the app (the launcher only signals this worker's own group).
+        CANCEL_REQUESTED.set()
+        terminate_active_processes()
+        raise SystemExit(0)
+
+    signal.signal(signal.SIGTERM, shut_down)
     print(f"Reco Local Worker: http://{HOST}:{args.port}", flush=True)
     print(f"Reco Trainer interface: http://localhost:{args.port}/", flush=True)
     server.serve_forever()

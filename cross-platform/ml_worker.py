@@ -19,6 +19,7 @@ import os
 import platform
 import re
 import shutil
+import signal
 import stat
 import struct
 import sys
@@ -2467,6 +2468,7 @@ def train(args: argparse.Namespace) -> None:
     project_root = Path(args.project).resolve()
     document = require_project(project_root, args.language)
     training_categories = list(dict.fromkeys(args.category)) if getattr(args, "category", None) else None
+    stage(1, 3, localized(args.language, "Datensatz vorbereiten", "Prepare dataset", "Preparar el conjunto de datos", "Préparer le jeu de données"))
     dataset_root = build_dataset(project_root, args.language, categories=training_categories)
     if training_categories is not None:
         emit(localized(
@@ -2666,6 +2668,7 @@ def train(args: argparse.Namespace) -> None:
         })
         if use_continuation_checkpoint is not None:
             train_kwargs.update({"lr": 0.00005, "lr_encoder": 0.000075})
+    stage(2, 3, localized(args.language, "Trainieren", "Train", "Entrenar", "Entraîner"))
     _, ignored = call_with_supported_kwargs(model.train, train_kwargs)
     if ignored:
         emit(localized(
@@ -2675,6 +2678,7 @@ def train(args: argparse.Namespace) -> None:
             f"The installed RF-DETR version does not yet support these optional optimizations: "
             f"{', '.join(ignored)}.",
         ))
+    stage(3, 3, localized(args.language, "Bestes Modell bewerten", "Evaluate the best model", "Evaluar el mejor modelo", "Évaluer le meilleur modèle"))
     validation_metrics = evaluate_trained_model(
         model, model_class, preferred_run_checkpoint(output_dir), device, dataset_root, args.language
     )
@@ -3901,8 +3905,16 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def stage(index: int, count: int, label: str) -> None:
+    """Announce a step of a multi-step command; local_worker.py shows "Step 2/5: label"."""
+    print(f"RECO_STAGE {index} {count} {label}", flush=True)
+
+
 def main() -> None:
     os.environ.setdefault("PYTORCH_ENABLE_MPS_FALLBACK", "1")
+    # A cancel from the app sends SIGTERM to this process group. Turning it into SystemExit
+    # lets every finally/except block run, so staging folders and partial files are removed.
+    signal.signal(signal.SIGTERM, lambda _signum, _frame: sys.exit(143))
     args = build_parser().parse_args()
     args.func(args)
 

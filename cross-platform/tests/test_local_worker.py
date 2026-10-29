@@ -397,8 +397,7 @@ class CancelExtractionTests(unittest.TestCase):
             local_worker.atomic_json(root / "project.json", previous)
             with mock.patch.object(local_worker.shutil, "which", lambda name: None), \
                     mock.patch.object(local_worker, "native_frame_extractor", lambda _root: extractor):
-                worker = threading.Thread(target=local_worker.extract_project, args=("basketball", 20))
-                worker.start()
+                job = local_worker.JOBS.submit("prepare", local_worker.extract_project, "basketball", 20)
                 for _ in range(100):
                     detail = local_worker.STATE.detail or {}
                     if detail.get("phase") == "extract" and detail.get("framesDone", 0) >= 1:
@@ -407,9 +406,13 @@ class CancelExtractionTests(unittest.TestCase):
                 self.assertTrue(local_worker.STATE.snapshot()["cancellable"])
                 self.assertEqual(local_worker.STATE.detail["videoCount"], 2)
                 self.assertEqual(local_worker.STATE.detail["framesTarget"], 40)
-                local_worker.CANCEL_REQUESTED.set()
-                worker.join(10)
-            self.assertFalse(worker.is_alive())
+                local_worker.JOBS.cancel(job["id"])
+                for _ in range(100):
+                    if not local_worker.JOBS.has_pending():
+                        break
+                    __import__("time").sleep(0.1)
+            self.assertFalse(local_worker.JOBS.has_pending())
+            self.assertEqual(local_worker.JOBS.snapshot()["recent"][0]["status"], "cancelled")
             self.assertEqual(local_worker.STATE.operation, "cancelled")
             self.assertFalse(local_worker.STATE.busy)
             self.assertIsNone(local_worker.STATE.error)
