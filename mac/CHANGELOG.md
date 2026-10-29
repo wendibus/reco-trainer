@@ -1,5 +1,15 @@
 # Änderungen
 
+## 0.21.0
+
+- Neu: Jeder längere Vorgang läuft als Job mit Fortschrittsfenster – Schritt („Schritt 2/3“), Balken (unbestimmt, wenn die Menge unbekannt ist), Prozent, verstrichene und geschätzte Restzeit, „Abbrechen“ mit Rückfrage. Das Fenster lässt sich zu einer Statusleiste minimieren und übersteht ein Neuladen der Seite; weitere Vorgänge warten in einer Warteschlange. Der Fortschritt kommt per Server-Sent Events.
+- Neu: Abbrechen beendet den ganzen Prozessbaum (ml_worker mit Datenladern, pip, FFmpeg), entfernt halbfertige Dateien und lässt das Projekt unverändert. Ein abgebrochenes Training behält seinen letzten Checkpoint; das nächste Training setzt dort fort. Beim Beenden der App laufen keine Prozesse weiter.
+- Neu: Das Training zeigt „Epoche n von m“.
+- Neu: „Datensatz exportieren“ – alle geprüften Bilder mit Labels als YOLO und/oder COCO, nach Video aufgeteilt, mit neutralen Dateinamen, `metadata.json` (Version, Methode, Modelle mit Lizenzen) und optional als ZIP.
+- Neu: Anonymisierter Export – Köpfe und Gesichter werden weichgezeichnet oder verpixelt (keine Balken), auch Zuschauer und Bank; Trikotnummern und Anzeigetafel optional. Ball und Labels bleiben unverändert. Bilder, in denen danach noch ein Gesicht erkennbar ist, werden nicht exportiert, sondern zur Prüfung aufgelistet.
+- Neu: „Anonymisierte Trainingsbilder“ – ein Anteil der Trainingsbilder wird mit weichgezeichneten Köpfen trainiert.
+- Neu: Modell-Registry mit Lizenzen (nur Apache-2.0 und MIT) und geprüften Downloads (SHA-256).
+
 ## 0.20.0
 
 - Behoben: Der nach dem Training gespeicherte Qualitätswert stammte von den Gewichten der letzten Epoche, obwohl der beste Checkpoint gespeichert wird. Ein früh optimales Modell (zum Beispiel Epoche 4 von 24) wurde dadurch zu schlecht bewertet, auch bei der automatischen Wahl des besten Modells. Jetzt wird der beste Checkpoint bewertet.

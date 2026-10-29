@@ -49,7 +49,7 @@ const DEFAULT_API = import.meta.env.DEV ? 'http://127.0.0.1:8766' : window.locat
 // Single source of truth for this web UI's own version - bump alongside
 // VERSION in cross-platform/scripts/package-platforms.sh at every release.
 // Compared against GitHub's latest release tag to power the update banner.
-const CURRENT_VERSION = '0.20.0';
+const CURRENT_VERSION = '0.21.0';
 const LATEST_RELEASE_API = 'https://api.github.com/repos/wendibus/reco-trainer/releases/latest';
 const LATEST_RELEASE_PAGE = 'https://github.com/wendibus/reco-trainer/releases/latest';
 const DISMISSED_UPDATE_KEY = 'reco-dismissed-update-version-v1';

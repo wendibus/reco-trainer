@@ -80,11 +80,15 @@ The extracted folders also contain `START-HERE.md` with a step-by-step tour of t
 6. **Inspect tracking** — the **ball-tracking simulation** plays a short clip frame by frame and shows detected, interpolated, held and lost ball positions.
 7. **Exchange** — export a CPU model (ONNX) or, on a Mac, an Apple model (Core ML); export a `.recomodel` package, or import one from a source you trust. Imports are checked against their checksum and scanned for executable code before they are ever used. ONNX detector packages (automatic labeling and benchmark only) are checked against their checksum; they contain no executable checkpoint. A YOLO model in ONNX format (NMS built in) can also be imported directly: **Import model** on the Mac accepts the `.onnx` file, the web UI has **Import ONNX model**; Reco Trainer asks for the classes and builds the package itself (see [MODEL-EXCHANGE.md](cross-platform/MODEL-EXCHANGE.md)).
 
+8. **Export a dataset** — all reviewed images with their labels as **YOLO** and/or **COCO**, split by video, optionally **anonymized** (see [Dataset export](#dataset-export)).
+
+Every longer operation runs as a job with a **progress window**: step, progress bar, elapsed and remaining time, and **Cancel**. Cancelling removes half-written files and keeps the project unchanged; a cancelled training keeps its last checkpoint and the next run continues from there. Further operations wait in a queue; the window can be minimized to a status chip and survives a page reload.
+
 The [User Guide](docs/USER-GUIDE.md) walks through all of this with explanations of *why* each step matters.
 
 ## Import labels from other tools
 
-Reco Trainer keeps its labels in the project (`.reco-training/project.json`). **YOLO-txt** and **COCO-JSON** datasets can be imported with **Import labels** (Mac app: next to "Import model"; its menu offers "Import as suggestions". Web UI: "Import labels" and "Import labels: As suggestions"). Choose the folder with the images and labels; the project is reloaded afterwards and the status line reports images, boxes and skipped classes. No ML environment is needed.
+Reco Trainer keeps its labels in the project (`.reco-training/project.json`). **YOLO-txt** and **COCO-JSON** datasets can be imported with **Import labels** or **Import labels: As suggestions**. Choose the folder with the images and labels; the project is reloaded afterwards and the status line reports images, boxes and skipped classes. No ML environment is needed.
 
 For your own class mapping (`--class-map`), `--overwrite` or a fixed `--format`, use the worker command:
 
@@ -99,6 +103,35 @@ python3 ml_worker.py import-labels --project "/path/to/videos/.reco-training" --
 - Images are copied to `frames/imported/` and count as reviewed; `--candidates` imports them as suggestions to review first. Importing the same image again is skipped. A frame that already exists with the same file name only receives the labels (`--overwrite` replaces labels it already has).
 - The train/validation split is made per video, and one import counts as one source. Import from several sources, or together with several videos, to get a separate validation set.
 - When using the command line, close the project in the Mac app before importing and open it again afterwards. If you prepare the videos again in the Mac app, run the import again; the files stay in `frames/imported/`.
+
+## Dataset export
+
+**Export dataset** (next to "Create package") writes every reviewed image with its labels:
+
+- **Formats:** YOLO (Ultralytics: `data.yaml`, `images/<train|val|test>`, `labels/...`) and/or COCO (Roboflow / RF-DETR: `<train|valid|test>/_annotations.coco.json`). The split is made per video, as for training, so frames of one video never end up in both training and test.
+- **Neutral file names** (`frame-<id>.jpg`): no video names, source paths or project data. `metadata.json` records the Reco Trainer version, classes, split sizes, the anonymization method and every model used with its license. Optionally a ZIP file is created.
+- **Anonymized** (needs "Set up ML"): heads and faces are strongly **blurred** (or **pixelated**) inside soft-edged ellipses – never covered with boxes, so a head keeps its shape and the data stays useful for training. Covered are the head of every labelled person, people without a label such as spectators and the bench (found with the RF-DETR COCO base model), and faces found by YuNet. **Jersey numbers and the scoreboard** can be hidden too (off by default). The ball and all labels stay unchanged.
+- After blurring, the face detector runs again. A frame where it still finds an uncovered face is **not exported**; it is listed after the export (and in `<export>.review.json` next to, not inside, the export) so you can check it, label the person and export again.
+- **Anonymized training images:** in the training options, a share of the training images (10, 25 or 50 %) can be trained with blurred heads, so a model also handles anonymized images. The original frames are never changed.
+
+Automatic anonymization is very good but not perfect - check samples before you share a dataset.
+
+## Models and licenses
+
+Reco Trainer only downloads models under **Apache-2.0** or **MIT**, each with a checksum ([`cross-platform/model_registry.json`](cross-platform/model_registry.json)); the licenses are shown in the export dialog and written into every export's `metadata.json`.
+
+| Model | Used for | License |
+|---|---|---|
+| RF-DETR Nano / Small / Medium / Large (COCO) | training base, auto-label, finding people for anonymization | Apache-2.0 |
+| YuNet face detector (OpenCV Zoo) | anonymization | MIT |
+| PP-OCRv3 text detector (OpenCV Zoo) | hiding text (optional) | Apache-2.0 |
+
+RF-DETR XL/2XL (PML 1.0), SAM 3 and Ultralytics models are not used.
+
+## Hardware
+
+- **Comfortable:** an NVIDIA GPU with 16 GB VRAM (CUDA) or Apple silicon (Metal/MPS).
+- **Works:** CPU only - training and the anonymized export are much slower; the export then uses the smallest people detector. A plain export needs no ML environment at all.
 
 ## Privacy and security
 
@@ -118,7 +151,7 @@ Please **do not** attach private match footage, extracted frames, datasets, `.re
 ## Repository layout
 
 - `cross-platform/` — browser interface, local worker, Windows/Linux launchers and Docker configuration.
-- `mac/` — native Swift macOS application, its local Python ML worker and [`CHANGELOG.md`](mac/CHANGELOG.md).
+- `mac/` — the macOS launcher (a native window around the web interface, with signed self-updates) and [`CHANGELOG.md`](mac/CHANGELOG.md).
 - `docs/` — the [User Guide](docs/USER-GUIDE.md), the hosted [training video](docs/training-video/) page, model documentation and design proposals.
 - `RELEASE-NOTES-<version>.md` — changes and download details for each release.
 
