@@ -26,6 +26,21 @@
 	<string>38</string>
     <key>LSMinimumSystemVersion</key>
     <string>14.0</string>
+    <key>NSAppTransportSecurity</key>
+    <dict>
+        <key>NSAllowsLocalNetworking</key>
+        <true/>
+    </dict>
+    <key>NSRemovableVolumesUsageDescription</key>
+    <string>Reco Trainer liest Videos von diesem Datenträger und speichert Trainingsdaten im gewählten Ordner. / Reco Trainer reads videos from this volume and stores training data in the folder you choose.</string>
+    <key>NSDocumentsFolderUsageDescription</key>
+    <string>Reco Trainer liest Videos aus dem gewählten Ordner. / Reco Trainer reads videos from the folder you choose.</string>
+    <key>NSDesktopFolderUsageDescription</key>
+    <string>Reco Trainer liest Videos aus dem gewählten Ordner. / Reco Trainer reads videos from the folder you choose.</string>
+    <key>NSDownloadsFolderUsageDescription</key>
+    <string>Reco Trainer liest Videos aus dem gewählten Ordner. / Reco Trainer reads videos from the folder you choose.</string>
+    <key>NSNetworkVolumesUsageDescription</key>
+    <string>Reco Trainer liest Videos von diesem Netzwerkvolume. / Reco Trainer reads videos from this network volume.</string>
     <key>NSHighResolutionCapable</key>
     <true/>
     <key>NSPrincipalClass</key>

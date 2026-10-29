@@ -50,7 +50,7 @@ const DISMISSED_UPDATE_KEY = 'reco-dismissed-update-version-v1';
 // Splits a version string like "v0.12.13" or "0.12.13" into [0, 12, 13]. A
 // non-numeric component falls back to 0 rather than throwing.
 function parseVersionComponents(raw: string): number[] {
-  const withoutPrefix = raw.replace(/^v/i, '');
+  const withoutPrefix = raw.replace(/^v\.?/i, '');
   return withoutPrefix.split('.').map((part) => Number.parseInt(part, 10) || 0);
 }
 
@@ -248,6 +248,8 @@ export default function Home() {
   // ignored - this must never interrupt the user. Only the releases endpoint
   // is contacted; no project data leaves the computer.
   useEffect(() => {
+    // The Mac app (launcher) checks for and installs updates itself.
+    if (new URLSearchParams(window.location.search).has('launcher')) return;
     let active = true;
     (async () => {
       try {
@@ -256,7 +258,7 @@ export default function Home() {
         const release = await response.json() as { tag_name?: string; html_url?: string };
         const tag = release.tag_name;
         if (!active || !tag) return;
-        const version = tag.replace(/^v/i, '');
+        const version = tag.replace(/^v\.?/i, '');
         if (isNewerVersion(version, CURRENT_VERSION)) setAvailableUpdate({ version, url: release.html_url || LATEST_RELEASE_PAGE });
       } catch { /* offline or blocked - stay silent */ }
     })();

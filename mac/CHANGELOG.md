@@ -4,7 +4,7 @@
 
 - Geändert (Windows, Linux, Docker): Die Weboberfläche wird fertig gebaut mitgeliefert und vom Python-Worker selbst ausgeliefert. Node.js und npm sind nicht mehr nötig; die Oberfläche läuft unter http://localhost:8766/ (ein Port statt zwei). Start-Skripte starten nur noch den Worker und öffnen den Browser.
 - Geändert (Entwicklung): Vite + React statt Next.js/vinext/Cloudflare-Werkzeugen; `npm run typecheck` ersetzt `lint`. CI baut und prüft die Oberfläche.
-- Mac-App: unverändert in der Funktion, nur die Versionsnummer.
+- Geändert (Mac): Die App ist jetzt ein Starter um die Weboberfläche (WKWebView) und startet den Python-Worker. Die SwiftUI-Oberfläche entfällt; Funktionen und Aussehen sind auf allen Systemen identisch. Neue Versionen von Oberfläche und Workern installiert die App selbst (Ed25519-signiertes Paket aus dem GitHub-Release, automatischer Rückfall auf die vorherige Version). Ein vorkompilierter Frame-Extraktor ist enthalten. Projekte bleiben unverändert nutzbar.
 
 ## 0.19.2
 

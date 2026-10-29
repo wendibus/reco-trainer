@@ -684,6 +684,10 @@ def media_info(path: Path, apple_extractor: Path | None = None) -> tuple[float, 
 
 
 def native_frame_extractor(root: Path) -> Path:
+    # The Mac app ships this extractor precompiled (no Xcode tools needed on the user's Mac).
+    bundled = os.environ.get("RECO_FRAME_EXTRACTOR")
+    if bundled and Path(bundled).is_file() and os.access(bundled, os.X_OK):
+        return Path(bundled)
     source = BASE_DIR / "frame_extractor.swift"
     if sys.platform != "darwin" or not source.is_file():
         raise RuntimeError(localized("FFmpeg wurde nicht gefunden.", "FFmpeg was not found.", "No se encontró FFmpeg.", "FFmpeg est introuvable."))

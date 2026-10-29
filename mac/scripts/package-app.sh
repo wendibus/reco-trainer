@@ -29,11 +29,16 @@ xcrun actool "$ROOT_DIR/Assets.xcassets" \
   --output-partial-info-plist "$ASSET_BUILD_DIR/asset-info.plist"
 cp "$ASSET_BUILD_DIR/Assets.car" "$APP_DIR/Contents/Resources/Assets.car"
 cp "$ASSET_BUILD_DIR/AppIcon.icns" "$APP_DIR/Contents/Resources/AppIcon.icns"
-rsync -a --delete \
-  --exclude '__pycache__' \
-  --exclude '*.pyc' \
-  "$BIN_DIR/RecoTrainerMac_RecoTrainerMac.bundle/" \
-  "$APP_DIR/Contents/Resources/RecoTrainerMac_RecoTrainerMac.bundle/"
+# The payload (web interface + Python workers) ships inside the app and is copied to
+# ~/Library/Application Support/Reco Trainer/payloads on first start; later versions
+# arrive through the in-app updater without a new app download.
+PAYLOAD_BUILD_DIR="$BUILD_DIR/payload-build"
+rm -rf "$PAYLOAD_BUILD_DIR"
+"$ROOT_DIR/../cross-platform/scripts/build-payload.sh" "$PAYLOAD_BUILD_DIR" >/dev/null
+rm -rf "$APP_DIR/Contents/Resources/payload"
+cp -R "$PAYLOAD_BUILD_DIR/payload" "$APP_DIR/Contents/Resources/payload"
+# Precompiled Apple frame extractor (AVFoundation), so no Xcode tools are needed on the user's Mac.
+swiftc -O "$ROOT_DIR/../cross-platform/frame_extractor.swift" -o "$APP_DIR/Contents/MacOS/reco-frame-extractor"
 xattr -cr "$APP_DIR"
 SIGN_IDENTITY="${RECO_SIGN_IDENTITY:--}"
 if [[ "$SIGN_IDENTITY" == "-" ]]; then

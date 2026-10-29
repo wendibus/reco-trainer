@@ -31,13 +31,15 @@ Every platform needs internet access **once**, for the first "Set up ML" step: i
 
 ### macOS
 
-Requirements: macOS 14 or newer, Apple silicon, and **Python 3.10 or newer** (3.12 recommended, for example `brew install python@3.12`). Reco Trainer finds a suitable Python on its own and ignores the older system Python that comes with macOS; if none is installed, it tells you what to install. Node.js and Xcode are *not* needed for the app.
+Requirements: macOS 14 or newer, Apple silicon, and **Python 3** (3.12 recommended, for example `brew install python@3.12`). "Set up ML" finds a suitable Python 3.10+ on its own; if none is installed, it tells you what to install. Node.js and Xcode are *not* needed.
 
 1. Download `Reco-Trainer-Mac-<version>.dmg` from the [latest release](https://github.com/wendibus/reco-trainer/releases/latest).
 2. Open it and drag **Reco Trainer** into **Applications**.
-3. Start the app. It is signed with a Developer ID certificate and notarized by Apple (from 0.19.1; 0.17.2 was notarized afterwards), so macOS opens it without a security warning.
+3. Start the app. It is signed with a Developer ID certificate and notarized by Apple, so macOS opens it without a security warning.
 4. Choose your language, then watch the short walkthrough video or click through the guided tour.
 5. Pick a sport and a video folder, then run **Set up ML** once.
+
+The Mac app is a thin launcher around the same interface that Windows, Linux and Docker use. It updates itself: when a new release is published it offers to install the new interface and workers (signature-checked), without a new app download.
 
 ### Windows
 

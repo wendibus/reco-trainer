@@ -15,13 +15,7 @@ import zipfile
 from pathlib import Path
 
 
-WORKER_PATH = (
-    Path(__file__).parents[2]
-    / "Sources"
-    / "RecoTrainerMac"
-    / "Resources"
-    / "ml_worker.py"
-)
+WORKER_PATH = Path(__file__).parents[3] / "cross-platform" / "ml_worker.py"
 SPEC = importlib.util.spec_from_file_location("ml_worker", WORKER_PATH)
 assert SPEC and SPEC.loader
 ml_worker = importlib.util.module_from_spec(SPEC)

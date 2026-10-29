@@ -2,7 +2,7 @@ name: Tests
 
 on:
   push:
-    branches: [main]
+    branches: [main, launcher]
   pull_request:
 
 jobs:
@@ -19,11 +19,6 @@ jobs:
         run: python3 -m unittest discover -s cross-platform/tests -p "test_*.py"
       - name: Mac ML worker tests
         run: python3 -m unittest discover -s mac/Tests/Python -p "test_*.py"
-      - name: ml_worker.py copies must stay in sync
-        # cross-platform/ml_worker.py is the source of truth; the Mac app's copy
-        # is a plain file (SwiftPM resources can't be symlinks out of the package).
-        # Run mac/scripts/sync-ml-worker.sh after editing the cross-platform copy.
-        run: diff -u cross-platform/ml_worker.py mac/Sources/RecoTrainerMac/Resources/ml_worker.py
 
   web-interface:
     runs-on: ubuntu-latest
@@ -44,3 +39,15 @@ jobs:
         run: npm run build
       - name: Interface was built
         run: test -f ui/index.html
+
+  mac-launcher:
+    # The Swift launcher cannot be compiled on Linux, so macOS builds and tests it on every push.
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build
+        run: swift build
+        working-directory: mac
+      - name: Unit tests
+        run: swift test
+        working-directory: mac
