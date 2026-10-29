@@ -22,7 +22,7 @@ type Props = {
   /** Called when a job ends, so the page reloads project data at once. */
   onJobEnded?: (job: Job) => void;
   /** Optional extra content for a finished job (for example "Show folder" after an export). */
-  renderResult?: (job: Job) => React.ReactNode;
+  renderResult?: (job: Job, close: () => void) => React.ReactNode;
 };
 
 const SHOW_AFTER_SECONDS = 0.8;
@@ -145,7 +145,7 @@ export function JobDialog({ api, language, fallback, cancel, onJobEnded, renderR
       {finishedJob.status === 'failed'
         ? <pre className="progress-dialog-error">{finishedJob.error || finishedJob.message}</pre>
         : finishedJob.message && <p className="progress-dialog-message">{finishedJob.message}</p>}
-      {renderResult?.(finishedJob)}
+      {renderResult?.(finishedJob, () => setFinishedJob(null))}
       <div className="onnx-actions"><button type="button" className="primary-button" onClick={() => setFinishedJob(null)}>{t.close}</button></div>
     </section></div>;
   }

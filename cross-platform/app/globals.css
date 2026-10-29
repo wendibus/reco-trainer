@@ -294,6 +294,24 @@ select { height:34px; padding:0 9px; border:1px solid #cbd3df; border-radius:7px
 .onnx-dialog input { padding:7px 9px; border:1px solid #c8d1dd; border-radius:7px; font:inherit; font-weight:400; }
 .onnx-dialog small { color:#637087; font-weight:400; }
 .onnx-actions { display:flex; justify-content:flex-end; gap:8px; }
+.export-dialog { width:min(560px,100%); max-height:calc(100vh - 48px); overflow:auto; }
+.export-choice { display:flex; flex-wrap:wrap; gap:6px 16px; margin:0; padding:0; border:0; font-size:13px; }
+.export-choice legend { width:100%; margin-bottom:4px; font-size:12px; font-weight:650; color:#29384f; }
+.export-choice label, .export-toggle { display:flex !important; align-items:flex-start; gap:8px; font-size:13px; font-weight:500; color:#29384f; }
+.export-toggle span { display:grid; gap:2px; }
+.export-toggle small { font-size:11px; color:#637087; }
+.export-toggle input, .export-choice input { margin-top:2px; }
+.export-suboptions { display:grid; gap:10px; padding:10px 12px; border-left:3px solid var(--accent); background:#f5f8fc; border-radius:0 8px 8px 0; }
+.export-models { font-size:12px; color:#29384f; }
+.export-models ul { margin:6px 0 0; padding-left:18px; }
+.export-result { display:grid; gap:8px; font-size:13px; color:#29384f; }
+.export-result p { margin:0; }
+.export-path { display:grid; gap:2px; }
+.export-path span { font-size:11px; color:#637087; }
+.export-path code { font-size:11px; overflow-wrap:anywhere; }
+.export-result > .secondary-button { justify-self:start; }
+.export-held { display:grid; gap:6px; padding:10px; border-radius:8px; background:#fff8e6; }
+.export-held-list { display:flex; flex-wrap:wrap; gap:6px; }
 .language-dialog { width:min(610px,100%); padding:32px; border-radius:20px; background:#fff; box-shadow:0 28px 80px rgba(8,20,42,.34); text-align:center; }
 .language-globe { width:58px; height:58px; display:grid; place-items:center; margin:0 auto 15px; border-radius:17px; background:linear-gradient(145deg,#2778ff,#0b4ed4); color:#fff; font-size:22px; font-weight:800; }
 .language-dialog h2 { margin:0; font-size:24px; letter-spacing:-.025em; }

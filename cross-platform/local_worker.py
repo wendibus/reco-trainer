@@ -311,6 +311,7 @@ class LocalState:
                 "trainingHistory": (self.project or {}).get("trainingHistory", []),
                 "modelLibrary": model_library_snapshot(self.project_root),
                 "modelRegistry": model_registry_snapshot(self.project_root),
+                "mlReady": bool(self.project_root and venv_python_path(self.project_root / ".runtime" / "venv").is_file()),
                 "benchmark": benchmark_snapshot(self.project_root),
                 "frames": frames,
                 "log": "\n".join(self.log[-80:]),
@@ -2050,6 +2051,13 @@ def review_candidate(payload: dict) -> None:
 
 
 class Handler(BaseHTTPRequestHandler):
+    def handle(self) -> None:
+        # A browser closing a keep-alive connection is normal, not an error worth a traceback.
+        try:
+            super().handle()
+        except (ConnectionResetError, BrokenPipeError):
+            pass
+
     server_version = "RecoLocalWorker/0.1"
 
     def log_message(self, format: str, *args) -> None:
