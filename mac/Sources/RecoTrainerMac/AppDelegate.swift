@@ -316,17 +316,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
     }
 
     func webView(_ webView: WKWebView, runJavaScriptAlertPanelWithMessage message: String,
-                 initiatedBy frame: WKFrameInfo) async {
+                 initiatedByFrame frame: WKFrameInfo) async {
         inform(message)
     }
 
     func webView(_ webView: WKWebView, runJavaScriptConfirmPanelWithMessage message: String,
-                 initiatedBy frame: WKFrameInfo) async -> Bool {
+                 initiatedByFrame frame: WKFrameInfo) async -> Bool {
         confirm(message, ok: "OK", cancel: L("Abbrechen", "Cancel"))
     }
 
     func webView(_ webView: WKWebView, runJavaScriptTextInputPanelWithPrompt prompt: String,
-                 defaultText: String?, initiatedBy frame: WKFrameInfo) async -> String? {
+                 defaultText: String?, initiatedByFrame frame: WKFrameInfo) async -> String? {
         let alert = NSAlert()
         alert.messageText = prompt
         let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 320, height: 24))
@@ -339,7 +339,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
     }
 
     func webView(_ webView: WKWebView, runOpenPanelWith parameters: WKOpenPanelParameters,
-                 initiatedBy frame: WKFrameInfo) async -> [URL]? {
+                 initiatedByFrame frame: WKFrameInfo) async -> [URL]? {
         let panel = NSOpenPanel()
         panel.allowsMultipleSelection = parameters.allowsMultipleSelection
         panel.canChooseDirectories = parameters.allowsDirectories
