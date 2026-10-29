@@ -38,7 +38,8 @@ rm -rf "$PAYLOAD_BUILD_DIR"
 rm -rf "$APP_DIR/Contents/Resources/payload"
 cp -R "$PAYLOAD_BUILD_DIR/payload" "$APP_DIR/Contents/Resources/payload"
 # Precompiled Apple frame extractor (AVFoundation), so no Xcode tools are needed on the user's Mac.
-swiftc -O "$ROOT_DIR/../cross-platform/frame_extractor.swift" -o "$APP_DIR/Contents/MacOS/reco-frame-extractor"
+# Without -target swiftc builds for the macOS version of the build machine; match the app (macOS 14, Apple Silicon).
+swiftc -O -target arm64-apple-macos14.0 "$ROOT_DIR/../cross-platform/frame_extractor.swift" -o "$APP_DIR/Contents/MacOS/reco-frame-extractor"
 xattr -cr "$APP_DIR"
 SIGN_IDENTITY="${RECO_SIGN_IDENTITY:--}"
 if [[ "$SIGN_IDENTITY" == "-" ]]; then
