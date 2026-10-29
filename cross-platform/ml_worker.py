@@ -1986,6 +1986,26 @@ def split_frames(
     return output, warning
 
 
+def write_anonymized_copy(anonymizer, source: Path, destination: Path, frame: dict[str, Any]) -> bool:
+    """Write an anonymized copy as a new file. The dataset normally hard-links the frames, so
+    writing into the existing link would change the original frame - unlink first."""
+    import cv2
+    image = cv2.imread(str(source))
+    if image is None:
+        return False
+    sx = image.shape[1] / max(float(frame.get("width") or image.shape[1]), 1.0)
+    sy = image.shape[0] / max(float(frame.get("height") or image.shape[0]), 1.0)
+    scaled = [{**a, "x": a["x"] * sx, "y": a["y"] * sy, "width": a["width"] * sx, "height": a["height"] * sy} for a in frame.get("annotations", [])]
+    result, _ = anonymizer.anonymize(image, scaled)
+    ok, encoded = cv2.imencode(".jpg", result, [int(cv2.IMWRITE_JPEG_QUALITY), 92])
+    if not ok:
+        return False
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    destination.unlink(missing_ok=True)
+    destination.write_bytes(encoded.tobytes())
+    return True
+
+
 def link_or_copy(source: Path, destination: Path) -> None:
     destination.parent.mkdir(parents=True, exist_ok=True)
     if destination.exists():
@@ -1996,7 +2016,32 @@ def link_or_copy(source: Path, destination: Path) -> None:
         shutil.copy2(source, destination)
 
 
-def build_dataset(project_root: Path, language: str = "de", categories: list[str] | None = None) -> Path:
+def training_anonymizer(project_root: Path, fraction: float, language: str):
+    """Anonymizer for "anonymization augmentation": None when off or when the face model is not
+    available (then training simply runs without it)."""
+    if fraction <= 0:
+        return None
+    try:
+        import anonymize as anonymize_module
+        face_model = download_registry_model(project_root, "yunet-face", language)
+        return anonymize_module.Anonymizer(face_model)
+    except (ImportError, OSError, SystemExit) as error:
+        emit(localized(language, f"Hinweis: Anonymisierte Trainingsbilder übersprungen ({error}).", f"Note: anonymized training images skipped ({error})."))
+        return None
+
+
+def anonymize_for_training(frame: dict[str, Any], fraction: float) -> bool:
+    """Stable choice: the same frames are anonymized in every run with the same share."""
+    bucket = int(hashlib.sha1(f"anon:{frame.get('id')}".encode("utf-8")).hexdigest()[:8], 16) / 0xFFFFFFFF
+    return bucket < fraction
+
+
+def build_dataset(
+    project_root: Path,
+    language: str = "de",
+    categories: list[str] | None = None,
+    anonymize_fraction: float = 0.0,
+) -> Path:
     """Builds the local COCO-format train/valid/test dataset.
 
     categories, when given, restricts the dataset to that subset of already-
@@ -2036,6 +2081,9 @@ def build_dataset(project_root: Path, language: str = "de", categories: list[str
         name for name in sport_categories(document["sport"]) if name in category_names
     ]
     category_id = {name: index + 1 for index, name in enumerate(ordered_categories)}
+    anonymize_fraction = min(max(anonymize_fraction, 0.0), 0.5)
+    anonymizer = training_anonymizer(project_root, anonymize_fraction, language)
+    anonymized_count = 0
     splits, warning = split_frames(frames, language)
     if warning:
         emit(localized(language, f"Hinweis: {warning}", f"Note: {warning}"))
@@ -2056,7 +2104,10 @@ def build_dataset(project_root: Path, language: str = "de", categories: list[str
         for image_number, frame in enumerate(split_frames_list, start=1):
             source = project_root / frame["relativePath"]
             file_name = source.name
-            link_or_copy(source, split_dir / file_name)
+            if anonymizer is not None and split_name == "train" and anonymize_for_training(frame, anonymize_fraction) and write_anonymized_copy(anonymizer, source, split_dir / file_name, frame):
+                anonymized_count += 1
+            else:
+                link_or_copy(source, split_dir / file_name)
             images.append(
                 {
                     "id": image_number,
@@ -2097,6 +2148,12 @@ def build_dataset(project_root: Path, language: str = "de", categories: list[str
             ],
         }
         atomic_json(split_dir / "_annotations.coco.json", coco)
+        if split_name == "train" and anonymizer is not None:
+            emit(localized(
+                language,
+                f"{anonymized_count} Trainingsbilder anonymisiert (Köpfe weichgezeichnet), damit das Modell auch solche Bilder kennt.",
+                f"{anonymized_count} training images anonymized (heads blurred) so the model also knows such images.",
+            ))
         emit(localized(
             language,
             f"{split_name}: {len(images)} Bilder, {len(annotations)} Markierungen",
@@ -2696,7 +2753,7 @@ def train(args: argparse.Namespace) -> None:
     document = require_project(project_root, args.language)
     training_categories = list(dict.fromkeys(args.category)) if getattr(args, "category", None) else None
     stage(1, 3, localized(args.language, "Datensatz vorbereiten", "Prepare dataset", "Preparar el conjunto de datos", "Préparer le jeu de données"))
-    dataset_root = build_dataset(project_root, args.language, categories=training_categories)
+    dataset_root = build_dataset(project_root, args.language, categories=training_categories, anonymize_fraction=float(getattr(args, "anonymize_fraction", 0.0) or 0.0))
     if training_categories is not None:
         emit(localized(
             args.language,
@@ -4110,6 +4167,7 @@ def build_parser() -> argparse.ArgumentParser:
     train_parser.add_argument("--category", nargs="+")
     train_parser.add_argument("--language", choices=["de", "en", "es", "fr"], default="de")
     train_parser.add_argument("--fresh-start", action="store_true")
+    train_parser.add_argument("--anonymize-fraction", type=float, default=0.0, help="share of training images whose heads are blurred (0-0.5)")
     train_parser.set_defaults(func=train)
 
     export_parser = commands.add_parser("export")

@@ -199,5 +199,26 @@ class ExportDatasetTests(unittest.TestCase):
         self.assertEqual(metadata["anonymization"]["method"], "gaussian")
 
 
+    @unittest.skipUnless(HAS_CV, "OpenCV / numpy are not installed")
+    def test_training_augmentation_anonymizes_copies_never_the_original_frames(self):
+        originals = {path.name: path.read_bytes() for path in (self.project / "frames").iterdir()}
+        with mock.patch.object(ml_worker, "download_registry_model", lambda *_args, **_kwargs: None), \
+                contextlib.redirect_stdout(io.StringIO()):
+            dataset = ml_worker.build_dataset(self.project, "en", anonymize_fraction=0.5)
+        for name, data in originals.items():
+            self.assertEqual((self.project / "frames" / name).read_bytes(), data, f"original {name} was changed")
+        train = json.loads((dataset / "train" / "_annotations.coco.json").read_text())
+        changed = [image["file_name"] for image in train["images"] if (dataset / "train" / image["file_name"]).read_bytes() != originals[image["file_name"]]]
+        chosen = [frame for frame in json.loads((self.project / "project.json").read_text())["frames"]
+                  if frame["reviewStatus"] != "candidate" and ml_worker.anonymize_for_training(frame, 0.5) and Path(frame["relativePath"]).name in {i["file_name"] for i in train["images"]}]
+        self.assertEqual(len(changed), len(chosen))
+        self.assertEqual(len(train["annotations"]), 2 * len(train["images"]))
+
+    def test_training_anonymization_choice_is_stable(self):
+        frame = {"id": "abc"}
+        self.assertEqual(ml_worker.anonymize_for_training(frame, 0.3), ml_worker.anonymize_for_training(frame, 0.3))
+        self.assertFalse(ml_worker.anonymize_for_training(frame, 0.0))
+
+
 if __name__ == "__main__":
     unittest.main()

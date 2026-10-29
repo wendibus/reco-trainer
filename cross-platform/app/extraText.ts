@@ -6,6 +6,7 @@ export type ExtraText = {
   fieldSet: string; fieldEdit: string; fieldHelp: string; fieldNudge: string; notNow: string;
   showFolder: string;
   exportDataset: string; exportDatasetHelp: string;
+  anonTrain: string; anonTrainHint: string; anonTrainOff: string;
   importLabels: string; importLabelsCandidates: string; importLabelsHelp: string;
   importOnnx: string; importOnnxHelp: string; onnxName: string; onnxClasses: string; onnxClassesHint: (allowed: string) => string; onnxInputSize: string; onnxInputSizeHint: string; onnxLicense: string; onnxChooseFile: string;
   editorIntro: string; widthLabel: string; lengthLabel: string;
@@ -24,6 +25,7 @@ export const extraText: Record<ExtraLanguage, ExtraText> = {
     fieldNudge: 'Spielfeld markieren, damit automatisches Markieren nur Personen auf dem Feld berücksichtigt.', notNow: 'Nicht jetzt',
     showFolder: 'Trainingsordner anzeigen',
     exportDataset: 'Datensatz exportieren', exportDatasetHelp: 'Alle geprüften Bilder mit Labels als YOLO- und/oder COCO-Datensatz exportieren, auf Wunsch anonymisiert.',
+    anonTrain: 'Anonymisierte Trainingsbilder', anonTrainHint: 'Dieser Anteil der Trainingsbilder wird mit weichgezeichneten Köpfen trainiert, wie im anonymisierten Export. So erkennt das Modell Personen auch auf solchen Bildern.', anonTrainOff: 'aus',
     importLabels: 'Labels importieren', importLabelsCandidates: 'Als Vorschläge',
     importLabelsHelp: 'Übernimmt Bilder mit YOLO-txt- oder COCO-Labels aus einem Ordner (z. B. aus CVAT oder Roboflow). Klassennamen kommen aus data.yaml, classes.txt oder der COCO-Datei; unbekannte Klassen werden übersprungen. „Als Vorschläge“ legt die Boxen ungeprüft in die Prüfwarteschlange.',
     importOnnx: 'ONNX-Modell importieren', onnxName: 'Name', onnxClasses: 'Klassen (Reihenfolge der Klassen-IDs)',
@@ -45,6 +47,7 @@ export const extraText: Record<ExtraLanguage, ExtraText> = {
     fieldNudge: 'Mark the field boundaries so auto-label only considers people standing on the field.', notNow: 'Not now',
     showFolder: 'Show training folder',
     exportDataset: 'Export dataset', exportDatasetHelp: 'Export every reviewed image with its labels as a YOLO and/or COCO dataset, anonymized if you like.',
+    anonTrain: 'Anonymized training images', anonTrainHint: 'This share of the training images is trained with blurred heads, as in the anonymized export, so the model also recognizes people on such images.', anonTrainOff: 'off',
     importLabels: 'Import labels', importLabelsCandidates: 'As suggestions',
     importLabelsHelp: 'Imports images with YOLO-txt or COCO labels from a folder (e.g. from CVAT or Roboflow). Class names come from data.yaml, classes.txt, or the COCO file; unknown classes are skipped. “As suggestions” puts the boxes unreviewed into the review queue.',
     importOnnx: 'Import ONNX model', onnxName: 'Name', onnxClasses: 'Classes (class-id order)',
@@ -66,6 +69,7 @@ export const extraText: Record<ExtraLanguage, ExtraText> = {
     fieldNudge: 'Marca los límites del campo para que el marcado automático solo considere a personas dentro del campo.', notNow: 'Ahora no',
     showFolder: 'Mostrar carpeta de entrenamiento',
     exportDataset: 'Exportar conjunto de datos', exportDatasetHelp: 'Exporta todas las imágenes revisadas con sus etiquetas como conjunto YOLO y/o COCO, anonimizado si quieres.',
+    anonTrain: 'Imágenes de entrenamiento anonimizadas', anonTrainHint: 'Esta parte de las imágenes de entrenamiento se entrena con cabezas difuminadas, como en la exportación anonimizada, para que el modelo también reconozca personas en esas imágenes.', anonTrainOff: 'no',
     importLabels: 'Importar etiquetas', importLabelsCandidates: 'Como sugerencias',
     importLabelsHelp: 'Importa imágenes con etiquetas YOLO-txt o COCO desde una carpeta (p. ej., de CVAT o Roboflow). Los nombres de clase se toman de data.yaml, classes.txt o del archivo COCO; las clases desconocidas se omiten. «Como sugerencias» coloca los cuadros sin revisar en la cola de revisión.',
     importOnnx: 'Importar modelo ONNX', onnxName: 'Nombre', onnxClasses: 'Clases (orden de ID)',
@@ -87,6 +91,7 @@ export const extraText: Record<ExtraLanguage, ExtraText> = {
     fieldNudge: 'Marquez les limites du terrain pour que le marquage automatique ne prenne en compte que les personnes sur le terrain.', notNow: 'Pas maintenant',
     showFolder: 'Afficher le dossier d’entraînement',
     exportDataset: 'Exporter le jeu de données', exportDatasetHelp: 'Exporte toutes les images vérifiées avec leurs annotations en jeu YOLO et/ou COCO, anonymisé si souhaité.',
+    anonTrain: 'Images d’entraînement anonymisées', anonTrainHint: 'Cette part des images d’entraînement est entraînée avec des têtes floutées, comme dans l’export anonymisé, pour que le modèle reconnaisse aussi les personnes sur de telles images.', anonTrainOff: 'non',
     importLabels: 'Importer des annotations', importLabelsCandidates: 'Comme suggestions',
     importLabelsHelp: 'Importe des images avec annotations YOLO-txt ou COCO depuis un dossier (p. ex. CVAT ou Roboflow). Les noms de classe proviennent de data.yaml, classes.txt ou du fichier COCO ; les classes inconnues sont ignorées. « Comme suggestions » place les boîtes non vérifiées dans la file de vérification.',
     importOnnx: 'Importer un modèle ONNX', onnxName: 'Nom', onnxClasses: 'Classes (ordre des ID)',

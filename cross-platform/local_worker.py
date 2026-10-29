@@ -1835,6 +1835,9 @@ def ml_action(action: str, payload: dict) -> None:
                 args = ["train", "--project", str(root), "--model", model, "--epochs", str(int(payload.get("epochs", 20))), "--language", language]
                 if payload.get("freshStart"):
                     args.append("--fresh-start")
+                fraction = payload.get("anonymizeFraction")
+                if isinstance(fraction, (int, float)) and 0 < fraction <= 0.5:
+                    args += ["--anonymize-fraction", f"{float(fraction):.2f}"]
             elif action == "export-coreml":
                 args = ["export", "--project", str(root), "--model", model, "--format", "coreml", "--language", language]
             elif action == "export-onnx":
