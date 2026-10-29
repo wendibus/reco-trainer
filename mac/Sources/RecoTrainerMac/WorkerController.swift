@@ -156,6 +156,11 @@ final class WorkerController {
         let descriptor = socket(AF_INET, SOCK_STREAM, 0)
         guard descriptor >= 0 else { return false }
         defer { close(descriptor) }
+        // Like the worker's ThreadingHTTPServer (allow_reuse_address): connections of the previous
+        // run in TIME_WAIT must not count as "busy", or the port - and with it the web view's
+        // per-origin settings (language, onboarding) - would change on a quick restart.
+        var reuse: Int32 = 1
+        setsockopt(descriptor, SOL_SOCKET, SO_REUSEADDR, &reuse, socklen_t(MemoryLayout<Int32>.size))
         var address = sockaddr_in()
         address.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
         address.sin_family = sa_family_t(AF_INET)
