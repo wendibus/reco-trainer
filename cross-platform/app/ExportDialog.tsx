@@ -3,12 +3,12 @@ import type { Job } from './JobDialog';
 
 type Language = 'de' | 'en' | 'es' | 'fr';
 export type RegistryModel = { id: string; name: string; purpose?: string; license: string; licenseUrl?: string; source?: string; installed?: boolean | null };
-export type ExportOptions = { formats: Array<'yolo' | 'coco'>; anonymize: boolean; method: 'gaussian' | 'pixelate'; detectPeople: boolean; includeText: boolean; zip: boolean };
+export type ExportOptions = { formats: Array<'yolo' | 'coco'>; anonymize: boolean; method: 'gaussian' | 'pixelate'; detectPeople: boolean; includeText: boolean; zip: boolean; vlmSample: number };
 
 const text: Record<Language, {
   title: string; intro: string; format: string; both: string; anonymize: string; anonymizeHint: string; needsMl: string;
   method: string; gaussian: string; pixelate: string; people: string; peopleHint: string; textOption: string; textHint: string;
-  zip: string; models: string; start: string; cancel: string;
+  zip: string; models: string; start: string; cancel: string; vlmCheck: string; vlmCheckHint: string;
   resultImages: (images: number, boxes: number) => string; resultFolder: string; showFolder: string; heldBack: (count: number) => string; heldBackHint: string; openFrame: (index: number) => string;
 }> = {
   de: {
@@ -18,6 +18,7 @@ const text: Record<Language, {
     people: 'Zuschauer, Bank und weitere Personen finden', peopleHint: 'Findet auch Personen ohne Label mit dem RF-DETR-Basismodell (COCO).',
     textOption: 'Auch Trikotnummern und Anzeigetafel unkenntlich machen', textHint: 'Schriftzüge werden erkannt und weichgezeichnet. Kostet etwas Zeit.',
     zip: 'ZIP-Datei erstellen', models: 'Verwendete Modelle und Lizenzen', start: 'Exportieren', cancel: 'Abbrechen',
+    vlmCheck: 'Stichprobe zusätzlich vom lokalen VLM prüfen lassen (10 %)', vlmCheckHint: 'Qwen3.5 schaut sich jedes zehnte anonymisierte Bild an; ist dort noch ein Gesicht erkennbar, kommt das Bild in die Prüfliste statt in den Export.',
     resultImages: (images, boxes) => `${images} Bilder, ${boxes} Boxen.`, resultFolder: 'Gespeichert in', showFolder: 'Ordner anzeigen',
     heldBack: (count) => `${count} ${count === 1 ? 'Bild wurde' : 'Bilder wurden'} nicht exportiert, weil dort nach der Anonymisierung noch ein Gesicht erkennbar war.`,
     heldBackHint: 'Bitte ansehen und bei Bedarf die Personen markieren; danach erneut exportieren.', openFrame: (index) => `Bild ${index} öffnen`,
@@ -29,6 +30,7 @@ const text: Record<Language, {
     people: 'Find spectators, bench and other people', peopleHint: 'Also finds people without a label, using the RF-DETR base model (COCO).',
     textOption: 'Also hide jersey numbers and the scoreboard', textHint: 'Text is detected and blurred. Takes a little longer.',
     zip: 'Create a ZIP file', models: 'Models used and their licenses', start: 'Export', cancel: 'Cancel',
+    vlmCheck: 'Also let the local VLM check a sample (10 %)', vlmCheckHint: 'Qwen3.5 looks at every tenth anonymized image; if a face is still recognizable there, the image goes to the review list instead of the export.',
     resultImages: (images, boxes) => `${images} images, ${boxes} boxes.`, resultFolder: 'Saved in', showFolder: 'Show folder',
     heldBack: (count) => `${count} ${count === 1 ? 'image was' : 'images were'} not exported because a face was still detectable after anonymization.`,
     heldBackHint: 'Please look at them and label the people if needed, then export again.', openFrame: (index) => `Open image ${index}`,
@@ -40,6 +42,7 @@ const text: Record<Language, {
     people: 'Encontrar público, banquillo y otras personas', peopleHint: 'También encuentra personas sin etiqueta con el modelo base RF-DETR (COCO).',
     textOption: 'Ocultar también dorsales y marcador', textHint: 'El texto se detecta y se difumina. Tarda un poco más.',
     zip: 'Crear un archivo ZIP', models: 'Modelos usados y sus licencias', start: 'Exportar', cancel: 'Cancelar',
+    vlmCheck: 'Revisar además una muestra con el VLM local (10 %)', vlmCheckHint: 'Qwen3.5 revisa una de cada diez imágenes anonimizadas; si aún se reconoce una cara, la imagen va a la lista de revisión en lugar de a la exportación.',
     resultImages: (images, boxes) => `${images} imágenes, ${boxes} cuadros.`, resultFolder: 'Guardado en', showFolder: 'Mostrar carpeta',
     heldBack: (count) => `${count} ${count === 1 ? 'imagen no se exportó' : 'imágenes no se exportaron'} porque tras la anonimización aún se detectaba una cara.`,
     heldBackHint: 'Revísalas y marca a las personas si hace falta; luego exporta de nuevo.', openFrame: (index) => `Abrir imagen ${index}`,
@@ -51,6 +54,7 @@ const text: Record<Language, {
     people: 'Trouver le public, le banc et d’autres personnes', peopleHint: 'Trouve aussi les personnes sans annotation avec le modèle de base RF-DETR (COCO).',
     textOption: 'Masquer aussi les numéros de maillot et le tableau d’affichage', textHint: 'Le texte est détecté et flouté. Un peu plus long.',
     zip: 'Créer un fichier ZIP', models: 'Modèles utilisés et leurs licences', start: 'Exporter', cancel: 'Annuler',
+    vlmCheck: 'Faire aussi vérifier un échantillon par le VLM local (10 %)', vlmCheckHint: 'Qwen3.5 examine une image anonymisée sur dix ; si un visage y reste reconnaissable, l’image va dans la liste de vérification au lieu de l’export.',
     resultImages: (images, boxes) => `${images} images, ${boxes} boîtes.`, resultFolder: 'Enregistré dans', showFolder: 'Afficher le dossier',
     heldBack: (count) => `${count} ${count === 1 ? 'image n’a pas été exportée' : 'images n’ont pas été exportées'} car un visage restait détectable après l’anonymisation.`,
     heldBackHint: 'Veuillez les examiner et annoter les personnes si nécessaire, puis exporter à nouveau.', openFrame: (index) => `Ouvrir l’image ${index}`,
@@ -59,16 +63,16 @@ const text: Record<Language, {
 
 function modelsFor(options: ExportOptions, registry: RegistryModel[], accelerated: boolean): RegistryModel[] {
   if (!options.anonymize) return [];
-  const ids = ['yunet-face', ...(options.includeText ? ['ppocr-text-detector'] : []), ...(options.detectPeople ? [accelerated ? 'rf-detr-medium' : 'rf-detr-nano'] : [])];
+  const ids = ['yunet-face', ...(options.includeText ? ['ppocr-text-detector'] : []), ...(options.detectPeople ? [accelerated ? 'rf-detr-medium' : 'rf-detr-nano'] : []), ...(options.vlmSample > 0 ? ['qwen3.5-4b-vlm'] : [])];
   return ids.map((id) => registry.find((model) => model.id === id)).filter((model): model is RegistryModel => !!model);
 }
 
-export function ExportDialog({ language, mlReady, accelerated, registry, onStart, onClose }: {
-  language: Language; mlReady: boolean; accelerated: boolean; registry: RegistryModel[];
+export function ExportDialog({ language, mlReady, accelerated, registry, vlmAllowed = false, onStart, onClose }: {
+  language: Language; mlReady: boolean; accelerated: boolean; registry: RegistryModel[]; vlmAllowed?: boolean;
   onStart: (options: ExportOptions) => void; onClose: () => void;
 }) {
   const t = text[language];
-  const [options, setOptions] = useState<ExportOptions>({ formats: ['yolo', 'coco'], anonymize: mlReady, method: 'gaussian', detectPeople: true, includeText: false, zip: true });
+  const [options, setOptions] = useState<ExportOptions>({ formats: ['yolo', 'coco'], anonymize: mlReady, method: 'gaussian', detectPeople: true, includeText: false, zip: true, vlmSample: 0 });
   const set = (patch: Partial<ExportOptions>) => setOptions((current) => ({ ...current, ...patch }));
   const formatValue = options.formats.length === 2 ? 'both' : options.formats[0];
   const models = modelsFor(options, registry, accelerated);
@@ -87,6 +91,7 @@ export function ExportDialog({ language, mlReady, accelerated, registry, onStart
           <label><input type="radio" name="method" checked={options.method === 'pixelate'} onChange={() => set({ method: 'pixelate' })} />{t.pixelate}</label>
         </fieldset>
         <label className="export-toggle"><input type="checkbox" checked={options.detectPeople} onChange={(event) => set({ detectPeople: event.target.checked })} /><span>{t.people}<small>{t.peopleHint}</small></span></label>
+        {vlmAllowed && <label className="export-toggle"><input type="checkbox" checked={options.vlmSample > 0} onChange={(event) => set({ vlmSample: event.target.checked ? 0.1 : 0 })} /><span>{t.vlmCheck}<small>{t.vlmCheckHint}</small></span></label>}
         <label className="export-toggle"><input type="checkbox" checked={options.includeText} onChange={(event) => set({ includeText: event.target.checked })} /><span>{t.textOption}<small>{t.textHint}</small></span></label>
       </div>}
       <label className="export-toggle"><input type="checkbox" checked={options.zip} onChange={(event) => set({ zip: event.target.checked })} /><span>{t.zip}</span></label>
