@@ -34,6 +34,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+# Sibling modules (teachers.py, anonymize.py) must import however this file is loaded -
+# as a script, from the payload, or by tests from another folder.
+if str(Path(__file__).resolve().parent) not in sys.path:
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+
 
 MODEL_CLASSES = {
     "nano": "RFDETRNano",
