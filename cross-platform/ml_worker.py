@@ -2085,6 +2085,151 @@ def auto_label(args: argparse.Namespace) -> None:
             ))
 
 
+# --- Consistency check: two detectors, time, and the app-managed VLM -----------------------------
+
+PERSON_GROUP = {"player", "goalkeeper", "referee"}
+CONSISTENCY_FLAGS = ("detector-disagreement", "players-vanished", "temporal-outlier")
+
+
+def comparable(boxes: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """A generic detector only knows "person" and "ball": compare on that level, otherwise
+    every referee would count as a disagreement."""
+    result = []
+    for box in boxes:
+        category = box.get("category")
+        group = "person" if category in PERSON_GROUP else "ball" if category in {"ball", "puck"} else None
+        if group:
+            result.append({**box, "category": group})
+    return result
+
+
+def flag_vanished_players(frames: list[dict[str, Any]], max_gap_seconds: float = 1.0) -> int:
+    """Within one video, at least two and at least half of the people disappear between two
+    frames at most a second apart - usually missing boxes, not people leaving."""
+    by_video: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for frame in frames:
+        by_video[str(frame.get("videoID"))].append(frame)
+    flagged = 0
+    for items in by_video.values():
+        items.sort(key=lambda frame: float(frame.get("timestamp") or 0.0))
+        for previous, current in zip(items, items[1:]):
+            if float(current.get("timestamp") or 0.0) - float(previous.get("timestamp") or 0.0) > max_gap_seconds:
+                continue
+            before = sum(1 for box in previous.get("annotations", []) if box.get("category") in PERSON_GROUP)
+            after = sum(1 for box in current.get("annotations", []) if box.get("category") in PERSON_GROUP)
+            if before - after >= 2 and after <= before / 2:
+                flags = current.setdefault("reviewFlags", [])
+                if "players-vanished" not in flags:
+                    flags.append("players-vanished")
+                    flagged += 1
+    return flagged
+
+
+def prepare_vlm(project_root: Path, model_id: str, language: str):
+    """Download (once per computer) the llama-server build for this platform and the VLM;
+    returns what vlm.LlamaServer needs plus the model's coordinate format."""
+    import vlm
+    nvidia = bool(shutil.which("nvidia-smi")) or detect_device() == "cuda"
+    try:
+        runtime = vlm.runtime_ids(nvidia=nvidia)
+    except RuntimeError as error:
+        raise SystemExit(str(error)) from error
+    for runtime_id in runtime:
+        download_registry_model(project_root, runtime_id, language)
+    binary = vlm.find_server_binary(registry_model_path(project_root, runtime[0], language))
+    if binary is None:
+        raise SystemExit(localized(language, "Der VLM-Server wurde im Download nicht gefunden.", "The VLM server was not found in the download."))
+    entry = registry_model(model_id, language)
+    folder = download_registry_model(project_root, model_id, language)
+    return binary, folder / entry["model"], folder / entry["mmproj"], entry.get("coordinates", "relative-1000")
+
+
+def consistency_check(args: argparse.Namespace) -> None:
+    import random
+    import vlm
+    project_root = Path(args.project).resolve()
+    document = require_project(project_root, args.language)
+    frames = [frame for frame in document.get("frames", []) if not frame.get("heldOut") and frame.get("annotations")]
+    if not frames:
+        raise SystemExit(localized(args.language, "Keine markierten Bilder zum Prüfen.", "No labelled images to check."))
+    for frame in frames:  # a new check replaces the previous one's results
+        frame["reviewFlags"] = [flag for flag in frame.get("reviewFlags", []) if flag not in CONSISTENCY_FLAGS + ("vlm-issue",)]
+    steps = ["detector", "time"] + (["vlm"] if args.vlm else [])
+    step = lambda key, label: stage(steps.index(key) + 1, len(steps), label)  # noqa: E731
+
+    step("detector", localized(args.language, "Zweiter Detektor", "Second detector"))
+    tier = hardware_tier(getattr(args, "tier", None))
+    size = teacher_size(getattr(args, "teacher", None), tier)
+    detector = model_instance(project_root, size, trained=False, language=args.language)
+    category_map = detection_category_map(["player", "ball"])
+    device = detect_device()
+    batch = training_profile("nano", device)["batch_size"] if device != "cpu" else 1
+    second = predict_boxes(detector, project_root, frames, ["player", "ball"], category_map, args.threshold, batch)
+    del detector
+    disagreement = 0
+    for frame in frames:
+        theirs = comparable(second.get(frame["id"], []))
+        ours = comparable(frame.get("annotations", []))
+        if (ours or theirs) and compute_disagreement(ours, theirs, iou_threshold=args.iou) >= 0.3:
+            frame["reviewFlags"].append("detector-disagreement")
+            disagreement += 1
+
+    step("time", localized(args.language, "Zeitlicher Verlauf", "Timeline"))
+    vanished = flag_vanished_players(frames)
+    flag_temporal_outliers(frames)
+
+    vlm_checked = vlm_issues = vlm_resolved = 0
+    if args.vlm:
+        step("vlm", localized(args.language, "VLM-Prüfung", "VLM check"))
+        flagged = [frame for frame in frames if frame.get("reviewFlags")]
+        rest = [frame for frame in frames if not frame.get("reviewFlags")]
+        sample = random.Random(42).sample(rest, min(len(rest), round(len(rest) * args.sample))) if rest and args.sample > 0 else []
+        targets = flagged + sample
+        binary, model, mmproj, coordinates = prepare_vlm(project_root, args.vlm_model, args.language)
+        emit(localized(args.language, f"Starte den lokalen VLM-Server ({args.vlm_model}) …", f"Starting the local VLM server ({args.vlm_model}) …"))
+        with vlm.LlamaServer(binary, model, mmproj) as server:
+            for index, frame in enumerate(targets, start=1):
+                print(f"RECO_PROGRESS {index} {len(targets)}", file=sys.stderr, flush=True)
+                image = project_root / frame["relativePath"]
+                boxes = [box for box in frame.get("annotations", []) if box.get("category")]
+                try:
+                    answer = vlm.parse_json_answer(vlm.ask_image(server.url, image, vlm.frame_check_prompt(boxes, int(frame.get("width") or 0), int(frame.get("height") or 0))))
+                except (OSError, ValueError, KeyError) as error:
+                    emit(localized(args.language, f"VLM-Antwort für ein Bild unbrauchbar: {error}", f"Unusable VLM answer for one image: {error}"))
+                    continue
+                vlm_checked += 1
+                missing, duplicates = vlm.as_count(answer.get("missing")), vlm.as_count(answer.get("duplicates"))
+                frame["vlmCheck"] = {"model": args.vlm_model, "missing": missing, "duplicates": duplicates, "comment": str(answer.get("comment", ""))[:200]}
+                if missing or duplicates:
+                    frame["reviewFlags"].append("vlm-issue")
+                    frame["hardExample"] = True
+                    vlm_issues += 1
+                elif frame.get("reviewFlags"):
+                    # The VLM sees nothing wrong: the detector/time warning is resolved.
+                    frame["reviewFlags"] = [flag for flag in frame["reviewFlags"] if flag not in CONSISTENCY_FLAGS]
+                    vlm_resolved += 1
+
+    for frame in frames:
+        if not frame.get("reviewFlags"):
+            frame.pop("reviewFlags", None)
+    document["updatedAt"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    atomic_json(project_file(project_root), document)
+    review = [frame["id"] for frame in frames if frame.get("reviewFlags")]
+    summary = {
+        "checked": len(frames), "detectorDisagreement": disagreement, "playersVanished": vanished,
+        "vlmChecked": vlm_checked, "vlmIssues": vlm_issues, "vlmResolved": vlm_resolved,
+        "hardExamples": sum(1 for frame in frames if frame.get("hardExample")), "review": review,
+    }
+    emit(localized(
+        args.language,
+        f"Konsistenzprüfung: {len(frames)} Bilder, {disagreement} mit abweichendem zweiten Detektor, {vanished} mit plötzlich fehlenden Spielern"
+        + (f"; VLM: {vlm_checked} geprüft, {vlm_issues} beanstandet, {vlm_resolved} entwarnt" if args.vlm else "") + f". {len(review)} Bilder zur Prüfung markiert.",
+        f"Consistency check: {len(frames)} images, {disagreement} where the second detector disagrees, {vanished} with players suddenly missing"
+        + (f"; VLM: {vlm_checked} checked, {vlm_issues} with issues, {vlm_resolved} cleared" if args.vlm else "") + f". {len(review)} images flagged for review.",
+    ))
+    print(json.dumps(summary, ensure_ascii=False))
+
+
 def stable_bucket(value: str) -> int:
     return int(hashlib.sha256(value.encode("utf-8")).hexdigest()[:8], 16)
 
@@ -2246,6 +2391,17 @@ def build_dataset(
         for image_number, frame in enumerate(split_frames_list, start=1):
             source = project_root / frame["relativePath"]
             file_name = source.name
+            if split_name == "train" and frame.get("hardExample") and source.is_file():
+                # Hard examples (the VLM found a problem there) go into training twice.
+                hard_name = f"hard-{file_name}"
+                link_or_copy(source, split_dir / hard_name)
+                hard_number = len(split_frames_list) + image_number
+                images.append({"id": hard_number, "file_name": hard_name, "width": frame["width"], "height": frame["height"]})
+                for box in frame.get("annotations", []):
+                    if box["category"] in category_id:
+                        width, height = max(float(box["width"]), 1.0), max(float(box["height"]), 1.0)
+                        annotations.append({"id": annotation_number, "image_id": hard_number, "category_id": category_id[box["category"]], "bbox": [float(box["x"]), float(box["y"]), width, height], "area": width * height, "iscrowd": 0})
+                        annotation_number += 1
             if anonymizer is not None and split_name == "train" and anonymize_for_training(frame, anonymize_fraction) and write_anonymized_copy(anonymizer, source, split_dir / file_name, frame):
                 anonymized_count += 1
             else:
@@ -2369,6 +2525,7 @@ def export_dataset(args: argparse.Namespace) -> None:
     used_models: list[dict[str, Any]] = []
     anonymizer = None
     detect_people = None
+    vlm_server = None
     try:
         partial.mkdir(parents=True, exist_ok=False)
         if anonymized:
@@ -2382,6 +2539,11 @@ def export_dataset(args: argparse.Namespace) -> None:
                 text_model = download_registry_model(project_root, "ppocr-text-detector", args.language)
                 used_models.append(registry_model("ppocr-text-detector"))
             anonymizer = anonymize_module.Anonymizer(face_model, args.method, text_model)
+            if getattr(args, "vlm_sample", 0) > 0:
+                import vlm
+                binary, model, mmproj, _coordinates = prepare_vlm(project_root, args.vlm_model, args.language)
+                vlm_server = vlm.LlamaServer(binary, model, mmproj).start()
+                used_models.append(registry_model(args.vlm_model))
             if args.detect_people:
                 step("people", localized(args.language, "Personendetektor laden", "Load people detector"))
                 size = args.detector_size if args.detector_size != "auto" else ("nano" if detect_device() == "cpu" else "medium")
@@ -2427,6 +2589,21 @@ def export_dataset(args: argparse.Namespace) -> None:
                     if not ok:
                         continue
                     image_bytes = encoded.tobytes()
+                    if vlm_server is not None and stable_bucket(f"vlm:{frame.get('id')}") / 0xFFFFFFFF < args.vlm_sample:
+                        # A sample of the anonymized images is shown to the local VLM as a second check.
+                        import tempfile
+                        import vlm
+                        with tempfile.NamedTemporaryFile(suffix=".jpg") as probe:
+                            probe.write(image_bytes)
+                            probe.flush()
+                            try:
+                                answer = vlm.parse_json_answer(vlm.ask_image(vlm_server.url, Path(probe.name), vlm.ANONYMIZATION_PROMPT))
+                                recognizable = vlm.as_count(answer.get("recognizable_faces"))
+                            except (OSError, ValueError, KeyError, AttributeError):
+                                recognizable = 0
+                        if recognizable:
+                            review.append({"frameID": frame.get("id"), "split": split, "reason": "vlm-face-recognizable", "faces": recognizable})
+                            continue
                 image_width = image_width or frame_width
                 image_height = image_height or frame_height
                 targets = []
@@ -2525,6 +2702,8 @@ def export_dataset(args: argparse.Namespace) -> None:
         ))
         print(json.dumps(summary, ensure_ascii=False))
     finally:
+        if vlm_server is not None:
+            vlm_server.stop()
         if partial.exists():
             shutil.rmtree(partial, ignore_errors=True)
         zip_partial.unlink(missing_ok=True)
@@ -3385,6 +3564,12 @@ def registry_model(model_id: str, language: str = "de") -> dict[str, Any]:
 
 def registry_model_path(project_root: Path, model_id: str, language: str = "de") -> Path:
     entry = registry_model(model_id, language)
+    if entry.get("installInto"):
+        return registry_model_path(project_root, str(entry["installInto"]), language)
+    if entry.get("shared"):
+        import vlm
+        shared = vlm.shared_models_dir()
+        return (shared if shared is not None else project_root / ".runtime" / "models") / model_id
     if entry.get("huggingFace"):
         return project_root / ".runtime" / "models" / "hf" / model_id
     if not entry.get("file"):
@@ -3402,34 +3587,117 @@ def download_registry_model(project_root: Path, model_id: str, language: str = "
     target = registry_model_path(project_root, model_id, language)
     if entry.get("huggingFace"):
         return download_hugging_face_model(entry, target, language)
+    if entry.get("files"):
+        return download_model_files(entry, target, language)
+    if entry.get("archive"):
+        return download_archive(entry, target, language)
     if target.is_file() and sha256_file(target) == entry["sha256"]:
         return target
-    if not str(entry.get("url", "")).startswith("https://"):
-        raise SystemExit(localized(language, f"Für {model_id} ist keine sichere Download-Adresse hinterlegt.", f"No secure download address is registered for {model_id}."))
+    fetch_verified(entry, entry["url"], entry["sha256"], int(entry.get("bytes") or 0), target, language)
+    return target
+
+
+def fetch_verified(entry: dict[str, Any], url: str, sha256: str, size: int, target: Path, language: str, progress_base: int = 0, progress_total: int = 0) -> None:
+    """Download url to target via <target>.part and keep it only when the SHA-256 matches."""
+    if not str(url).startswith("https://"):
+        raise SystemExit(localized(language, f"Für {entry['id']} ist keine sichere Download-Adresse hinterlegt.", f"No secure download address is registered for {entry['id']}."))
     target.parent.mkdir(parents=True, exist_ok=True)
     partial = target.with_name(target.name + ".part")
     digest = hashlib.sha256()
     try:
-        request = urllib.request.Request(entry["url"], headers={"User-Agent": "RecoTrainer"})
+        request = urllib.request.Request(url, headers={"User-Agent": "RecoTrainer"})
         with urllib.request.urlopen(request, timeout=60) as response, partial.open("wb") as sink:
-            total = int(response.headers.get("Content-Length") or entry.get("bytes") or 0)
-            done = 0
-            while chunk := response.read(256 * 1024):
+            total = progress_total or int(response.headers.get("Content-Length") or size or 0)
+            done = progress_base
+            while chunk := response.read(1024 * 1024):
                 sink.write(chunk)
                 digest.update(chunk)
                 done += len(chunk)
                 if total:
                     print(f"RECO_PROGRESS {min(done, total)} {total}", file=sys.stderr, flush=True)
-        if digest.hexdigest() != entry["sha256"]:
+        if digest.hexdigest() != sha256:
             raise SystemExit(localized(
                 language,
                 f"Die Prüfsumme von {entry['name']} stimmt nicht. Die Datei wurde verworfen.",
                 f"The checksum of {entry['name']} does not match. The file was discarded.",
             ))
         partial.replace(target)
-        return target
     finally:
         partial.unlink(missing_ok=True)
+
+
+def completion_marker(folder: Path, model_id: str) -> Path:
+    return folder / f".reco-complete-{model_id}"
+
+
+def download_model_files(entry: dict[str, Any], target: Path, language: str) -> Path:
+    """Several files (a GGUF model and its vision projector) into one folder, each checked."""
+    marker = completion_marker(target, entry["id"])
+    if marker.is_file():
+        return target
+    total = sum(int(item["bytes"]) for item in entry["files"])
+    done = 0
+    for item in entry["files"]:
+        destination = target / item["name"]
+        if not (destination.is_file() and destination.stat().st_size == int(item["bytes"]) and sha256_file(destination) == item["sha256"]):
+            fetch_verified(entry, item["url"], item["sha256"], int(item["bytes"]), destination, language, done, total)
+        done += int(item["bytes"])
+    marker.write_text(json.dumps({"id": entry["id"], "files": [item["sha256"] for item in entry["files"]]}) + "\n", encoding="utf-8")
+    return target
+
+
+def safe_extract(archive_path: Path, kind: str, destination: Path) -> None:
+    """Unpack a runtime archive; entries that would land outside the folder, links and devices are refused."""
+    import tarfile
+    destination.mkdir(parents=True, exist_ok=True)
+    root = destination.resolve()
+    if kind == "zip":
+        with zipfile.ZipFile(archive_path) as archive:
+            for info in archive.infolist():
+                target = (destination / info.filename).resolve()
+                if root != target and root not in target.parents:
+                    raise SystemExit(f"unsafe path in archive: {info.filename}")
+                if (info.external_attr >> 16) and stat.S_ISLNK(info.external_attr >> 16):
+                    raise SystemExit(f"link in archive: {info.filename}")
+            archive.extractall(destination)
+        return
+    with tarfile.open(archive_path, "r:gz") as archive:
+        members = []
+        for member in archive.getmembers():
+            target = (destination / member.name).resolve()
+            if root != target and root not in target.parents:
+                raise SystemExit(f"unsafe path in archive: {member.name}")
+            if member.issym() or member.islnk():
+                link = (target.parent / member.linkname).resolve()
+                if root not in link.parents:
+                    raise SystemExit(f"link leaving the archive: {member.name}")
+            elif not (member.isfile() or member.isdir()):
+                raise SystemExit(f"unsupported entry in archive: {member.name}")
+            members.append(member)
+        try:
+            archive.extractall(destination, members=members, filter="data")
+        except TypeError:  # Python without extraction filters; the checks above already ran
+            archive.extractall(destination, members=members)
+
+
+def download_archive(entry: dict[str, Any], target: Path, language: str) -> Path:
+    """A runtime archive (llama-server build or its CUDA runtime), checked, unpacked into target."""
+    marker = completion_marker(target, entry["id"])
+    if marker.is_file():
+        return target
+    target.mkdir(parents=True, exist_ok=True)
+    archive_path = target / f".{entry['id']}.{entry['archive']}"
+    try:
+        fetch_verified(entry, entry["url"], entry["sha256"], int(entry.get("bytes") or 0), archive_path, language)
+        safe_extract(archive_path, entry["archive"], target)
+        if os.name != "nt":
+            for path in target.rglob("llama-*"):
+                if path.is_file():
+                    path.chmod(path.stat().st_mode | 0o111)
+        marker.write_text(entry["sha256"] + "\n", encoding="utf-8")
+    finally:
+        archive_path.unlink(missing_ok=True)
+    return target
 
 
 def download_hugging_face_model(entry: dict[str, Any], target: Path, language: str) -> Path:
@@ -4447,6 +4715,18 @@ def build_parser() -> argparse.ArgumentParser:
     benchmark_parser.add_argument("--language", choices=["de", "en", "es", "fr"], default="de")
     benchmark_parser.set_defaults(func=benchmark)
 
+    consistency_parser = commands.add_parser("consistency-check")
+    consistency_parser.add_argument("--project", required=True)
+    consistency_parser.add_argument("--iou", type=float, default=0.5, help="boxes of both detectors match from this IoU on")
+    consistency_parser.add_argument("--threshold", type=float, default=0.35, help="confidence of the second detector")
+    consistency_parser.add_argument("--vlm", action="store_true", help="let the local VLM look at flagged images and a sample")
+    consistency_parser.add_argument("--vlm-model", default="qwen3.5-4b-vlm", choices=["qwen3.5-4b-vlm", "qwen3.5-9b-vlm"])
+    consistency_parser.add_argument("--sample", type=float, default=0.05, help="share of unflagged images the VLM also checks")
+    consistency_parser.add_argument("--teacher", choices=["auto", "nano", "small", "medium", "large"], default="auto")
+    consistency_parser.add_argument("--tier", choices=["auto", "strong", "medium", "weak"], default="auto")
+    consistency_parser.add_argument("--language", choices=["de", "en", "es", "fr"], default="de")
+    consistency_parser.set_defaults(func=consistency_check)
+
     export_dataset_parser = commands.add_parser("export-dataset")
     export_dataset_parser.add_argument("--project", required=True)
     export_dataset_parser.add_argument("--formats", default="yolo,coco", help="yolo, coco or both (comma-separated)")
@@ -4456,6 +4736,8 @@ def build_parser() -> argparse.ArgumentParser:
     export_dataset_parser.add_argument("--detect-people", action="store_true", help="find unlabelled people (spectators, bench) with RF-DETR")
     export_dataset_parser.add_argument("--detector-size", choices=["auto", "nano", "small", "medium", "large"], default="auto")
     export_dataset_parser.add_argument("--zip", action="store_true")
+    export_dataset_parser.add_argument("--vlm-sample", type=float, default=0.0, help="share of anonymized images the local VLM double-checks for recognizable faces")
+    export_dataset_parser.add_argument("--vlm-model", default="qwen3.5-4b-vlm", choices=["qwen3.5-4b-vlm", "qwen3.5-9b-vlm"])
     export_dataset_parser.add_argument("--app-version", default="")
     export_dataset_parser.add_argument("--language", choices=["de", "en", "es", "fr"], default="de")
     export_dataset_parser.set_defaults(func=export_dataset)

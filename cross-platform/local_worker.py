@@ -30,6 +30,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlparse
 
 import teachers  # standard library only at module level: hardware tiers
+import vlm  # standard library only: the app-managed VLM (llama-server + Qwen3.5)
 
 
 HOST = os.environ.get("RECO_BIND_HOST", "127.0.0.1")
@@ -264,6 +265,10 @@ def model_registry_snapshot(root: Path | None) -> list[dict]:
             installed = (root / ".runtime" / "models" / Path(entry["file"]).name).is_file()
         elif entry.get("huggingFace") and root is not None:
             installed = (root / ".runtime" / "models" / "hf" / str(entry["id"]) / ".reco-complete").is_file()
+        elif entry.get("shared") and not entry.get("installInto"):
+            shared = vlm.shared_models_dir()
+            folder = (shared if shared is not None else (root / ".runtime" / "models" if root else None))
+            installed = bool(folder and (folder / str(entry["id"]) / f".reco-complete-{entry['id']}").is_file())
         result.append({key: entry.get(key) for key in ("id", "name", "purpose", "license", "licenseUrl", "source", "bytes", "managedBy")} | {"installed": installed})
     return result
 
@@ -1677,6 +1682,16 @@ def export_result_for_ui(root: Path, summary: dict) -> dict:
     }
 
 
+def consistency_message(summary: dict) -> str:
+    flagged = len(summary.get("review") or [])
+    return localized(
+        f"Konsistenzprüfung fertig: {flagged} von {summary.get('checked')} Bildern zur Prüfung markiert.",
+        f"Consistency check finished: {flagged} of {summary.get('checked')} images flagged for review.",
+        f"Comprobación de coherencia terminada: {flagged} de {summary.get('checked')} imágenes marcadas para revisar.",
+        f"Contrôle de cohérence terminé : {flagged} images sur {summary.get('checked')} signalées pour vérification.",
+    )
+
+
 def export_message(summary: dict) -> str:
     held = len(summary.get("excludedForReview") or [])
     return localized(
@@ -1823,6 +1838,9 @@ def ml_action(action: str, payload: dict) -> None:
                         args.append("--detect-people")
                 if payload.get("zip", True):
                     args.append("--zip")
+                vlm_sample = float(payload.get("vlmSample") or 0)
+                if anonymized and 0 < vlm_sample <= 1:
+                    args += ["--vlm-sample", f"{vlm_sample:.2f}", "--vlm-model", "qwen3.5-9b-vlm" if payload.get("vlmModel") == "qwen3.5-9b-vlm" else "qwen3.5-4b-vlm"]
             elif action == "download-models":
                 ids = [str(item) for item in payload.get("ids") or [] if re.fullmatch(r"[a-z0-9-]{1,60}", str(item))]
                 if not ids:
@@ -1897,6 +1915,12 @@ def ml_action(action: str, payload: dict) -> None:
                 args = ["export", "--project", str(root), "--model", model, "--format", "coreml", "--language", language]
             elif action == "export-onnx":
                 args = ["export", "--project", str(root), "--model", model, "--format", "onnx", "--language", language]
+            elif action == "consistency-check":
+                iou = min(0.9, max(0.1, float(payload.get("iou", 0.5))))
+                sample = min(0.5, max(0.0, float(payload.get("sample", 0.05))))
+                args = ["consistency-check", "--project", str(root), "--iou", f"{iou:.2f}", "--sample", f"{sample:.2f}", "--tier", tier_argument(payload), "--language", language]
+                if payload.get("vlm"):
+                    args += ["--vlm", "--vlm-model", "qwen3.5-9b-vlm" if payload.get("vlmModel") == "qwen3.5-9b-vlm" else "qwen3.5-4b-vlm"]
             elif action == "refine-boxes":
                 backup_project(root, "boxen")
                 args = ["refine-boxes", "--project", str(root), "--language", language, "--tier", tier_argument(payload)]
@@ -1911,6 +1935,9 @@ def ml_action(action: str, payload: dict) -> None:
                 STATE.update(project=load_project(root), operation="ready", busy=False, progress=1.0, message=message)
                 return
             result = run_logged([str(executable), str(worker), *args])
+            if action == "consistency-check" and result:
+                STATE.update(result={"kind": "consistency", **result}, project=load_project(root), operation="ready", busy=False, progress=1.0, message=consistency_message(result))
+                return
             if action == "export-dataset" and result:
                 STATE.update(result=export_result_for_ui(root, result), message=export_message(result))
                 STATE.update(project=load_project(root), operation="ready", busy=False, progress=1.0)
@@ -2422,7 +2449,7 @@ class Handler(BaseHTTPRequestHandler):
                 label_folder = choose_video_folder(labels=True)
                 job = JOBS.submit("import-labels", ml_action, "import-labels", {**payload, "source": str(label_folder)})
                 self.json_response({"ok": True, "folder": str(label_folder), "job": job})
-            elif self.path in {"/api/setup", "/api/autolabel", "/api/train", "/api/export-coreml", "/api/export-onnx", "/api/refine-boxes", "/api/package-model", "/api/combine-models", "/api/benchmark", "/api/activate-model", "/api/rename-model", "/api/delete-model", "/api/download-models", "/api/export-dataset"}:
+            elif self.path in {"/api/setup", "/api/autolabel", "/api/train", "/api/export-coreml", "/api/export-onnx", "/api/refine-boxes", "/api/package-model", "/api/combine-models", "/api/benchmark", "/api/activate-model", "/api/rename-model", "/api/delete-model", "/api/download-models", "/api/export-dataset", "/api/consistency-check"}:
                 action = self.path.removeprefix("/api/")
                 job = JOBS.submit(action, ml_action, action, payload, cancellable=action not in QUICK_ACTIONS)
                 self.json_response({"ok": True, "job": job})

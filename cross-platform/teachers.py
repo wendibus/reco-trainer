@@ -20,10 +20,11 @@ TIERS = ("strong", "medium", "weak")
 
 # Models per tier (ids from model_registry.json). The teacher detects people and the ball
 # when no trained model knows a class yet; SAM 2 tightens boxes; Florence-2 is the second
-# opinion for "models disagree"; the VLM check (0.23) only runs on strong/medium machines.
+# opinion for "models disagree"; the VLM check runs by default on strong machines, can be
+# switched on for medium ones and is not offered on weak (CPU-only) ones.
 TIER_PLANS: dict[str, dict[str, Any]] = {
     "strong": {"teacher": "rf-detr-large", "refiner": "sam2.1-hiera-base-plus", "second": "florence-2-large", "vlm": True},
-    "medium": {"teacher": "rf-detr-medium", "refiner": "sam2.1-hiera-small", "second": "florence-2-base", "vlm": False},
+    "medium": {"teacher": "rf-detr-medium", "refiner": "sam2.1-hiera-small", "second": "florence-2-base", "vlm": "optional"},
     "weak": {"teacher": "rf-detr-small", "refiner": None, "second": "florence-2-base", "vlm": False},
 }
 TEACHER_SIZES = {"rf-detr-nano": "nano", "rf-detr-small": "small", "rf-detr-medium": "medium", "rf-detr-large": "large"}

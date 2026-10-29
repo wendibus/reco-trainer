@@ -140,6 +140,182 @@
         ]
       },
       "bytes": 1558900000
+    },
+    {
+      "id": "llama-server-macos-arm64",
+      "name": "llama.cpp server b11985 (macOS, Apple silicon, Metal)",
+      "purpose": "vlm-runtime",
+      "license": "MIT",
+      "licenseUrl": "https://github.com/ggml-org/llama.cpp/blob/master/LICENSE",
+      "source": "https://github.com/ggml-org/llama.cpp/releases/tag/b11985",
+      "url": "https://github.com/ggml-org/llama.cpp/releases/download/b11985/llama-b11985-bin-macos-arm64.tar.gz",
+      "sha256": "cad5e9760402701b89177863eedb807bdad6294947b231a1d8ae0b3574c59c7a",
+      "bytes": 16464542,
+      "archive": "tar.gz",
+      "platform": "macos",
+      "accelerator": "metal",
+      "shared": true
+    },
+    {
+      "id": "llama-server-windows-cuda",
+      "name": "llama.cpp server b11985 (Windows, NVIDIA CUDA 12.4)",
+      "purpose": "vlm-runtime",
+      "license": "MIT",
+      "licenseUrl": "https://github.com/ggml-org/llama.cpp/blob/master/LICENSE",
+      "source": "https://github.com/ggml-org/llama.cpp/releases/tag/b11985",
+      "url": "https://github.com/ggml-org/llama.cpp/releases/download/b11985/llama-b11985-bin-win-cuda-12.4-x64.zip",
+      "sha256": "3286ff9de7a428c558de14450d4647a1571c9eff7f3a8b57f1ed87a850741358",
+      "bytes": 279764742,
+      "archive": "zip",
+      "platform": "windows",
+      "accelerator": "cuda",
+      "shared": true
+    },
+    {
+      "id": "llama-server-windows-cudart",
+      "name": "CUDA 12.4 runtime for llama.cpp (Windows)",
+      "purpose": "vlm-runtime",
+      "license": "MIT",
+      "licenseUrl": "https://github.com/ggml-org/llama.cpp/blob/master/LICENSE",
+      "source": "https://github.com/ggml-org/llama.cpp/releases/tag/b11985",
+      "url": "https://github.com/ggml-org/llama.cpp/releases/download/b11985/cudart-llama-bin-win-cuda-12.4-x64.zip",
+      "sha256": "8c79a9b226de4b3cacfd1f83d24f962d0773be79f1e7b75c6af4ded7e32ae1d6",
+      "bytes": 391443627,
+      "archive": "zip",
+      "platform": "windows",
+      "accelerator": "cuda",
+      "shared": true,
+      "installInto": "llama-server-windows-cuda"
+    },
+    {
+      "id": "llama-server-windows-cpu",
+      "name": "llama.cpp server b11985 (Windows, CPU)",
+      "purpose": "vlm-runtime",
+      "license": "MIT",
+      "licenseUrl": "https://github.com/ggml-org/llama.cpp/blob/master/LICENSE",
+      "source": "https://github.com/ggml-org/llama.cpp/releases/tag/b11985",
+      "url": "https://github.com/ggml-org/llama.cpp/releases/download/b11985/llama-b11985-bin-win-cpu-x64.zip",
+      "sha256": "1c93f23afd48f8434c4cdc4d9f0a46f47a0d98ea6b3214007cbddc10c34c0c16",
+      "bytes": 24409827,
+      "archive": "zip",
+      "platform": "windows",
+      "accelerator": "cpu",
+      "shared": true
+    },
+    {
+      "id": "llama-server-linux-cuda",
+      "name": "llama.cpp server b11985 (Linux, NVIDIA CUDA 12.8)",
+      "purpose": "vlm-runtime",
+      "license": "MIT",
+      "licenseUrl": "https://github.com/ggml-org/llama.cpp/blob/master/LICENSE",
+      "source": "https://github.com/ggml-org/llama.cpp/releases/tag/b11985",
+      "url": "https://github.com/ggml-org/llama.cpp/releases/download/b11985/llama-b11985-bin-ubuntu-cuda-12.8-x64.tar.gz",
+      "sha256": "9e578d04ece71f133610f3e5cbe6673228140b9126c778427217aace155aebe6",
+      "bytes": 182531922,
+      "archive": "tar.gz",
+      "platform": "linux",
+      "accelerator": "cuda",
+      "shared": true
+    },
+    {
+      "id": "llama-server-linux-cudart",
+      "name": "CUDA 12.8 runtime for llama.cpp (Linux)",
+      "purpose": "vlm-runtime",
+      "license": "MIT",
+      "licenseUrl": "https://github.com/ggml-org/llama.cpp/blob/master/LICENSE",
+      "source": "https://github.com/ggml-org/llama.cpp/releases/tag/b11985",
+      "url": "https://github.com/ggml-org/llama.cpp/releases/download/b11985/cudart-llama-b11985-bin-ubuntu-cuda-12.8-x64.tar.gz",
+      "sha256": "0907379eaf0d19cab1d102562fe7b555be73536b3f88f92698ec75fa3a6308ca",
+      "bytes": 594371845,
+      "archive": "tar.gz",
+      "platform": "linux",
+      "accelerator": "cuda",
+      "shared": true,
+      "installInto": "llama-server-linux-cuda"
+    },
+    {
+      "id": "llama-server-linux-cpu",
+      "name": "llama.cpp server b11985 (Linux x64, CPU)",
+      "purpose": "vlm-runtime",
+      "license": "MIT",
+      "licenseUrl": "https://github.com/ggml-org/llama.cpp/blob/master/LICENSE",
+      "source": "https://github.com/ggml-org/llama.cpp/releases/tag/b11985",
+      "url": "https://github.com/ggml-org/llama.cpp/releases/download/b11985/llama-b11985-bin-ubuntu-x64.tar.gz",
+      "sha256": "7bed5fe6c601caf7a063029170fc83e1425dcc19278925512e4edba4fc88fb44",
+      "bytes": 22692249,
+      "archive": "tar.gz",
+      "platform": "linux",
+      "accelerator": "cpu",
+      "shared": true
+    },
+    {
+      "id": "llama-server-linux-arm64",
+      "name": "llama.cpp server b11985 (Linux arm64, CPU)",
+      "purpose": "vlm-runtime",
+      "license": "MIT",
+      "licenseUrl": "https://github.com/ggml-org/llama.cpp/blob/master/LICENSE",
+      "source": "https://github.com/ggml-org/llama.cpp/releases/tag/b11985",
+      "url": "https://github.com/ggml-org/llama.cpp/releases/download/b11985/llama-b11985-bin-ubuntu-arm64.tar.gz",
+      "sha256": "b1e8e28f513fb2d98f2a8c5cd52286cf07daa3de472c8cf395ba99f5e460b9e4",
+      "bytes": 18428777,
+      "archive": "tar.gz",
+      "platform": "linux",
+      "accelerator": "cpu",
+      "shared": true
+    },
+    {
+      "id": "qwen3.5-4b-vlm",
+      "name": "Qwen3.5-4B (Q4_K_M, GGUF by Unsloth)",
+      "purpose": "vlm",
+      "license": "Apache-2.0",
+      "licenseUrl": "https://huggingface.co/Qwen/Qwen3.5-4B",
+      "source": "https://huggingface.co/unsloth/Qwen3.5-4B-GGUF",
+      "files": [
+        {
+          "name": "Qwen3.5-4B-Q4_K_M.gguf",
+          "url": "https://huggingface.co/unsloth/Qwen3.5-4B-GGUF/resolve/e87f176479d0855a907a41277aca2f8ee7a09523/Qwen3.5-4B-Q4_K_M.gguf",
+          "sha256": "00fe7986ff5f6b463e62455821146049db6f9313603938a70800d1fb69ef11a4",
+          "bytes": 2740937888
+        },
+        {
+          "name": "mmproj-F16.gguf",
+          "url": "https://huggingface.co/unsloth/Qwen3.5-4B-GGUF/resolve/e87f176479d0855a907a41277aca2f8ee7a09523/mmproj-F16.gguf",
+          "sha256": "cd88edcf8d031894960bb0c9c5b9b7e1fea6ebee02b9f7ce925a00d12891f864",
+          "bytes": 672423616
+        }
+      ],
+      "bytes": 3413361504,
+      "coordinates": "relative-1000",
+      "shared": true,
+      "model": "Qwen3.5-4B-Q4_K_M.gguf",
+      "mmproj": "mmproj-F16.gguf"
+    },
+    {
+      "id": "qwen3.5-9b-vlm",
+      "name": "Qwen3.5-9B (Q4_K_M, GGUF by Unsloth)",
+      "purpose": "vlm",
+      "license": "Apache-2.0",
+      "licenseUrl": "https://huggingface.co/Qwen/Qwen3.5-9B",
+      "source": "https://huggingface.co/unsloth/Qwen3.5-9B-GGUF",
+      "files": [
+        {
+          "name": "Qwen3.5-9B-Q4_K_M.gguf",
+          "url": "https://huggingface.co/unsloth/Qwen3.5-9B-GGUF/resolve/3885219b6810b007914f3a7950a8d1b469d598a5/Qwen3.5-9B-Q4_K_M.gguf",
+          "sha256": "03b74727a860a56338e042c4420bb3f04b2fec5734175f4cb9fa853daf52b7e8",
+          "bytes": 5680522464
+        },
+        {
+          "name": "mmproj-F16.gguf",
+          "url": "https://huggingface.co/unsloth/Qwen3.5-9B-GGUF/resolve/3885219b6810b007914f3a7950a8d1b469d598a5/mmproj-F16.gguf",
+          "sha256": "f70dc3509053962b0d0d3ee8a7eacebf5d60aa560cad78254ae8698516ae029f",
+          "bytes": 918166080
+        }
+      ],
+      "bytes": 6598688544,
+      "coordinates": "relative-1000",
+      "shared": true,
+      "model": "Qwen3.5-9B-Q4_K_M.gguf",
+      "mmproj": "mmproj-F16.gguf"
     }
   ]
 }

@@ -67,9 +67,21 @@ class RegistryContentTests(unittest.TestCase):
                 self.assertRegex(entry["huggingFace"]["repo"], r"^[\w.-]+/[\w.-]+$")
                 self.assertGreater(entry["bytes"], 0)
                 continue
+            if entry.get("files"):  # a GGUF model and its vision projector
+                for item in entry["files"]:
+                    self.assertTrue(item["url"].startswith("https://huggingface.co/"), entry["id"])
+                    self.assertRegex(item["url"], r"/resolve/[0-9a-f]{40}/")  # pinned revision
+                    self.assertRegex(item["sha256"], r"^[0-9a-f]{64}$")
+                    self.assertGreater(item["bytes"], 0)
+                self.assertIn(entry["coordinates"], {"relative-1000", "absolute", "relative-1"})
+                continue
             self.assertTrue(entry["url"].startswith("https://"), entry["id"])
             self.assertRegex(entry["sha256"], r"^[0-9a-f]{64}$")
             self.assertGreater(entry["bytes"], 0)
+            if entry.get("archive"):
+                self.assertIn(entry["archive"], {"zip", "tar.gz"})
+                self.assertIn("/releases/download/b", entry["url"])  # one fixed llama.cpp build
+                continue
             self.assertEqual(Path(entry["file"]).name, entry["file"])
 
 
