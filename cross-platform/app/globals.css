@@ -268,6 +268,14 @@ select { height:34px; padding:0 9px; border:1px solid #cbd3df; border-radius:7px
 .walkthrough-next { display:inline-flex; align-items:center; justify-content:space-between; gap:14px; padding-left:16px; padding-right:8px; }
 .forward-arrow { width:27px; height:27px; display:grid; place-items:center; flex:0 0 auto; border-radius:50%; background:#fff; color:var(--blue); font-size:18px; line-height:1; }
 .language-backdrop { z-index:60; }
+.progress-dialog { width:min(500px,100%); padding:26px; border-radius:16px; background:#fff; box-shadow:0 28px 80px rgba(8,20,42,.34); display:grid; gap:12px; }
+.progress-dialog h2 { margin:0; font-size:20px; }
+.progress-dialog-video { margin:0; display:grid; gap:2px; font-size:13px; color:#29384f; }
+.progress-dialog-video span { color:#637087; overflow-wrap:anywhere; }
+.progress-dialog-bar { height:10px; border-radius:6px; background:#e6ebf2; overflow:hidden; }
+.progress-dialog-bar span { display:block; height:100%; background:var(--accent); transition:width .4s ease; }
+.progress-dialog-facts { display:flex; flex-wrap:wrap; gap:6px 16px; font-size:12px; color:#29384f; font-variant-numeric:tabular-nums; }
+.progress-dialog small { color:#637087; font-size:11px; }
 .onnx-dialog { width:min(520px,100%); padding:26px; border-radius:16px; background:#fff; box-shadow:0 28px 80px rgba(8,20,42,.34); display:grid; gap:12px; }
 .onnx-dialog h2 { margin:0; font-size:20px; }
 .onnx-dialog > p { margin:0; color:#637087; font-size:13px; }

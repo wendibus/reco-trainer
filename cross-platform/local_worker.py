@@ -224,6 +224,8 @@ class LocalState:
         self.busy = False
         self.error: str | None = None
         self.simulation: dict | None = None
+        # Extraction progress for the progress dialog: video n of m, frames done/target, start time.
+        self.detail: dict | None = None
         # Updated from the "language" field of every request body (see
         # do_POST()) - every status/error message this file itself generates
         # (as opposed to ml_worker.py subprocess output, which already gets an
@@ -280,10 +282,49 @@ class LocalState:
                 "frames": frames,
                 "log": "\n".join(self.log[-80:]),
                 "simulation": self.simulation,
+                "detail": self.detail,
+                "cancellable": self.busy and self.operation in CANCELLABLE_OPERATIONS,
             }
 
 
 STATE = LocalState()
+
+# Frame extraction (preparing videos, extending the dataset) can be cancelled from the
+# progress dialog: /api/cancel sets this event, the running ffmpeg/extractor process is
+# stopped and the half-written frames are removed. The project stays as it was.
+CANCEL_REQUESTED = threading.Event()
+CANCELLABLE_OPERATIONS = {"scanning", "extracting", "active-learning-scan", "active-learning-extract"}
+
+
+class OperationCancelled(Exception):
+    pass
+
+
+def raise_if_cancelled() -> None:
+    if CANCEL_REQUESTED.is_set():
+        raise OperationCancelled()
+
+
+def run_extraction_command(command: list[str], on_tick: Callable[[], None] | None = None) -> tuple[int, str]:
+    """Run ffmpeg or the Apple extractor; stop it as soon as a cancel is requested."""
+    process = subprocess.Popen(command, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="replace")
+    while True:
+        try:
+            _, stderr = process.communicate(timeout=0.4)
+            return process.returncode, stderr or ""
+        except subprocess.TimeoutExpired:
+            if CANCEL_REQUESTED.is_set():
+                process.terminate()
+                try:
+                    process.wait(timeout=3)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+                    process.wait()
+                if process.stderr:
+                    process.stderr.close()
+                raise OperationCancelled() from None
+            if on_tick:
+                on_tick()
 
 
 def project_root_for(folder: Path) -> Path:
@@ -724,6 +765,7 @@ def extract_frames_for_video(
     ffmpeg: str | None,
     apple_extractor: Path | None,
     failure_message: str,
+    on_frames: Callable[[int], None] | None = None,
 ) -> tuple[list[Path], float, int, int]:
     """Extract up to target_count evenly spaced frames from one video.
 
@@ -746,11 +788,19 @@ def extract_frames_for_video(
         if ffmpeg else
         [str(apple_extractor), str(video), str(output_dir), prefix, str(target_count)]
     )
-    result = subprocess.run(command, capture_output=True, text=True, check=False)
-    if result.returncode != 0:
-        raise RuntimeError(f"{failure_message}: {video.name}\n{result.stderr.strip()}")
+    # Both extractors write the frames one by one, so counting them gives the progress.
+    tick = (lambda: on_frames(sum(1 for _ in output_dir.glob(f"{prefix}-*.jpg")))) if on_frames else None
+    returncode, stderr = run_extraction_command(command, tick)
+    if returncode != 0:
+        raise RuntimeError(f"{failure_message}: {video.name}\n{stderr.strip()}")
     generated = sorted(output_dir.glob(f"{prefix}-*.jpg"))
     return generated, rate, max(1, width), max(1, height)
+
+
+def remove_extracted_frames(frames_dir: Path, prefixes: list[str]) -> None:
+    for prefix in prefixes:
+        for path in frames_dir.glob(f"{prefix}-*.jpg"):
+            path.unlink(missing_ok=True)
 
 
 def carry_over_imported_frames(root: Path, existing_project: dict | None, frames_dir: Path, sport: str) -> list[dict]:
@@ -797,7 +847,8 @@ def extract_project(sport: str, requested_frames_per_video: int = DEFAULT_FRAMES
         backup_project(root, "vorbereitung")
         ffmpeg = shutil.which("ffmpeg")
         apple_extractor = native_frame_extractor(root) if not ffmpeg or not shutil.which("ffprobe") else None
-        STATE.update(operation="scanning", busy=True, progress=0.01, message=localized("Suche lokale Videos …", "Searching for local videos …", "Buscando vídeos locales …", "Recherche de vidéos locales …"), error=None, log=[])
+        CANCEL_REQUESTED.clear()
+        STATE.update(operation="scanning", busy=True, progress=0.01, detail=None, message=localized("Suche lokale Videos …", "Searching for local videos …", "Buscando vídeos locales …", "Recherche de vidéos locales …"), error=None, log=[])
         videos = discover_videos(folder)
         if not videos:
             raise RuntimeError(localized("Im gewählten Ordner wurden keine MP4-, MOV- oder M4V-Videos gefunden.", "No MP4, MOV, or M4V videos were found in the selected folder.", "No se encontraron vídeos MP4, MOV o M4V en la carpeta seleccionada.", "Aucune vidéo MP4, MOV ou M4V n’a été trouvée dans le dossier sélectionné."))
@@ -806,23 +857,44 @@ def extract_project(sport: str, requested_frames_per_video: int = DEFAULT_FRAMES
         # a GoPro game split into a dozen+ chapter files), this alone can take
         # a while with no visible movement otherwise, looking like a hang.
         infos = []
+        started = time.time()
         for index, video in enumerate(videos, start=1):
-            STATE.update(message=localized(f"Prüfe Video {index}/{len(videos)}: {video.name}", f"Checking video {index}/{len(videos)}: {video.name}", f"Comprobando vídeo {index}/{len(videos)}: {video.name}", f"Vérification de la vidéo {index}/{len(videos)} : {video.name}"))
+            raise_if_cancelled()
+            STATE.update(
+                message=localized(f"Prüfe Video {index}/{len(videos)}: {video.name}", f"Checking video {index}/{len(videos)}: {video.name}", f"Comprobando vídeo {index}/{len(videos)}: {video.name}", f"Vérification de la vidéo {index}/{len(videos)} : {video.name}"),
+                detail={"phase": "probe", "videoIndex": index, "videoCount": len(videos), "videoName": video.name, "framesDone": 0, "framesTarget": len(videos) * count_per_video, "startedAt": started},
+            )
             infos.append((video, *media_info(video, apple_extractor)))
         total_duration = max(sum(item[1] for item in infos), 1.0)
         temporary_frames = root / f"frames.next-{uuid.uuid4().hex[:8]}"
         temporary_frames.mkdir(parents=True, exist_ok=False)
         frames: list[dict] = []
         completed = 0.0
+        frames_target = len(infos) * count_per_video
         try:
-            for video, duration, width, height in infos:
+            for video_index, (video, duration, width, height) in enumerate(infos, start=1):
+                raise_if_cancelled()
                 target = count_per_video
                 video_id = hashlib.sha256(str(video).encode("utf-8")).hexdigest()[:12]
-                STATE.update(operation="extracting", message=localized(f"Extrahiere Trainingsbilder: {video.name}", f"Extracting training images: {video.name}", f"Extrayendo imágenes de entrenamiento: {video.name}", f"Extraction des images d’entraînement : {video.name}"))
+                done_before = len(frames)
+                STATE.update(
+                    operation="extracting",
+                    message=localized(f"Extrahiere Trainingsbilder: {video.name}", f"Extracting training images: {video.name}", f"Extrayendo imágenes de entrenamiento: {video.name}", f"Extraction des images d’entraînement : {video.name}"),
+                    detail={"phase": "extract", "videoIndex": video_index, "videoCount": len(infos), "videoName": video.name, "framesDone": done_before, "framesTarget": frames_target, "startedAt": started},
+                )
+
+                def report(written: int, video=video, video_index=video_index, duration=duration, done_before=done_before) -> None:
+                    share = min(written / max(count_per_video, 1), 1.0)
+                    STATE.update(
+                        progress=min((completed + duration * share) / total_duration, 0.98),
+                        detail={"phase": "extract", "videoIndex": video_index, "videoCount": len(infos), "videoName": video.name, "framesDone": done_before + written, "framesTarget": frames_target, "startedAt": started},
+                    )
+
                 generated, rate, output_width, output_height = extract_frames_for_video(
                     video, duration, width, height, target, temporary_frames, video_id,
                     ffmpeg, apple_extractor,
                     localized("Frame-Extraktion fehlgeschlagen", "Frame extraction failed", "La extracción de fotogramas falló", "L’extraction des images a échoué"),
+                    on_frames=report,
                 )
                 for index, image_path in enumerate(generated, start=1):
                     frame_id = str(uuid.uuid5(uuid.NAMESPACE_URL, f"{video_id}:{index}"))
@@ -864,15 +936,22 @@ def extract_project(sport: str, requested_frames_per_video: int = DEFAULT_FRAMES
             if existing_project and existing_project.get("trainingHistory"):
                 project["trainingHistory"] = existing_project["trainingHistory"]
             atomic_json(root / "project.json", project)
-            STATE.update(project=project, operation="ready", busy=False, progress=1.0, message=localized(
+            STATE.update(project=project, operation="ready", busy=False, progress=1.0, detail=None, message=localized(
                 f"{len(project['frames'])} echte Frames lokal erstellt.", f"{len(project['frames'])} real frames created locally.",
                 f"{len(project['frames'])} fotogramas reales creados localmente.", f"{len(project['frames'])} images réelles créées localement.",
             ))
-        except Exception:
+        except BaseException:
             if temporary_frames.exists(): shutil.rmtree(temporary_frames)
             raise
+    except OperationCancelled:
+        STATE.update(operation="cancelled", busy=False, progress=0.0, detail=None, error=None, message=localized(
+            "Vorbereitung abgebrochen. Die bisherigen Frames und Markierungen sind unverändert.",
+            "Preparation cancelled. The previous frames and annotations are unchanged.",
+            "Preparación cancelada. Los fotogramas y marcas anteriores no han cambiado.",
+            "Préparation annulée. Les images et annotations précédentes sont inchangées.",
+        ))
     except Exception as error:
-        STATE.update(operation="error", busy=False, error=str(error), message=localized("Lokale Vorbereitung fehlgeschlagen.", "Local preparation failed.", "La preparación local falló.", "La préparation locale a échoué."))
+        STATE.update(operation="error", busy=False, detail=None, error=str(error), message=localized("Lokale Vorbereitung fehlgeschlagen.", "Local preparation failed.", "La preparación local falló.", "La préparation locale a échoué."))
         STATE.append_log(str(error))
 
 
@@ -903,13 +982,19 @@ def expand_dataset(folder: Path, payload: dict, held_out: bool = False) -> None:
         # while videos are being discovered/probed, which for many files (a
         # GoPro game split into a dozen+ chapter files) can itself take a
         # visible moment.
-        STATE.update(operation="active-learning-scan", busy=True, progress=0.01, error=None, log=[], message=localized("Suche lokale Videos …", "Searching for local videos …", "Buscando vídeos locales …", "Recherche de vidéos locales …"))
+        CANCEL_REQUESTED.clear()
+        STATE.update(operation="active-learning-scan", busy=True, progress=0.01, detail=None, error=None, log=[], message=localized("Suche lokale Videos …", "Searching for local videos …", "Buscando vídeos locales …", "Recherche de vidéos locales …"))
         videos = discover_videos(folder)
         if not videos:
             raise RuntimeError(localized("Im gewählten Erweiterungsordner wurden keine Videos gefunden.", "No videos were found in the selected expansion folder.", "No se encontraron vídeos en la carpeta de ampliación seleccionada.", "Aucune vidéo n’a été trouvée dans le dossier d’extension sélectionné."))
         infos = []
+        started = time.time()
         for index, video in enumerate(videos, start=1):
-            STATE.update(message=localized(f"Prüfe Video {index}/{len(videos)}: {video.name}", f"Checking video {index}/{len(videos)}: {video.name}", f"Comprobando vídeo {index}/{len(videos)}: {video.name}", f"Vérification de la vidéo {index}/{len(videos)} : {video.name}"))
+            raise_if_cancelled()
+            STATE.update(
+                message=localized(f"Prüfe Video {index}/{len(videos)}: {video.name}", f"Checking video {index}/{len(videos)}: {video.name}", f"Comprobando vídeo {index}/{len(videos)}: {video.name}", f"Vérification de la vidéo {index}/{len(videos)} : {video.name}"),
+                detail={"phase": "probe", "videoIndex": index, "videoCount": len(videos), "videoName": video.name, "framesDone": 0, "framesTarget": len(videos) * count_per_video, "startedAt": started},
+            )
             infos.append((video, *media_info(video, apple_extractor)))
         total_duration = max(sum(item[1] for item in infos), 1.0)
         frames_dir = root / "frames"
@@ -918,7 +1003,12 @@ def expand_dataset(folder: Path, payload: dict, held_out: bool = False) -> None:
         known_video_ids = {str(frame.get("videoID")) for frame in project.get("frames", [])}
         completed = 0.0
         STATE.update(operation="active-learning-extract", busy=True, progress=0.01, error=None, log=[], message=localized("Extrahiere lokale Prüfkandidaten …", "Extracting local review candidates …", "Extrayendo candidatos de revisión locales …", "Extraction des candidats de révision locaux …"))
-        for video, duration, width, height in infos:
+        frames_target = len(infos) * count_per_video
+        run_prefixes: list[str] = []
+        for video_index, (video, duration, width, height) in enumerate(infos, start=1):
+            if CANCEL_REQUESTED.is_set():
+                remove_extracted_frames(frames_dir, run_prefixes)
+                raise OperationCancelled()
             target = count_per_video
             video_id = hashlib.sha256(str(video).encode("utf-8")).hexdigest()[:12]
             if video_id in known_video_ids:
@@ -926,11 +1016,27 @@ def expand_dataset(folder: Path, payload: dict, held_out: bool = False) -> None:
                 STATE.update(progress=min(completed / total_duration * 0.45, 0.45), message=localized(f"Bereits verwendetes Video übersprungen: {video.name}", f"Already-used video skipped: {video.name}", f"Vídeo ya usado omitido: {video.name}", f"Vidéo déjà utilisée ignorée : {video.name}"))
                 continue
             prefix = f"al-{video_id}"
-            generated, rate, output_width, output_height = extract_frames_for_video(
-                video, duration, width, height, target, frames_dir, prefix,
-                ffmpeg, apple_extractor,
-                localized("Kandidaten-Extraktion fehlgeschlagen", "Candidate extraction failed", "La extracción de candidatos falló", "L’extraction des candidats a échoué"),
-            )
+            run_prefixes.append(prefix)
+            done_before = len(new_frames)
+
+            def report(written: int, video=video, video_index=video_index, duration=duration, done_before=done_before) -> None:
+                share = min(written / max(count_per_video, 1), 1.0)
+                STATE.update(
+                    progress=min((completed + duration * share) / total_duration * 0.45, 0.45),
+                    detail={"phase": "extract", "videoIndex": video_index, "videoCount": len(infos), "videoName": video.name, "framesDone": done_before + written, "framesTarget": frames_target, "startedAt": started},
+                )
+
+            try:
+                generated, rate, output_width, output_height = extract_frames_for_video(
+                    video, duration, width, height, target, frames_dir, prefix,
+                    ffmpeg, apple_extractor,
+                    localized("Kandidaten-Extraktion fehlgeschlagen", "Candidate extraction failed", "La extracción de candidatos falló", "L’extraction des candidats a échoué"),
+                    on_frames=report,
+                )
+            except OperationCancelled:
+                # Frames of this run go straight into frames/; nothing is in project.json yet.
+                remove_extracted_frames(frames_dir, run_prefixes)
+                raise
             for index, image_path in enumerate(generated, start=1):
                 new_frame = {
                     "id": str(uuid.uuid5(uuid.NAMESPACE_URL, f"active-learning:{video_id}:{index}")),
@@ -950,7 +1056,7 @@ def expand_dataset(folder: Path, payload: dict, held_out: bool = False) -> None:
         project["frames"] = [*project.get("frames", []), *new_frames]
         project["updatedAt"] = utc_now()
         atomic_json(root / "project.json", project)
-        STATE.update(project=project, busy=False, progress=0.5, message=localized(
+        STATE.update(project=project, busy=False, progress=0.5, detail=None, message=localized(
             f"{len(new_frames)} Kandidaten extrahiert. Lokale Erkennung startet …", f"{len(new_frames)} candidates extracted. Local detection starting …",
             f"{len(new_frames)} candidatos extraídos. Iniciando la detección local …", f"{len(new_frames)} candidats extraits. Démarrage de la détection locale …",
         ))
@@ -958,9 +1064,16 @@ def expand_dataset(folder: Path, payload: dict, held_out: bool = False) -> None:
         if held_out:
             autolabel_payload["categories"] = list(SPORT_CATEGORIES.get(project.get("sport"), []))
         ml_action("autolabel", autolabel_payload)
+    except OperationCancelled:
+        STATE.update(operation="cancelled", busy=False, progress=0.0, detail=None, error=None, message=localized(
+            "Abgebrochen. Es wurden keine neuen Bilder übernommen.",
+            "Cancelled. No new images were added.",
+            "Cancelado. No se añadieron imágenes nuevas.",
+            "Annulé. Aucune nouvelle image n’a été ajoutée.",
+        ))
     except Exception as error:
         STATE.append_log(str(error))
-        STATE.update(operation="error", busy=False, error=str(error), message=localized("Datensatzerweiterung fehlgeschlagen.", "Dataset expansion failed.", "La ampliación del conjunto de datos falló.", "L’extension du jeu de données a échoué."))
+        STATE.update(operation="error", busy=False, detail=None, error=str(error), message=localized("Datensatzerweiterung fehlgeschlagen.", "Dataset expansion failed.", "La ampliación del conjunto de datos falló.", "L’extension du jeu de données a échoué."))
 
 
 def simulate_ball_tracking(video: Path, payload: dict) -> None:
@@ -1745,6 +1858,12 @@ class Handler(BaseHTTPRequestHandler):
             if self.path == "/api/select-folder":
                 folder = select_folder()
                 self.json_response({"ok": True, "folder": str(folder), "status": STATE.snapshot()})
+            elif self.path == "/api/cancel":
+                if not STATE.busy or STATE.operation not in CANCELLABLE_OPERATIONS:
+                    raise RuntimeError(localized("Dieser Vorgang lässt sich nicht abbrechen.", "This operation cannot be cancelled.", "Esta operación no se puede cancelar.", "Cette opération ne peut pas être annulée."))
+                CANCEL_REQUESTED.set()
+                STATE.update(message=localized("Wird abgebrochen …", "Cancelling …", "Cancelando …", "Annulation …"))
+                self.json_response({"ok": True})
             elif self.path == "/api/prepare":
                 if STATE.busy:
                     raise RuntimeError(localized("Ein lokaler Vorgang läuft bereits.", "A local operation is already running.", "Ya hay una operación local en curso.", "Une opération locale est déjà en cours."))

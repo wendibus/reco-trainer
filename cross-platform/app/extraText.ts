@@ -5,6 +5,7 @@ export type ExtraText = {
   onnx: string; coreml: string; coremlMacOnly: string;
   fieldSet: string; fieldEdit: string; fieldHelp: string; fieldNudge: string; notNow: string;
   showFolder: string;
+  extractTitle: string; extractProbe: (index: number, count: number) => string; extractVideo: (index: number, count: number) => string; extractFrames: (done: number, target: number) => string; extractElapsed: (elapsed: string) => string; extractRemaining: (remaining: string) => string; extractCancel: string; extractCancelling: string; extractHint: string;
   importLabels: string; importLabelsCandidates: string; importLabelsHelp: string;
   importOnnx: string; importOnnxHelp: string; onnxName: string; onnxClasses: string; onnxClassesHint: (allowed: string) => string; onnxInputSize: string; onnxInputSizeHint: string; onnxLicense: string; onnxChooseFile: string;
   editorIntro: string; widthLabel: string; lengthLabel: string;
@@ -22,6 +23,9 @@ export const extraText: Record<ExtraLanguage, ExtraText> = {
     fieldHelp: 'Markiere die Eckpunkte des Spielfelds (vier Ecken oder mehr Punkte entlang des Randes), damit „Automatisch markieren“ nur Personen berücksichtigt, die mit den Füßen auf dem Feld stehen.',
     fieldNudge: 'Spielfeld markieren, damit automatisches Markieren nur Personen auf dem Feld berücksichtigt.', notNow: 'Nicht jetzt',
     showFolder: 'Trainingsordner anzeigen',
+    extractTitle: 'Bilder werden extrahiert', extractProbe: (index, count) => `Prüfe Video ${index} von ${count}`, extractVideo: (index, count) => `Video ${index} von ${count}`,
+    extractFrames: (done, target) => `${done} von ${target} Bildern`, extractElapsed: (elapsed) => `Läuft seit ${elapsed}`, extractRemaining: (remaining) => `noch etwa ${remaining}`,
+    extractCancel: 'Abbrechen', extractCancelling: 'Wird abgebrochen …', extractHint: 'Beim Abbrechen bleiben die bisherigen Frames und Markierungen unverändert.',
     importLabels: 'Labels importieren', importLabelsCandidates: 'Als Vorschläge',
     importLabelsHelp: 'Übernimmt Bilder mit YOLO-txt- oder COCO-Labels aus einem Ordner (z. B. aus CVAT oder Roboflow). Klassennamen kommen aus data.yaml, classes.txt oder der COCO-Datei; unbekannte Klassen werden übersprungen. „Als Vorschläge“ legt die Boxen ungeprüft in die Prüfwarteschlange.',
     importOnnx: 'ONNX-Modell importieren', onnxName: 'Name', onnxClasses: 'Klassen (Reihenfolge der Klassen-IDs)',
@@ -42,6 +46,9 @@ export const extraText: Record<ExtraLanguage, ExtraText> = {
     fieldHelp: 'Mark the field\'s corner points (four corners or more points along the edge) so "Auto-label" only considers people whose feet are standing on the field.',
     fieldNudge: 'Mark the field boundaries so auto-label only considers people standing on the field.', notNow: 'Not now',
     showFolder: 'Show training folder',
+    extractTitle: 'Extracting images', extractProbe: (index, count) => `Checking video ${index} of ${count}`, extractVideo: (index, count) => `Video ${index} of ${count}`,
+    extractFrames: (done, target) => `${done} of ${target} images`, extractElapsed: (elapsed) => `Running for ${elapsed}`, extractRemaining: (remaining) => `about ${remaining} left`,
+    extractCancel: 'Cancel', extractCancelling: 'Cancelling …', extractHint: 'Cancelling keeps the previous frames and annotations unchanged.',
     importLabels: 'Import labels', importLabelsCandidates: 'As suggestions',
     importLabelsHelp: 'Imports images with YOLO-txt or COCO labels from a folder (e.g. from CVAT or Roboflow). Class names come from data.yaml, classes.txt, or the COCO file; unknown classes are skipped. “As suggestions” puts the boxes unreviewed into the review queue.',
     importOnnx: 'Import ONNX model', onnxName: 'Name', onnxClasses: 'Classes (class-id order)',
@@ -62,6 +69,9 @@ export const extraText: Record<ExtraLanguage, ExtraText> = {
     fieldHelp: 'Marca los puntos del campo (cuatro esquinas o más puntos a lo largo del borde) para que «Marcado automático» solo considere a personas con los pies sobre el campo.',
     fieldNudge: 'Marca los límites del campo para que el marcado automático solo considere a personas dentro del campo.', notNow: 'Ahora no',
     showFolder: 'Mostrar carpeta de entrenamiento',
+    extractTitle: 'Extrayendo imágenes', extractProbe: (index, count) => `Comprobando vídeo ${index} de ${count}`, extractVideo: (index, count) => `Vídeo ${index} de ${count}`,
+    extractFrames: (done, target) => `${done} de ${target} imágenes`, extractElapsed: (elapsed) => `En curso desde hace ${elapsed}`, extractRemaining: (remaining) => `quedan unos ${remaining}`,
+    extractCancel: 'Cancelar', extractCancelling: 'Cancelando …', extractHint: 'Al cancelar, los fotogramas y marcas anteriores no cambian.',
     importLabels: 'Importar etiquetas', importLabelsCandidates: 'Como sugerencias',
     importLabelsHelp: 'Importa imágenes con etiquetas YOLO-txt o COCO desde una carpeta (p. ej., de CVAT o Roboflow). Los nombres de clase se toman de data.yaml, classes.txt o del archivo COCO; las clases desconocidas se omiten. «Como sugerencias» coloca los cuadros sin revisar en la cola de revisión.',
     importOnnx: 'Importar modelo ONNX', onnxName: 'Nombre', onnxClasses: 'Clases (orden de ID)',
@@ -82,6 +92,9 @@ export const extraText: Record<ExtraLanguage, ExtraText> = {
     fieldHelp: 'Marquez les points du terrain (quatre coins ou davantage de points le long du bord) pour que « Marquage automatique » ne prenne en compte que les personnes ayant les pieds sur le terrain.',
     fieldNudge: 'Marquez les limites du terrain pour que le marquage automatique ne prenne en compte que les personnes sur le terrain.', notNow: 'Pas maintenant',
     showFolder: 'Afficher le dossier d’entraînement',
+    extractTitle: 'Extraction des images', extractProbe: (index, count) => `Vérification de la vidéo ${index} sur ${count}`, extractVideo: (index, count) => `Vidéo ${index} sur ${count}`,
+    extractFrames: (done, target) => `${done} images sur ${target}`, extractElapsed: (elapsed) => `En cours depuis ${elapsed}`, extractRemaining: (remaining) => `encore environ ${remaining}`,
+    extractCancel: 'Annuler', extractCancelling: 'Annulation …', extractHint: 'En cas d’annulation, les images et annotations précédentes restent inchangées.',
     importLabels: 'Importer des annotations', importLabelsCandidates: 'Comme suggestions',
     importLabelsHelp: 'Importe des images avec annotations YOLO-txt ou COCO depuis un dossier (p. ex. CVAT ou Roboflow). Les noms de classe proviennent de data.yaml, classes.txt ou du fichier COCO ; les classes inconnues sont ignorées. « Comme suggestions » place les boîtes non vérifiées dans la file de vérification.',
     importOnnx: 'Importer un modèle ONNX', onnxName: 'Nom', onnxClasses: 'Classes (ordre des ID)',

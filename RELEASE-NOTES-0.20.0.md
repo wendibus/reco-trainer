@@ -13,6 +13,11 @@ The web interface is now built ahead of time and served by the Python worker its
 
 After training, the quality score was measured on the weights of the last epoch, although the saved model is the best checkpoint. A model that peaked early (for example at epoch 4 of 24) was therefore listed with a much lower score than it really has, which also affected the automatic "best model" decision. The best checkpoint is now evaluated.
 
+## Progress window with Cancel while extracting images
+
+- Preparing videos and extending the dataset now show a progress window: the current video ("video 3 of 12"), a progress bar that moves while a video is being processed, images done of the total, elapsed and estimated remaining time.
+- **Cancel** stops FFmpeg or the built-in extractor right away. The previous frames and annotations stay exactly as they were; half-extracted images are removed.
+
 ## For developers
 
 - `npm run dev` starts the Vite dev server on 8765 against a worker on 8766; `npm run build` writes `ui/`; `npm run typecheck` replaces the old lint script.

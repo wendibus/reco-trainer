@@ -345,6 +345,78 @@ class FrameExtractionTests(unittest.TestCase):
             self.assertIn("boom", str(context.exception))
 
 
+class CancelExtractionTests(unittest.TestCase):
+    """The progress dialog's "Cancel": stop ffmpeg/the extractor, keep the project unchanged."""
+
+    SLOW_EXTRACTOR = (
+        "#!/usr/bin/env python3\n"
+        "import json, sys, time, pathlib\n"
+        "if sys.argv[1] == '--probe':\n"
+        "    print(json.dumps({'duration': 10.0, 'width': 64, 'height': 32})); sys.exit(0)\n"
+        "video, output_dir, prefix, count = sys.argv[1:5]\n"
+        "for index in range(1, int(count) + 1):\n"
+        "    (pathlib.Path(output_dir) / f'{prefix}-{index:06d}.jpg').write_bytes(b'x')\n"
+        "    time.sleep(0.3)\n"
+    )
+
+    def setUp(self):
+        local_worker.CANCEL_REQUESTED.clear()
+        local_worker.STATE.update(selected_folder=None, project_root=None, project=None, busy=False, error=None, log=[], language="en", detail=None, operation="idle")
+
+    def tearDown(self):
+        local_worker.CANCEL_REQUESTED.clear()
+        local_worker.STATE.update(language="de", busy=False, operation="idle", detail=None)
+
+    def _folder(self, temporary: str) -> tuple[Path, Path, Path]:
+        folder = Path(temporary) / "videos"
+        folder.mkdir()
+        for name in ("a.mp4", "b.mp4"):
+            (folder / name).write_bytes(b"fake video")
+        root = local_worker.project_root_for(folder)
+        extractor = Path(temporary) / "slow-extractor.py"
+        extractor.write_text(self.SLOW_EXTRACTOR)
+        extractor.chmod(extractor.stat().st_mode | stat.S_IEXEC)
+        local_worker.STATE.update(selected_folder=folder, project_root=root)
+        return folder, root, extractor
+
+    def test_run_extraction_command_stops_the_process_on_cancel(self):
+        threading = __import__("threading")
+        timer = threading.Timer(0.5, local_worker.CANCEL_REQUESTED.set)
+        timer.start()
+        started = __import__("time").time()
+        with self.assertRaises(local_worker.OperationCancelled):
+            local_worker.run_extraction_command([sys.executable, "-c", "import time; time.sleep(30)"])
+        self.assertLess(__import__("time").time() - started, 5)
+
+    def test_cancel_during_preparation_keeps_the_previous_project(self):
+        threading = __import__("threading")
+        with tempfile.TemporaryDirectory() as temporary:
+            _, root, extractor = self._folder(temporary)
+            root.mkdir(parents=True, exist_ok=True)
+            previous = {"schemaVersion": 2, "sport": "basketball", "frames": [{"id": "old", "relativePath": "frames/old.jpg", "videoID": "v", "annotations": []}]}
+            local_worker.atomic_json(root / "project.json", previous)
+            with mock.patch.object(local_worker.shutil, "which", lambda name: None), \
+                    mock.patch.object(local_worker, "native_frame_extractor", lambda _root: extractor):
+                worker = threading.Thread(target=local_worker.extract_project, args=("basketball", 20))
+                worker.start()
+                for _ in range(100):
+                    detail = local_worker.STATE.detail or {}
+                    if detail.get("phase") == "extract" and detail.get("framesDone", 0) >= 1:
+                        break
+                    __import__("time").sleep(0.1)
+                self.assertTrue(local_worker.STATE.snapshot()["cancellable"])
+                self.assertEqual(local_worker.STATE.detail["videoCount"], 2)
+                self.assertEqual(local_worker.STATE.detail["framesTarget"], 40)
+                local_worker.CANCEL_REQUESTED.set()
+                worker.join(10)
+            self.assertFalse(worker.is_alive())
+            self.assertEqual(local_worker.STATE.operation, "cancelled")
+            self.assertFalse(local_worker.STATE.busy)
+            self.assertIsNone(local_worker.STATE.error)
+            self.assertEqual(json.loads((root / "project.json").read_text()), previous)
+            self.assertEqual(list(root.glob("frames.next-*")), [])
+
+
 class RunLoggedEncodingTests(unittest.TestCase):
     """Regression coverage for a real Windows crash: local training died with a
     raw UnicodeEncodeError from inside RF-DETR's rich-rendered metrics tables,
