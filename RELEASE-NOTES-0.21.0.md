@@ -16,6 +16,10 @@ Videos, frames, labels, checkpoints, and metrics remain entirely on the local co
 - Frames in which a face is still detectable after blurring are **not exported** and are listed for review.
 - **Anonymized training images:** optionally 10, 25 or 50 % of the training images are trained with blurred heads.
 
+## Simpler field boundaries
+
+- **Set field boundaries** no longer asks for the field's width and length. Click at least four points in order along the edge; straight lines join them. If the field is not fully in the image, put points on the image edge where it leaves the frame - any shape is possible. The check always happens in the image; existing outlines with measurements keep working as outlines. An outline whose edges cross cannot be saved.
+
 ## Models and licenses
 
 - New model registry: only **Apache-2.0** and **MIT** models, each downloaded with a SHA-256 check; licenses are shown in the export dialog and written into every export. RF-DETR XL/2XL (PML), SAM 3 and Ultralytics models are not used.

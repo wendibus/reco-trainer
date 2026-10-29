@@ -1034,29 +1034,23 @@ def field_membership_checker(
     field_geometry: dict[str, Any] | None,
 ) -> Callable[[str, float, float, float, float, float, float], bool] | None:
     """Builds a per-run function deciding whether a detected person-shaped box's
-    feet fall inside the project's marked field boundaries - by request, so
+    feet fall inside the project's marked field outline - by request, so
     auto-label only adds "player"/"referee"/"goalkeeper" boxes for people
     actually standing on the field, not spectators, bench, or staff nearby.
 
-    field_geometry is the project's optional "fieldGeometry": image points as
-    fractional (0..1) coordinates (so they apply however a given frame was
-    extracted/scaled). Exactly four points are the corners in TL/TR/BR/BL order and
-    come with the field's real width/length in meters (a perspective transform
-    measures the distance to the boundary in meters). More than four points trace
-    an arbitrary outline (curved or L-shaped fields) and are checked as a polygon in
-    the image; real size is not needed then. Returns None - "don't filter
-    anything" - whenever geometry is absent, incomplete, or OpenCV isn't installed,
-    so a project without field boundaries marked behaves exactly as before.
+    field_geometry is the project's optional "fieldGeometry": at least four image
+    points as fractional (0..1) coordinates (so they apply however a given frame was
+    extracted/scaled), joined by straight lines into a closed outline in the image.
+    Four points can be the corners of a fully visible field; when the field leaves the
+    frame, points on the image edge give any other shape. Real sizes in meters are not
+    used (older projects may still store realWidth/realLength; they are ignored).
+    Returns None - "don't filter anything" - whenever geometry is absent, incomplete,
+    or OpenCV isn't installed, so a project without an outline behaves as before.
     """
     if not field_geometry:
         return None
     corners = field_geometry.get("corners")
-    try:
-        real_width = float(field_geometry.get("realWidth", 0) or 0)
-        real_length = float(field_geometry.get("realLength", 0) or 0)
-    except (TypeError, ValueError):
-        return None
-    if not corners or len(corners) < 4 or (len(corners) == 4 and (real_width <= 0 or real_length <= 0)):
+    if not corners or len(corners) < 4:
         return None
     try:
         import cv2
@@ -1064,71 +1058,31 @@ def field_membership_checker(
     except ImportError:
         return None
 
-    if len(corners) > 4:
-        contour_cache: dict[tuple[float, float], Any] = {}
+    contour_cache: dict[tuple[float, float], Any] = {}
 
-        def is_inside_outline(
-            category: str, x1: float, y1: float, x2: float, y2: float, frame_width: float, frame_height: float
-        ) -> bool:
-            if category not in PERSON_SHAPED_CATEGORIES:
-                return True
-            key = (frame_width, frame_height)
-            if key not in contour_cache:
-                try:
-                    contour_cache[key] = np.array(
-                        [[float(fx) * frame_width, float(fy) * frame_height] for fx, fy in corners], dtype=np.float32
-                    ).reshape(-1, 1, 2)
-                except (TypeError, ValueError):
-                    contour_cache[key] = None
-            contour = contour_cache[key]
-            if contour is None:
-                return True
-            # Pixel margin (no meters without a real-size mapping), about 0.5% of
-            # the frame diagonal - forgives a foot on the line or an imprecise click.
-            margin_px = 0.005 * (frame_width ** 2 + frame_height ** 2) ** 0.5
-            distance = cv2.pointPolygonTest(contour, (float((x1 + x2) / 2.0), float(y2)), True)
-            return distance >= -margin_px
-
-        return is_inside_outline
-
-    destination = np.array(
-        [[0, 0], [real_width, 0], [real_width, real_length], [0, real_length]], dtype=np.float32
-    )
-    homography_cache: dict[tuple[float, float], Any] = {}
-
-    def homography_for(frame_width: float, frame_height: float) -> Any | None:
-        key = (frame_width, frame_height)
-        if key not in homography_cache:
-            try:
-                source = np.array(
-                    [[float(fx) * frame_width, float(fy) * frame_height] for fx, fy in corners], dtype=np.float32
-                )
-                homography_cache[key] = cv2.getPerspectiveTransform(source, destination)
-            except (cv2.error, TypeError, ValueError):
-                homography_cache[key] = None
-        return homography_cache[key]
-
-    # A margin in meters, not pixels - forgives a foot right on the boundary
-    # line or a slightly imprecise corner click, without letting in anyone
-    # clearly off the field (a bench several meters away, spectators).
-    margin = 0.3
-
-    def is_on_field(
+    def is_inside_outline(
         category: str, x1: float, y1: float, x2: float, y2: float, frame_width: float, frame_height: float
     ) -> bool:
         if category not in PERSON_SHAPED_CATEGORIES:
             return True
-        homography = homography_for(frame_width, frame_height)
-        if homography is None:
+        key = (frame_width, frame_height)
+        if key not in contour_cache:
+            try:
+                contour_cache[key] = np.array(
+                    [[float(fx) * frame_width, float(fy) * frame_height] for fx, fy in corners], dtype=np.float32
+                ).reshape(-1, 1, 2)
+            except (TypeError, ValueError):
+                contour_cache[key] = None
+        contour = contour_cache[key]
+        if contour is None:
             return True
-        foot_point = np.array([[[(x1 + x2) / 2.0, y2]]], dtype=np.float32)
-        transformed = cv2.perspectiveTransform(foot_point, homography)[0][0]
-        return (
-            -margin <= transformed[0] <= real_width + margin
-            and -margin <= transformed[1] <= real_length + margin
-        )
+        # Pixel margin, about 0.5% of the frame diagonal - forgives a foot on the
+        # line or an imprecise click without letting in the bench or spectators.
+        margin_px = 0.005 * (frame_width ** 2 + frame_height ** 2) ** 0.5
+        distance = cv2.pointPolygonTest(contour, (float((x1 + x2) / 2.0), float(y2)), True)
+        return distance >= -margin_px
 
-    return is_on_field
+    return is_inside_outline
 
 
 # Typical referee attire per supported sport, used only as a best-effort hint (see

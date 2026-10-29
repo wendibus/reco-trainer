@@ -395,10 +395,13 @@ class DatasetTests(unittest.TestCase):
             "corners": [[0.1, 0.1], [0.9, 0.1], [0.9, 0.9]],  # only 3 corners
             "realWidth": 20.0, "realLength": 20.0,
         }))
-        self.assertIsNone(ml_worker.field_membership_checker({
-            "corners": [[0.1, 0.1], [0.9, 0.1], [0.9, 0.9], [0.1, 0.9]],
-            "realWidth": 0.0, "realLength": 20.0,  # zero real width
-        }))
+        if HAS_OPENCV:
+            # Real sizes are no longer needed (and ignored): four points form an outline.
+            self.assertIsNotNone(ml_worker.field_membership_checker({
+                "corners": [[0.1, 0.1], [0.9, 0.1], [0.9, 0.9], [0.1, 0.9]],
+                "realWidth": 0.0, "realLength": 20.0,
+            }))
+            self.assertIsNotNone(ml_worker.field_membership_checker({"corners": [[0.1, 0.1], [0.9, 0.1], [0.9, 0.9], [0.1, 0.9]]}))
 
     @unittest.skipUnless(HAS_OPENCV, "OpenCV is not installed in this environment")
     def test_field_membership_checker_accepts_inside_and_rejects_outside(self):

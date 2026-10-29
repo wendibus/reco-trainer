@@ -1,7 +1,8 @@
 import { useRef, useState } from 'react';
 import { extraText, type ExtraLanguage } from './extraText';
 
-export type FieldGeometry = { corners: number[][]; realWidth: number; realLength: number };
+/** Older projects may still carry realWidth/realLength; they are no longer used. */
+export type FieldGeometry = { corners: number[][]; realWidth?: number; realLength?: number };
 
 type Props = {
   language: ExtraLanguage;
@@ -13,19 +14,30 @@ type Props = {
 };
 
 const MAX_POINTS = 32;
-const parse = (text: string) => Number(text.trim().replace(',', '.'));
+const EDGE_SNAP_PX = 8;
 
-/// Web counterpart of FieldGeometryEditor.swift: click the points of the field's
-/// outline on a reference frame. Four points are the corners of a rectangular
-/// field (top left, top right, bottom right, bottom left) and need the field's
-/// real size; more points trace any other shape and make the size optional.
-/// Points can be dragged and the last one removed. They are stored as fractions
-/// (0..1) of the frame, the shape ml_worker.py's field_membership_checker() reads.
+/** True when two non-neighbouring edges of the closed outline cross (points clicked out of order). */
+export function outlineCrosses(points: number[][]): boolean {
+  const orientation = (a: number[], b: number[], c: number[]) => (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]);
+  const count = points.length;
+  for (let first = 0; first < count; first += 1) {
+    for (let second = first + 1; second < count; second += 1) {
+      if (second === first + 1 || (first === 0 && second === count - 1)) continue;
+      const [a, b] = [points[first], points[(first + 1) % count]];
+      const [c, d] = [points[second], points[(second + 1) % count]];
+      if (orientation(c, d, a) * orientation(c, d, b) < 0 && orientation(a, b, c) * orientation(a, b, d) < 0) return true;
+    }
+  }
+  return false;
+}
+
+/// Click at least four points along the field's edge on a reference frame; straight
+/// lines join them into a closed outline. Points on the image edge cover a field that
+/// leaves the frame. Points can be dragged and the last one removed. They are stored as
+/// fractions (0..1) of the frame, the shape ml_worker.py's field_membership_checker() reads.
 export default function FieldGeometryEditor({ language, api, frame, existing, onSave, onCancel }: Props) {
   const t = extraText[language];
   const [corners, setCorners] = useState<number[][]>(existing?.corners ?? []);
-  const [widthText, setWidthText] = useState(existing && existing.realWidth > 0 ? String(existing.realWidth) : '');
-  const [lengthText, setLengthText] = useState(existing && existing.realLength > 0 ? String(existing.realLength) : '');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [imageFailed, setImageFailed] = useState(false);
@@ -33,17 +45,16 @@ export default function FieldGeometryEditor({ language, api, frame, existing, on
   const dragIndex = useRef<number | null>(null);
 
   const count = corners.length;
-  const widthEntered = widthText.trim() !== '';
-  const lengthEntered = lengthText.trim() !== '';
-  const realWidth = widthEntered ? parse(widthText) : 0;
-  const realLength = lengthEntered ? parse(lengthText) : 0;
-  const sizeValid = Number.isFinite(realWidth) && Number.isFinite(realLength) && (count === 4 ? realWidth > 0 && realLength > 0 : realWidth >= 0 && realLength >= 0);
-  const canSave = count >= 4 && sizeValid && !saving;
+  const crosses = count >= 4 && outlineCrosses(corners);
+  const canSave = count >= 4 && !crosses && !saving;
 
   function fractionFrom(event: { clientX: number; clientY: number }): number[] | null {
     const box = imageRef.current?.getBoundingClientRect();
     if (!box || box.width <= 0 || box.height <= 0) return null;
-    return [Math.min(1, Math.max(0, (event.clientX - box.left) / box.width)), Math.min(1, Math.max(0, (event.clientY - box.top) / box.height))];
+    // Clicks just outside the image (the catcher around it) or within a few pixels of its
+    // edge land exactly on the edge - that is where a field leaving the frame is marked.
+    const snap = (offset: number, size: number) => offset < EDGE_SNAP_PX ? 0 : offset > size - EDGE_SNAP_PX ? 1 : offset / size;
+    return [snap(event.clientX - box.left, box.width), snap(event.clientY - box.top, box.height)];
   }
 
   function addPoint(event: React.MouseEvent<HTMLDivElement>) {
@@ -70,7 +81,7 @@ export default function FieldGeometryEditor({ language, api, frame, existing, on
     setSaving(true);
     setError(null);
     try {
-      await onSave({ corners, realWidth, realLength });
+      await onSave({ corners });
     } catch (failure) {
       setError(failure instanceof Error ? failure.message : String(failure));
       setSaving(false);
@@ -78,27 +89,25 @@ export default function FieldGeometryEditor({ language, api, frame, existing, on
   }
 
   const points = corners.map(([x, y]) => `${x},${y}`).join(' ');
-  const statusText = count < 4 ? t.cornerPrompt(count + 1, t.cornerLabels[count]) : count === 4 ? `✓ ${t.allSet}` : `✓ ${t.pointCount(count)}`;
+  const statusText = count < 4 ? t.pointPrompt(count + 1) : crosses ? `⚠ ${t.crossing}` : `✓ ${t.pointCount(count)}`;
 
   return <div className="walkthrough-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onCancel(); }}>
     <section className="field-editor-dialog" role="dialog" aria-modal="true" aria-labelledby="field-editor-title">
       <h2 id="field-editor-title">{existing ? t.fieldEdit : t.fieldSet}</h2>
       <p className="field-editor-intro">{t.editorIntro}</p>
       <div className="field-editor-controls">
-        <label>{t.widthLabel}<input type="text" inputMode="decimal" value={widthText} onChange={(event) => setWidthText(event.target.value)} /></label>
-        <label>{t.lengthLabel}<input type="text" inputMode="decimal" value={lengthText} onChange={(event) => setLengthText(event.target.value)} /></label>
-        {count > 4 && <small className="field-editor-optional">{t.sizeOptional.trim()}</small>}
-        <span className={count < 4 ? 'field-editor-status' : 'field-editor-status done'}>{statusText}</span>
+        <span className={count < 4 || crosses ? 'field-editor-status' : 'field-editor-status done'}>{statusText}</span>
         <button type="button" className="secondary-button" onClick={() => setCorners((current) => current.slice(0, -1))} disabled={!count}>{t.removeLast}</button>
         <button type="button" className="secondary-button" onClick={() => setCorners([])} disabled={!count}>{t.reset}</button>
       </div>
       <p className="field-editor-hint">{t.moreHint}</p>
       <div className="field-editor-stage">
         {imageFailed ? <div className="field-editor-missing">{t.frameMissing}</div> : <div className="field-editor-image-wrap" onClick={addPoint}>
+          <span className="field-editor-edge-catcher" aria-hidden="true" />
           <img ref={imageRef} src={`${api}/api/frame?id=${encodeURIComponent(frame.id)}`} alt="" draggable={false} onError={() => setImageFailed(true)} />
           <svg viewBox="0 0 1 1" preserveAspectRatio="none" aria-hidden="true">
             {count >= 2 && (count >= 4
-              ? <polygon points={points} className="field-editor-shape closed" vectorEffect="non-scaling-stroke" />
+              ? <polygon points={points} className={`field-editor-shape closed${crosses ? ' crossing' : ''}`} vectorEffect="non-scaling-stroke" />
               : <polyline points={points} className="field-editor-shape" vectorEffect="non-scaling-stroke" />)}
           </svg>
           {corners.map(([x, y], index) => <span

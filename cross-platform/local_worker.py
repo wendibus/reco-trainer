@@ -1881,12 +1881,30 @@ def ml_action(action: str, payload: dict) -> None:
 MAX_FIELD_POINTS = 32
 
 
+def outline_self_intersects(points: list[list[float]]) -> bool:
+    """True when two non-neighbouring edges of the closed outline cross (points clicked
+    out of order); such an outline has no clear inside."""
+    def orientation(a, b, c) -> float:
+        return (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0])
+
+    count = len(points)
+    edges = [(points[index], points[(index + 1) % count]) for index in range(count)]
+    for first in range(count):
+        for second in range(first + 1, count):
+            if second == first + 1 or (first == 0 and second == count - 1):
+                continue  # neighbours share a point
+            (a, b), (c, d) = edges[first], edges[second]
+            d1, d2 = orientation(c, d, a), orientation(c, d, b)
+            d3, d4 = orientation(a, b, c), orientation(a, b, d)
+            if d1 * d2 < 0 and d3 * d4 < 0:
+                return True
+    return False
+
+
 def save_field_geometry(payload: dict) -> None:
-    """Store the marked field outline in project.json, in the same shape the Mac app
-    writes and ml_worker.field_membership_checker reads: fractional (0..1) image
-    points. Exactly four points are the corners (TL, TR, BR, BL) and need the field's
-    real size in meters; more points trace an arbitrary outline, where the real size
-    is optional."""
+    """Store the marked field outline in project.json, in the shape
+    ml_worker.field_membership_checker reads: at least four fractional (0..1) image
+    points joined by straight lines. No real sizes are needed."""
     root = STATE.project_root
     project = STATE.project
     if root is None or project is None:
@@ -1894,16 +1912,20 @@ def save_field_geometry(payload: dict) -> None:
     invalid = localized("Ungültige Spielfeld-Angaben.", "Invalid field boundaries.", "Límites del campo no válidos.", "Limites du terrain non valides.")
     try:
         corners = [[float(point[0]), float(point[1])] for point in payload.get("corners") or []]
-        real_width = float(payload.get("realWidth") or 0)
-        real_length = float(payload.get("realLength") or 0)
     except (TypeError, ValueError, IndexError):
         raise RuntimeError(invalid) from None
-    finite = all(math.isfinite(value) for point in corners for value in point) and math.isfinite(real_width) and math.isfinite(real_length)
-    size_ok = real_width > 0 and real_length > 0 if len(corners) == 4 else real_width >= 0 and real_length >= 0
-    if not 4 <= len(corners) <= MAX_FIELD_POINTS or not finite or not size_ok or any(not 0.0 <= value <= 1.0 for point in corners for value in point):
+    finite = all(math.isfinite(value) for point in corners for value in point)
+    if not 4 <= len(corners) <= MAX_FIELD_POINTS or not finite or any(not 0.0 <= value <= 1.0 for point in corners for value in point):
         raise RuntimeError(invalid)
+    if outline_self_intersects(corners):
+        raise RuntimeError(localized(
+            "Die Kanten des Spielfelds kreuzen sich. Bitte die Punkte der Reihe nach am Rand entlang setzen.",
+            "The field's edges cross each other. Please place the points in order along the edge.",
+            "Los bordes del campo se cruzan. Coloca los puntos en orden a lo largo del borde.",
+            "Les bords du terrain se croisent. Placez les points dans l’ordre le long du bord.",
+        ))
     backup_project(root, "spielfeld")
-    project["fieldGeometry"] = {"corners": corners, "realWidth": real_width, "realLength": real_length}
+    project["fieldGeometry"] = {"corners": corners}
     project["updatedAt"] = utc_now()
     atomic_json(root / "project.json", project)
     STATE.update(project=project, message=localized("Spielfeld lokal gespeichert.", "Field boundaries saved locally.", "Límites del campo guardados localmente.", "Limites du terrain enregistrées localement."))

@@ -9,10 +9,9 @@ export type ExtraText = {
   anonTrain: string; anonTrainHint: string; anonTrainOff: string;
   importLabels: string; importLabelsCandidates: string; importLabelsHelp: string;
   importOnnx: string; importOnnxHelp: string; onnxName: string; onnxClasses: string; onnxClassesHint: (allowed: string) => string; onnxInputSize: string; onnxInputSizeHint: string; onnxLicense: string; onnxChooseFile: string;
-  editorIntro: string; widthLabel: string; lengthLabel: string;
-  cornerLabels: [string, string, string, string];
-  cornerPrompt: (index: number, label: string) => string;
-  allSet: string; moreHint: string; pointCount: (count: number) => string; removeLast: string; sizeOptional: string; reset: string; frameMissing: string; cancel: string; save: string; close: string;
+  editorIntro: string;
+  pointPrompt: (index: number) => string; crossing: string;
+  moreHint: string; pointCount: (count: number) => string; removeLast: string; reset: string; frameMissing: string; cancel: string; save: string; close: string;
 };
 
 export const extraText: Record<ExtraLanguage, ExtraText> = {
@@ -21,7 +20,7 @@ export const extraText: Record<ExtraLanguage, ExtraText> = {
     refineHelp: 'Zieht Ball-, Spieler-, Schiedsrichter- und weitere unterstützte Boxen lokal nach, auch von Hand gezeichnete. Nur plausible, eng anliegende Anpassungen werden übernommen; die ursprünglichen Koordinaten bleiben je Box gespeichert.',
     onnx: 'CPU-Modell (ONNX)', coreml: 'Apple-Modell (Core ML)', coremlMacOnly: 'Der Core-ML-Export ist nur auf einem Mac möglich.',
     fieldSet: 'Spielfeld festlegen', fieldEdit: 'Spielfeld bearbeiten',
-    fieldHelp: 'Markiere die Eckpunkte des Spielfelds (vier Ecken oder mehr Punkte entlang des Randes), damit „Automatisch markieren“ nur Personen berücksichtigt, die mit den Füßen auf dem Feld stehen.',
+    fieldHelp: 'Markiere den Rand des Spielfelds mit mindestens vier Punkten, damit „Automatisch markieren“ nur Personen berücksichtigt, die mit den Füßen auf dem Feld stehen.',
     fieldNudge: 'Spielfeld markieren, damit automatisches Markieren nur Personen auf dem Feld berücksichtigt.', notNow: 'Nicht jetzt',
     showFolder: 'Trainingsordner anzeigen',
     exportDataset: 'Datensatz exportieren', exportDatasetHelp: 'Alle geprüften Bilder mit Labels als YOLO- und/oder COCO-Datensatz exportieren, auf Wunsch anonymisiert.',
@@ -32,18 +31,16 @@ export const extraText: Record<ExtraLanguage, ExtraText> = {
     importOnnxHelp: 'Für YOLO-Modelle, die mit eingebautem NMS exportiert wurden (Ausgabe 1 × N × 6, z. B. Ultralytics „end2end“). Das Modell dient zum automatischen Markieren und zum Modellvergleich; trainieren lässt es sich nicht.',
     onnxClassesHint: (allowed) => `Erlaubt: ${allowed}. Übliche Namen wie „person“ oder „sports ball“ werden zugeordnet.`,
     onnxInputSize: 'Eingabegröße (px)', onnxInputSizeHint: 'Nur nötig, wenn das Modell keine feste quadratische Eingabe hat.', onnxLicense: 'Lizenz (optional)', onnxChooseFile: 'ONNX-Datei wählen und importieren',
-    editorIntro: "Damit „Automatisch markieren“ nur Personen berücksichtigt, die mit den Füßen auf dem Spielfeld stehen. Klicke die Eckpunkte des Spielfelds im Bild an - bei einem rechteckigen Feld die vier Ecken in dieser Reihenfolge: oben links, oben rechts, unten rechts, unten links - und gib die echten Feldmaße ein. Bei anderen Formen setzt du einfach weitere Punkte rund um den Rand (bis zu 32); die Maße sind dann optional. Punkte lassen sich verschieben, der letzte Punkt kann wieder entfernt werden.",
-    widthLabel: 'Breite (m)', lengthLabel: 'Länge (m)',
-    cornerLabels: ['Oben links', 'Oben rechts', 'Unten rechts', 'Unten links'],
-    cornerPrompt: (index, label) => `Ecke ${index}/4: ${label}`,
-    allSet: 'Alle 4 Ecken gesetzt', moreHint: "Weitere Punkte klicken, Punkte ziehen zum Verschieben", pointCount: (count) => "Punkte: {n}".replace('{n}', String(count)), removeLast: "Letzten Punkt entfernen", sizeOptional: " (bei mehr als 4 Punkten optional)", reset: 'Zurücksetzen', frameMissing: 'Frame fehlt', cancel: 'Abbrechen', save: 'Speichern', close: 'Schließen',
+    editorIntro: 'Damit „Automatisch markieren“ nur Personen berücksichtigt, die mit den Füßen auf dem Spielfeld stehen. Klicke mindestens vier Punkte der Reihe nach entlang des Spielfeldrands an; zwischen den Punkten gelten gerade Linien. Ist das Feld nicht ganz im Bild, setze die Punkte dort auf den Bildrand, wo das Feld das Bild verlässt – so sind beliebige Formen möglich (bis zu 32 Punkte). Punkte lassen sich verschieben, der letzte Punkt kann wieder entfernt werden.',
+    pointPrompt: (index) => `Punkt ${index} setzen (mindestens 4)`, crossing: 'Die Kanten kreuzen sich – bitte die Punkte der Reihe nach am Rand entlang setzen.',
+    moreHint: "Weitere Punkte klicken, Punkte ziehen zum Verschieben", pointCount: (count) => "Punkte: {n}".replace('{n}', String(count)), removeLast: "Letzten Punkt entfernen", reset: 'Zurücksetzen', frameMissing: 'Frame fehlt', cancel: 'Abbrechen', save: 'Speichern', close: 'Schließen',
   },
   en: {
     refine: 'Refine boxes with OpenCV',
     refineHelp: "Locally tightens ball, player, referee, and other supported boxes, including hand-drawn ones. Only plausible, closely-matching adjustments are applied; each box's original coordinates remain stored.",
     onnx: 'CPU model (ONNX)', coreml: 'Apple model (Core ML)', coremlMacOnly: 'Core ML export is only possible on a Mac.',
     fieldSet: 'Set field boundaries', fieldEdit: 'Edit field boundaries',
-    fieldHelp: 'Mark the field\'s corner points (four corners or more points along the edge) so "Auto-label" only considers people whose feet are standing on the field.',
+    fieldHelp: 'Mark the edge of the field with at least four points so "Auto-label" only considers people whose feet are standing on the field.',
     fieldNudge: 'Mark the field boundaries so auto-label only considers people standing on the field.', notNow: 'Not now',
     showFolder: 'Show training folder',
     exportDataset: 'Export dataset', exportDatasetHelp: 'Export every reviewed image with its labels as a YOLO and/or COCO dataset, anonymized if you like.',
@@ -54,18 +51,16 @@ export const extraText: Record<ExtraLanguage, ExtraText> = {
     importOnnxHelp: 'For YOLO models exported with NMS built in (output 1 × N × 6, e.g. Ultralytics “end2end”). The model is used for auto-labeling and the model comparison; it cannot be trained.',
     onnxClassesHint: (allowed) => `Allowed: ${allowed}. Common names such as “person” or “sports ball” are mapped.`,
     onnxInputSize: 'Input size (px)', onnxInputSizeHint: 'Only needed when the model has no fixed square input.', onnxLicense: 'License (optional)', onnxChooseFile: 'Choose ONNX file and import',
-    editorIntro: "So \"Auto-label\" only considers people whose feet are standing on the field. Click the field's corner points in the image - for a rectangular field its four corners in this order: top left, top right, bottom right, bottom left - and enter the field's real dimensions. For other shapes just keep adding points around the outline (up to 32); the dimensions are then optional. Drag a point to move it, or remove the last point again.",
-    widthLabel: 'Width (m)', lengthLabel: 'Length (m)',
-    cornerLabels: ['Top left', 'Top right', 'Bottom right', 'Bottom left'],
-    cornerPrompt: (index, label) => `Corner ${index}/4: ${label}`,
-    allSet: 'All 4 corners set', moreHint: "Click to add more points, drag a point to move it", pointCount: (count) => "Points: {n}".replace('{n}', String(count)), removeLast: "Remove last point", sizeOptional: " (optional with more than 4 points)", reset: 'Reset', frameMissing: 'Frame is missing', cancel: 'Cancel', save: 'Save', close: 'Close',
+    editorIntro: 'So "Auto-label" only considers people whose feet are standing on the field. Click at least four points in order along the edge of the field; straight lines join them. If the field is not fully in the image, put points on the image edge where the field leaves the frame - any shape is possible (up to 32 points). Points can be dragged, and the last point can be removed again.',
+    pointPrompt: (index) => `Place point ${index} (at least 4)`, crossing: 'The edges cross - please place the points in order along the edge.',
+    moreHint: "Click to add more points, drag a point to move it", pointCount: (count) => "Points: {n}".replace('{n}', String(count)), removeLast: "Remove last point", reset: 'Reset', frameMissing: 'Frame is missing', cancel: 'Cancel', save: 'Save', close: 'Close',
   },
   es: {
     refine: 'Refinar cuadros con OpenCV',
     refineHelp: 'Ajusta localmente cuadros de balón, jugador, árbitro y otras clases compatibles, incluidos los dibujados a mano. Solo se aplican ajustes plausibles y cercanos; las coordenadas originales de cada cuadro permanecen guardadas.',
     onnx: 'Modelo CPU (ONNX)', coreml: 'Modelo Apple (Core ML)', coremlMacOnly: 'La exportación a Core ML solo es posible en un Mac.',
     fieldSet: 'Definir el campo', fieldEdit: 'Editar el campo',
-    fieldHelp: 'Marca los puntos del campo (cuatro esquinas o más puntos a lo largo del borde) para que «Marcado automático» solo considere a personas con los pies sobre el campo.',
+    fieldHelp: 'Marca el borde del campo con al menos cuatro puntos para que «Marcado automático» solo considere a personas con los pies sobre el campo.',
     fieldNudge: 'Marca los límites del campo para que el marcado automático solo considere a personas dentro del campo.', notNow: 'Ahora no',
     showFolder: 'Mostrar carpeta de entrenamiento',
     exportDataset: 'Exportar conjunto de datos', exportDatasetHelp: 'Exporta todas las imágenes revisadas con sus etiquetas como conjunto YOLO y/o COCO, anonimizado si quieres.',
@@ -76,18 +71,16 @@ export const extraText: Record<ExtraLanguage, ExtraText> = {
     importOnnxHelp: 'Para modelos YOLO exportados con NMS integrado (salida 1 × N × 6, p. ej. Ultralytics «end2end»). El modelo sirve para el marcado automático y la comparación; no se puede entrenar.',
     onnxClassesHint: (allowed) => `Permitidas: ${allowed}. Se asignan nombres habituales como «person» o «sports ball».`,
     onnxInputSize: 'Tamaño de entrada (px)', onnxInputSizeHint: 'Solo es necesario si el modelo no tiene una entrada cuadrada fija.', onnxLicense: 'Licencia (opcional)', onnxChooseFile: 'Elegir archivo ONNX e importar',
-    editorIntro: "Para que «Marcado automático» solo considere a personas con los pies sobre el campo. Haz clic en los puntos del contorno del campo en la imagen: en un campo rectangular, sus cuatro esquinas en este orden: superior izquierda, superior derecha, inferior derecha, inferior izquierda, e introduce las medidas reales. Para otras formas sigue añadiendo puntos alrededor del borde (hasta 32); las medidas son entonces opcionales. Arrastra un punto para moverlo o quita el último.",
-    widthLabel: 'Ancho (m)', lengthLabel: 'Largo (m)',
-    cornerLabels: ['Superior izquierda', 'Superior derecha', 'Inferior derecha', 'Inferior izquierda'],
-    cornerPrompt: (index, label) => `Esquina ${index}/4: ${label}`,
-    allSet: 'Las 4 esquinas listas', moreHint: "Haz clic para añadir más puntos; arrastra un punto para moverlo", pointCount: (count) => "Puntos: {n}".replace('{n}', String(count)), removeLast: "Quitar el último punto", sizeOptional: " (opcional con más de 4 puntos)", reset: 'Reiniciar', frameMissing: 'Falta el fotograma', cancel: 'Cancelar', save: 'Guardar', close: 'Cerrar',
+    editorIntro: 'Para que «Marcado automático» solo considere a personas con los pies sobre el campo. Haz clic en al menos cuatro puntos en orden a lo largo del borde del campo; se unen con líneas rectas. Si el campo no está completo en la imagen, coloca puntos en el borde de la imagen donde el campo sale del encuadre: cualquier forma es posible (hasta 32 puntos). Los puntos se pueden arrastrar y el último se puede quitar.',
+    pointPrompt: (index) => `Coloca el punto ${index} (al menos 4)`, crossing: 'Los bordes se cruzan: coloca los puntos en orden a lo largo del borde.',
+    moreHint: "Haz clic para añadir más puntos; arrastra un punto para moverlo", pointCount: (count) => "Puntos: {n}".replace('{n}', String(count)), removeLast: "Quitar el último punto", reset: 'Reiniciar', frameMissing: 'Falta el fotograma', cancel: 'Cancelar', save: 'Guardar', close: 'Cerrar',
   },
   fr: {
     refine: 'Affiner les boîtes avec OpenCV',
     refineHelp: 'Resserre localement les boîtes ballon, joueur, arbitre et autres classes prises en charge, y compris dessinées à la main. Seuls les ajustements plausibles et proches sont appliqués ; les coordonnées d’origine de chaque boîte restent enregistrées.',
     onnx: 'Modèle CPU (ONNX)', coreml: 'Modèle Apple (Core ML)', coremlMacOnly: 'L’export Core ML n’est possible que sur un Mac.',
     fieldSet: 'Définir le terrain', fieldEdit: 'Modifier le terrain',
-    fieldHelp: 'Marquez les points du terrain (quatre coins ou davantage de points le long du bord) pour que « Marquage automatique » ne prenne en compte que les personnes ayant les pieds sur le terrain.',
+    fieldHelp: 'Marquez le bord du terrain avec au moins quatre points pour que « Marquage automatique » ne prenne en compte que les personnes ayant les pieds sur le terrain.',
     fieldNudge: 'Marquez les limites du terrain pour que le marquage automatique ne prenne en compte que les personnes sur le terrain.', notNow: 'Pas maintenant',
     showFolder: 'Afficher le dossier d’entraînement',
     exportDataset: 'Exporter le jeu de données', exportDatasetHelp: 'Exporte toutes les images vérifiées avec leurs annotations en jeu YOLO et/ou COCO, anonymisé si souhaité.',
@@ -98,10 +91,8 @@ export const extraText: Record<ExtraLanguage, ExtraText> = {
     importOnnxHelp: 'Pour les modèles YOLO exportés avec NMS intégré (sortie 1 × N × 6, p. ex. Ultralytics « end2end »). Le modèle sert au marquage automatique et à la comparaison ; il ne peut pas être entraîné.',
     onnxClassesHint: (allowed) => `Autorisées : ${allowed}. Les noms courants comme « person » ou « sports ball » sont convertis.`,
     onnxInputSize: 'Taille d’entrée (px)', onnxInputSizeHint: 'Nécessaire uniquement si le modèle n’a pas d’entrée carrée fixe.', onnxLicense: 'Licence (facultatif)', onnxChooseFile: 'Choisir le fichier ONNX et importer',
-    editorIntro: "Pour que « Marquage automatique » ne prenne en compte que les personnes ayant les pieds sur le terrain. Cliquez sur les points du contour du terrain dans l’image - pour un terrain rectangulaire, ses quatre coins dans l’ordre : en haut à gauche, en haut à droite, en bas à droite, en bas à gauche - et saisissez les dimensions réelles. Pour d’autres formes, continuez à ajouter des points le long du bord (jusqu’à 32) ; les dimensions sont alors facultatives. Faites glisser un point pour le déplacer ou supprimez le dernier.",
-    widthLabel: 'Largeur (m)', lengthLabel: 'Longueur (m)',
-    cornerLabels: ['En haut à gauche', 'En haut à droite', 'En bas à droite', 'En bas à gauche'],
-    cornerPrompt: (index, label) => `Coin ${index}/4 : ${label}`,
-    allSet: 'Les 4 coins sont placés', moreHint: "Cliquez pour ajouter des points, faites glisser un point pour le déplacer", pointCount: (count) => "Points : {n}".replace('{n}', String(count)), removeLast: "Supprimer le dernier point", sizeOptional: " (facultatif au-delà de 4 points)", reset: 'Réinitialiser', frameMissing: 'Image manquante', cancel: 'Annuler', save: 'Enregistrer', close: 'Fermer',
+    editorIntro: 'Pour que « Marquage automatique » ne prenne en compte que les personnes ayant les pieds sur le terrain. Cliquez au moins quatre points dans l’ordre le long du bord du terrain ; des lignes droites les relient. Si le terrain n’est pas entièrement dans l’image, placez des points sur le bord de l’image là où le terrain sort du cadre : toute forme est possible (jusqu’à 32 points). Les points peuvent être déplacés et le dernier peut être retiré.',
+    pointPrompt: (index) => `Placez le point ${index} (au moins 4)`, crossing: 'Les bords se croisent : placez les points dans l’ordre le long du bord.',
+    moreHint: "Cliquez pour ajouter des points, faites glisser un point pour le déplacer", pointCount: (count) => "Points : {n}".replace('{n}', String(count)), removeLast: "Supprimer le dernier point", reset: 'Réinitialiser', frameMissing: 'Image manquante', cancel: 'Annuler', save: 'Enregistrer', close: 'Fermer',
   },
 };

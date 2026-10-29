@@ -589,39 +589,41 @@ class ParityActionTests(unittest.TestCase):
             root = Path(temporary)
             self._project(root)
             corners = [[0.1, 0.2], [0.9, 0.2], [0.95, 0.9], [0.05, 0.9]]
+            # Four points need no real size any more; an old client's sizes are ignored.
             local_worker.save_field_geometry({"corners": corners, "realWidth": 15, "realLength": 28})
             saved = json.loads((root / "project.json").read_text())["fieldGeometry"]
-            self.assertEqual(saved, {"corners": corners, "realWidth": 15.0, "realLength": 28.0})
+            self.assertEqual(saved, {"corners": corners})
             self.assertEqual(local_worker.STATE.snapshot()["fieldGeometry"], saved)
 
-    def test_saves_an_outline_with_more_than_four_points_without_a_real_size(self):
+    def test_saves_a_partial_field_outline_with_points_on_the_image_edge(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             self._project(root)
-            outline = [[0.1, 0.1], [0.9, 0.1], [0.9, 0.5], [0.5, 0.5], [0.5, 0.9], [0.1, 0.9]]
+            # The field leaves the frame at the bottom and right: points sit on the edge.
+            outline = [[0.1, 0.3], [0.8, 0.25], [1.0, 0.45], [1.0, 1.0], [0.0, 1.0], [0.0, 0.6]]
             local_worker.save_field_geometry({"corners": outline})
             saved = json.loads((root / "project.json").read_text())["fieldGeometry"]
-            self.assertEqual(saved, {"corners": outline, "realWidth": 0.0, "realLength": 0.0})
+            self.assertEqual(saved, {"corners": outline})
 
-    def test_four_points_still_require_a_real_size(self):
+    def test_rejects_an_outline_whose_edges_cross(self):
         with tempfile.TemporaryDirectory() as temporary:
-            self._project(Path(temporary))
-            with self.assertRaises(RuntimeError):
-                local_worker.save_field_geometry({"corners": [[0.1, 0.1], [0.9, 0.1], [0.9, 0.9], [0.1, 0.9]]})
+            root = Path(temporary)
+            self._project(root)
+            bow_tie = [[0.1, 0.1], [0.9, 0.9], [0.9, 0.1], [0.1, 0.9]]  # corners clicked out of order
+            with self.assertRaises(RuntimeError) as raised:
+                local_worker.save_field_geometry({"corners": bow_tie})
+            self.assertIn("cross", str(raised.exception))
+            self.assertNotIn("fieldGeometry", json.loads((root / "project.json").read_text()))
 
     def test_rejects_invalid_field_geometry(self):
         good = [[0.1, 0.2], [0.9, 0.2], [0.95, 0.9], [0.05, 0.9]]
         cases = [
-            {"corners": good[:3], "realWidth": 15, "realLength": 28},
-            {"corners": good, "realWidth": 15, "realLength": 0},
-            {"corners": good + [[0.5, 0.5]], "realWidth": -1, "realLength": 28},
-            {"corners": [[0.5, 0.5]] * 33, "realWidth": 15, "realLength": 28},
-            {"corners": [[1.5, 0.2]] + good[1:], "realWidth": 15, "realLength": 28},
-            {"corners": [[float("nan"), 0.2]] + good[1:], "realWidth": 15, "realLength": 28},
-            {"corners": good, "realWidth": 0, "realLength": 28},
-            {"corners": good, "realWidth": 15, "realLength": -3},
-            {"corners": good, "realWidth": "abc", "realLength": 28},
-            {"corners": good},
+            {"corners": good[:3]},
+            {"corners": [[0.5, 0.5]] * 33},
+            {"corners": [[1.5, 0.2]] + good[1:]},
+            {"corners": [[float("nan"), 0.2]] + good[1:]},
+            {"corners": [[0.1, "x"]] + good[1:]},
+            {"corners": []},
         ]
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

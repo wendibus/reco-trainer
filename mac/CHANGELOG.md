@@ -9,6 +9,7 @@
 - Neu: Anonymisierter Export – Köpfe und Gesichter werden weichgezeichnet oder verpixelt (keine Balken), auch Zuschauer und Bank; Trikotnummern und Anzeigetafel optional. Ball und Labels bleiben unverändert. Bilder, in denen danach noch ein Gesicht erkennbar ist, werden nicht exportiert, sondern zur Prüfung aufgelistet.
 - Neu: „Anonymisierte Trainingsbilder“ – ein Anteil der Trainingsbilder wird mit weichgezeichneten Köpfen trainiert.
 - Neu: Modell-Registry mit Lizenzen (nur Apache-2.0 und MIT) und geprüften Downloads (SHA-256).
+- Geändert: „Spielfeld festlegen“ braucht keine Breite und Länge mehr. Mindestens vier Punkte der Reihe nach am Rand, verbunden durch gerade Linien; liegt das Feld nicht ganz im Bild, kommen Punkte auf den Bildrand, so sind beliebige Formen möglich. Geprüft wird immer im Bild. Bestehende Spielfelder mit Maßen gelten als Umriss weiter. Umrisse mit sich kreuzenden Kanten lassen sich nicht speichern.
 
 ## 0.20.0
 
