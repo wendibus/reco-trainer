@@ -1,21 +1,17 @@
 #!/bin/zsh
 set -e
 
-PREVIEW_DIR="${0:A:h}"
-PID_FILE="$PREVIEW_DIR/.preview-server.pid"
-WORKER_PID_FILE="$PREVIEW_DIR/.local-worker.pid"
-cd "$PREVIEW_DIR"
+APP_DIR="${0:A:h}"
+WORKER_PID_FILE="$APP_DIR/.local-worker.pid"
+PORT=8766
+URL="http://localhost:$PORT/"
+cd "$APP_DIR"
 
-if ! command -v npm >/dev/null 2>&1; then
-  echo "Node.js/npm wurde nicht gefunden. Bitte Node.js installieren und erneut starten."
-  echo "Node.js/npm was not found. Install Node.js and start again."
+if [[ ! -f ui/index.html ]]; then
+  echo "Die Oberfläche (Ordner ui/) fehlt. Bitte das Release-Paket neu laden."
+  echo "The interface (ui/ folder) is missing. Please download the release package again."
   read -r "?Zum Schließen Enter drücken / Press Enter to close: "
   exit 1
-fi
-
-if [[ ! -d node_modules ]]; then
-  echo "Richte Reco Trainer einmalig ein …"
-  npm install
 fi
 
 PYTHON_BIN=""
@@ -27,50 +23,32 @@ for CANDIDATE in /opt/homebrew/bin/python3.12 /usr/local/bin/python3.12 /opt/hom
 done
 if [[ -z "$PYTHON_BIN" ]]; then
   echo "Python 3 wurde nicht gefunden."
+  echo "Python 3 was not found."
   read -r "?Zum Schließen Enter drücken: "
   exit 1
 fi
 
-SERVER_STARTED=0
-WORKER_STARTED=0
-
+# Already running (for example started earlier): just open the interface.
 if [[ -f "$WORKER_PID_FILE" ]] && WORKER_PID="$(<"$WORKER_PID_FILE")" && [[ "$WORKER_PID" == <-> ]] && kill -0 "$WORKER_PID" 2>/dev/null; then
-  :
-else
-  "$PYTHON_BIN" "$PREVIEW_DIR/local_worker.py" --port 8766 &
-  WORKER_PID=$!
-  WORKER_STARTED=1
-  print -r -- "$WORKER_PID" > "$WORKER_PID_FILE"
+  open "$URL"
+  echo "Reco Trainer läuft bereits: $URL"
+  exit 0
 fi
 
-if [[ -f "$PID_FILE" ]] && SERVER_PID="$(<"$PID_FILE")" && [[ "$SERVER_PID" == <-> ]] && kill -0 "$SERVER_PID" 2>/dev/null; then
-  :
-else
-  npm run dev -- --host localhost --port 8765 &
-  SERVER_PID=$!
-  SERVER_STARTED=1
-  print -r -- "$SERVER_PID" > "$PID_FILE"
-fi
+"$PYTHON_BIN" "$APP_DIR/local_worker.py" --port "$PORT" &
+WORKER_PID=$!
+print -r -- "$WORKER_PID" > "$WORKER_PID_FILE"
 
 cleanup() {
-  if [[ "$SERVER_STARTED" == 1 ]] && kill -0 "$SERVER_PID" 2>/dev/null; then
-    kill "$SERVER_PID" 2>/dev/null || true
-  fi
-  if [[ "$WORKER_STARTED" == 1 ]] && kill -0 "$WORKER_PID" 2>/dev/null; then
-    kill "$WORKER_PID" 2>/dev/null || true
-  fi
-  if [[ "$SERVER_STARTED" == 1 ]] && [[ -f "$PID_FILE" ]] && [[ "$(<"$PID_FILE")" == "$SERVER_PID" ]]; then
-    rm -f "$PID_FILE"
-  fi
-  if [[ "$WORKER_STARTED" == 1 ]] && [[ -f "$WORKER_PID_FILE" ]] && [[ "$(<"$WORKER_PID_FILE")" == "$WORKER_PID" ]]; then
+  kill "$WORKER_PID" 2>/dev/null || true
+  if [[ -f "$WORKER_PID_FILE" ]] && [[ "$(<"$WORKER_PID_FILE")" == "$WORKER_PID" ]]; then
     rm -f "$WORKER_PID_FILE"
   fi
 }
 trap cleanup EXIT INT TERM
 
-sleep 4
-open "http://localhost:8765/"
-echo "Reco Trainer läuft vollständig lokal auf http://localhost:8765/"
-echo "Weboberfläche: PID $SERVER_PID · ML-Worker: PID $WORKER_PID"
+sleep 2
+open "$URL"
+echo "Reco Trainer läuft vollständig lokal auf $URL"
 echo "Dieses Fenster geöffnet lassen. Mit Ctrl+C wird Reco Trainer beendet."
-if [[ "$SERVER_STARTED" == 1 ]]; then wait "$SERVER_PID"; else wait "$WORKER_PID"; fi
+wait "$WORKER_PID"

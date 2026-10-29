@@ -1,5 +1,11 @@
 # Änderungen
 
+## 0.20.0
+
+- Geändert (Windows, Linux, Docker): Die Weboberfläche wird fertig gebaut mitgeliefert und vom Python-Worker selbst ausgeliefert. Node.js und npm sind nicht mehr nötig; die Oberfläche läuft unter http://localhost:8766/ (ein Port statt zwei). Start-Skripte starten nur noch den Worker und öffnen den Browser.
+- Geändert (Entwicklung): Vite + React statt Next.js/vinext/Cloudflare-Werkzeugen; `npm run typecheck` ersetzt `lint`. CI baut und prüft die Oberfläche.
+- Mac-App: unverändert in der Funktion, nur die Versionsnummer.
+
 ## 0.19.2
 
 - Behoben (Mac): Die Schaltflächen unter dem Bild standen alle in einer Zeile; bei normaler Fensterbreite wurden die letzten – darunter „Modell importieren“ und „Labels importieren“ – abgeschnitten und waren unsichtbar. Sie stehen jetzt in zwei Zeilen (Arbeiten · Modelle und Daten) und brechen bei schmalem Fenster um.

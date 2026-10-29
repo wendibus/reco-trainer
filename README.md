@@ -41,20 +41,20 @@ Requirements: macOS 14 or newer, Apple silicon, and **Python 3.10 or newer** (3.
 
 ### Windows
 
-Requirements: Node.js 22, Python 3.10 or newer (3.12 recommended), and FFmpeg.
+Requirements: Python 3.10 or newer (3.12 recommended) and FFmpeg. Node.js is *not* needed.
 
 1. Download and extract `Reco.Trainer.Windows.<version>.zip` from the [latest release](https://github.com/wendibus/reco-trainer/releases/latest).
 2. Open the extracted folder and run `Start Reco Trainer Windows.bat`.
-3. Keep the terminal windows open. The interface runs at <http://localhost:8765/>.
+3. Keep the terminal window open. The interface runs at <http://localhost:8766/>.
 4. Pick a sport and a video folder, then run **Set up ML** once. If an NVIDIA GPU is detected, PyTorch is installed with CUDA support automatically.
 
 ### Linux
 
-Requirements: Node.js 22, Python 3.10 or newer (3.12 recommended), FFmpeg, and Zenity or KDialog for the native folder dialog.
+Requirements: Python 3.10 or newer (3.12 recommended), FFmpeg, and Zenity or KDialog for the native folder dialog.
 
 1. Download and extract `Reco.Trainer.Linux.<version>.zip` from the [latest release](https://github.com/wendibus/reco-trainer/releases/latest).
 2. Run `chmod +x "Start Reco Trainer Linux.sh"` once, then `./Start\ Reco\ Trainer\ Linux.sh`.
-3. If your browser does not open by itself, go to <http://localhost:8765/>.
+3. If your browser does not open by itself, go to <http://localhost:8766/>.
 4. Pick a sport and a video folder, then run **Set up ML** once.
 
 ### Docker
@@ -64,7 +64,7 @@ Requirements: Docker with Compose. Training runs on the CPU inside the container
 1. Download and extract `Reco.Trainer.Docker.<version>.zip` from the [latest release](https://github.com/wendibus/reco-trainer/releases/latest).
 2. Set `RECO_VIDEO_FOLDER` to the absolute path of the folder with your sports videos.
 3. Run `docker compose up --build` in the extracted folder.
-4. Open <http://localhost:8765/>. Both ports are published on `127.0.0.1` only.
+4. Open <http://localhost:8766/>. The port is published on `127.0.0.1` only.
 
 The extracted folders also contain `START-HERE.md` with a step-by-step tour of the interface.
 

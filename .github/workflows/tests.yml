@@ -24,3 +24,23 @@ jobs:
         # is a plain file (SwiftPM resources can't be symlinks out of the package).
         # Run mac/scripts/sync-ml-worker.sh after editing the cross-platform copy.
         run: diff -u cross-platform/ml_worker.py mac/Sources/RecoTrainerMac/Resources/ml_worker.py
+
+  web-interface:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: cross-platform
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: cross-platform/package-lock.json
+      - run: npm ci
+      - name: Type check
+        run: npm run typecheck
+      - name: Build the interface served by local_worker.py
+        run: npm run build
+      - name: Interface was built
+        run: test -f ui/index.html

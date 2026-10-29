@@ -2,7 +2,6 @@ services:
   reco-trainer:
     build: .
     ports:
-      - "127.0.0.1:8765:8765"
       - "127.0.0.1:8766:8766"
     volumes:
       - "${RECO_VIDEO_FOLDER:?Set RECO_VIDEO_FOLDER to your local sports-video folder}:/videos"

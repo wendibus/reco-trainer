@@ -39,3 +39,4 @@ next-env.d.ts
 /.preview-server.pid
 /.local-worker.pid
 /__pycache__/
+/ui

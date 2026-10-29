@@ -26,13 +26,22 @@ from datetime import datetime, timezone
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, unquote, urlparse
 
 
 HOST = os.environ.get("RECO_BIND_HOST", "127.0.0.1")
 DEFAULT_PORT = 8766
 BASE_DIR = Path(__file__).resolve().parent
+# The interface is served by this worker itself (same origin, see serve_static);
+# 8765 stays allowed for the Vite dev server (npm run dev).
 ALLOWED_ORIGINS = {"http://localhost:8765", "http://127.0.0.1:8765"}
+UI_DIR = Path(os.environ.get("RECO_UI_DIR") or (BASE_DIR / "ui")).resolve()
+STATIC_TYPES = {
+    ".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".mjs": "text/javascript; charset=utf-8",
+    ".css": "text/css; charset=utf-8", ".json": "application/json; charset=utf-8", ".svg": "image/svg+xml",
+    ".png": "image/png", ".jpg": "image/jpeg", ".ico": "image/x-icon", ".woff2": "font/woff2", ".mp4": "video/mp4",
+    ".txt": "text/plain; charset=utf-8", ".map": "application/json",
+}
 configured_origin = os.environ.get("RECO_ALLOWED_ORIGIN")
 if configured_origin and re.fullmatch(r"http://(?:localhost|127\.0\.0\.1):\d{2,5}", configured_origin):
     ALLOWED_ORIGINS.add(configured_origin)
@@ -1638,7 +1647,82 @@ class Handler(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(data)
             return
-        self.send_error(HTTPStatus.NOT_FOUND)
+        self.serve_static(route.path)
+
+    def serve_static(self, request_path: str) -> None:
+        """Serve the built interface (ui/) so end users need neither Node.js nor npm.
+
+        Unknown paths without a file extension fall back to index.html; anything
+        that resolves outside ui/ is refused. Range requests are supported because
+        browsers need them to play and seek the walkthrough videos.
+        """
+        if request_path.startswith("/api/"):
+            self.send_error(HTTPStatus.NOT_FOUND)
+            return
+        if not (UI_DIR / "index.html").is_file():
+            body = (
+                "Reco Trainer: Die Oberfläche (Ordner ui/) fehlt. / The interface (ui/ folder) is missing. "
+                "Run `npm install && npm run build` or download a release package."
+            ).encode("utf-8")
+            self.send_response(HTTPStatus.NOT_FOUND)
+            self.send_header("Content-Type", "text/plain; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
+        relative = unquote(request_path).lstrip("/")
+        target = (UI_DIR / relative).resolve() if relative else UI_DIR / "index.html"
+        if target.is_dir():
+            target = target / "index.html"
+        inside = UI_DIR == target or UI_DIR in target.parents
+        if not inside:
+            self.send_error(HTTPStatus.NOT_FOUND)
+            return
+        if not target.is_file():
+            if Path(relative).suffix:
+                self.send_error(HTTPStatus.NOT_FOUND)
+                return
+            target = UI_DIR / "index.html"
+        size = target.stat().st_size
+        start, end, status = 0, size - 1, HTTPStatus.OK
+        range_header = self.headers.get("Range", "")
+        if match := re.fullmatch(r"bytes=(\d*)-(\d*)", range_header.strip()):
+            first, last = match.groups()
+            if first == "" and last == "":
+                match = None
+            elif first == "":
+                start, end = max(0, size - int(last)), size - 1
+            else:
+                start, end = int(first), min(int(last) if last else size - 1, size - 1)
+            if match is not None:
+                if start > end or start >= size:
+                    self.send_response(HTTPStatus.REQUESTED_RANGE_NOT_SATISFIABLE)
+                    self.send_header("Content-Range", f"bytes */{size}")
+                    self.end_headers()
+                    return
+                status = HTTPStatus.PARTIAL_CONTENT
+        length = end - start + 1
+        self.send_response(status)
+        self.send_header("Content-Type", STATIC_TYPES.get(target.suffix.lower(), "application/octet-stream"))
+        self.send_header("Content-Length", str(length))
+        self.send_header("Accept-Ranges", "bytes")
+        if status == HTTPStatus.PARTIAL_CONTENT:
+            self.send_header("Content-Range", f"bytes {start}-{end}/{size}")
+        immutable = "assets" in target.relative_to(UI_DIR).parts[:1]
+        self.send_header("Cache-Control", "public, max-age=31536000, immutable" if immutable else "no-cache")
+        self.end_headers()
+        with target.open("rb") as handle:
+            handle.seek(start)
+            remaining = length
+            while remaining > 0:
+                chunk = handle.read(min(65536, remaining))
+                if not chunk:
+                    break
+                try:
+                    self.wfile.write(chunk)
+                except (BrokenPipeError, ConnectionResetError):
+                    return
+                remaining -= len(chunk)
 
     def do_POST(self) -> None:
         if not self.allowed_origin():
@@ -1774,8 +1858,11 @@ def main() -> None:
     warning = python_version_warning()
     if warning:
         print(f"WARNUNG: {warning}", flush=True)
+    # The interface is served from this very port, so its own origin must be allowed.
+    ALLOWED_ORIGINS.update({f"http://localhost:{args.port}", f"http://127.0.0.1:{args.port}"})
     server = ThreadingHTTPServer((HOST, args.port), Handler)
     print(f"Reco Local Worker: http://{HOST}:{args.port}", flush=True)
+    print(f"Reco Trainer interface: http://localhost:{args.port}/", flush=True)
     server.serve_forever()
 
 

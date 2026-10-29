@@ -27,26 +27,25 @@ To stop, double-click `Stop Reco Preview.command` (macOS) or press `Ctrl+C` in t
 ### macOS
 
 - macOS 14 or newer, Apple silicon
-- Node.js 22 or newer
 - Xcode Command Line Tools
 - FFmpeg is optional. If present, it is used; otherwise Reco Trainer builds a small local AVFoundation extractor from the included Swift source.
 
 ### Windows
 
-- Node.js 22, **Python 3.10 or newer** (3.12 recommended; "Set up ML" picks a suitable installed Python by itself and rebuilds an outdated ML environment), and FFmpeg.
+- **Python 3.10 or newer** (3.12 recommended; "Set up ML" picks a suitable installed Python by itself and rebuilds an outdated ML environment), and FFmpeg.
 - Start with `Start Reco Trainer Windows.bat`. If no Python 3.10+ is installed, Reco Trainer's own status line shows a warning once it starts.
 - No CUDA (NVIDIA) GPU is required. Without one, training falls back to CPU, which works but is significantly slower. AMD GPUs are not currently accelerated.
 
 ### Linux
 
-- Node.js 22, **Python 3.10 or newer** (3.12 recommended), FFmpeg, and Zenity or KDialog for native folder selection.
+- **Python 3.10 or newer** (3.12 recommended), FFmpeg, and Zenity or KDialog for native folder selection.
 - Start with `Start Reco Trainer Linux.sh`. If no Python 3.10+ is installed, Reco Trainer's own status line shows a warning once it starts.
 - Same CPU-fallback behavior as Windows without CUDA.
 
 ### Docker
 
 - An explicitly mounted video folder, provided via `RECO_VIDEO_FOLDER`.
-- Both ports are published only on `127.0.0.1` of the host machine.
+- The port is published only on `127.0.0.1` of the host machine; open <http://localhost:8766/>.
 - To import a model package, place the single `.recomodel` file in the mounted video folder or in `.reco-training/inbox/`.
 
 ## Privacy

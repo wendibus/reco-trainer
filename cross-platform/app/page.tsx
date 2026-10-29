@@ -1,5 +1,3 @@
-'use client';
-
 import { useEffect, useRef, useState } from 'react';
 import BenchmarkPanel from './BenchmarkPanel';
 import BallTrackingPlayer from './BallTrackingPlayer';
@@ -38,11 +36,13 @@ type Gesture =
   | { type: 'resize'; pointerId: number; annotation: LocalAnnotation; handle: Handle; current: LocalAnnotation }
   | { type: 'pan'; pointerId: number; startClientX: number; startClientY: number; startPanX: number; startPanY: number };
 
-const DEFAULT_API = 'http://127.0.0.1:8766';
+// In the packaged app the worker serves this interface itself, so the API lives on the page's own origin.
+// Only the Vite dev server (npm run dev) talks to the worker on its default port.
+const DEFAULT_API = import.meta.env.DEV ? 'http://127.0.0.1:8766' : window.location.origin;
 // Single source of truth for this web UI's own version - bump alongside
 // VERSION in cross-platform/scripts/package-platforms.sh at every release.
 // Compared against GitHub's latest release tag to power the update banner.
-const CURRENT_VERSION = '0.19.2';
+const CURRENT_VERSION = '0.20.0';
 const LATEST_RELEASE_API = 'https://api.github.com/repos/wendibus/reco-trainer/releases/latest';
 const LATEST_RELEASE_PAGE = 'https://github.com/wendibus/reco-trainer/releases/latest';
 const DISMISSED_UPDATE_KEY = 'reco-dismissed-update-version-v1';
