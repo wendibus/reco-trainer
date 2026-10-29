@@ -3,5 +3,5 @@
 /// printed public key here. While this is empty the launcher never installs downloaded updates -
 /// it only runs the payload bundled inside the app.
 public enum PayloadKey {
-    public static let publicKeyBase64 = ""
+    public static let publicKeyBase64 = "kKKAM4QEEpZZy2UemZ2jO+NONFe8X4FcJPJ7sLC9ogQ="
 }
