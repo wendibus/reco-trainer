@@ -20,6 +20,10 @@ Videos, frames, labels, checkpoints, and metrics remain entirely on the local co
 
 - **Set field boundaries** no longer asks for the field's width and length. Click at least four points in order along the edge; straight lines join them. If the field is not fully in the image, put points on the image edge where it leaves the frame - any shape is possible. The check always happens in the image; existing outlines with measurements keep working as outlines. An outline whose edges cross cannot be saved.
 
+## A colour per class
+
+- Every class now has its own, clearly different box colour: ball red, player blue, referee brown, goalkeeper green, goal/goalpost purple, hoop orange. Auto-label suggestions are dashed instead of recoloured, and a dot next to the class menu shows the current colour.
+
 ## Models and licenses
 
 - New model registry: only **Apache-2.0** and **MIT** models, each downloaded with a SHA-256 check; licenses are shown in the export dialog and written into every export. RF-DETR XL/2XL (PML), SAM 3 and Ultralytics models are not used.

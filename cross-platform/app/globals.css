@@ -101,11 +101,13 @@ select { height:34px; padding:0 9px; border:1px solid #cbd3df; border-radius:7px
 .local-frame-canvas.mode-select { cursor:default; }
 .local-frame-canvas.mode-pan { cursor:grab; }
 .local-frame-canvas.mode-pan:active { cursor:grabbing; }
-.annotation-box rect { fill:rgba(23,105,255,.10); stroke:#38f28b; stroke-width:2.5; vector-effect:non-scaling-stroke; }
-.annotation-box.automatic rect { stroke:#50a8ff; }
-.annotation-box.selected > rect:first-child { fill:rgba(255,185,45,.13); stroke:#ffbd33; stroke-width:3; }
-.annotation-box text { fill:#fff; stroke:#172033; stroke-width:3; paint-order:stroke; font-size:13px; font-weight:800; pointer-events:none; }
-.annotation-box .resize-handle { fill:#fff; stroke:#ff9f1a; stroke-width:2; vector-effect:non-scaling-stroke; cursor:nwse-resize; }
+.annotation-box { --box-color:#5b6475; }
+.annotation-box > rect:first-child { fill:color-mix(in srgb, var(--box-color) 12%, transparent); stroke:var(--box-color); stroke-width:2.5; vector-effect:non-scaling-stroke; }
+.annotation-box.automatic > rect:first-child { stroke-dasharray:7 4; }
+.annotation-box.selected > rect:first-child { fill:color-mix(in srgb, var(--box-color) 24%, transparent); stroke-width:4; }
+.annotation-box text { fill:#fff; stroke:var(--box-color); stroke-width:4; paint-order:stroke; font-size:13px; font-weight:800; pointer-events:none; }
+.category-swatch { flex:0 0 auto; width:12px; height:12px; border-radius:50%; box-shadow:0 0 0 2px #fff, 0 0 0 3px #c8d1dd; }
+.annotation-box .resize-handle { fill:#fff; stroke:var(--box-color); stroke-width:2; vector-effect:non-scaling-stroke; cursor:nwse-resize; }
 .annotation-box .handle-ne,.annotation-box .handle-sw { cursor:nesw-resize; }
 .draft-box { fill:rgba(255,255,255,.08); stroke:#fff; stroke-width:2; stroke-dasharray:7 5; vector-effect:non-scaling-stroke; }
 .editor-controls { display:flex; align-items:center; gap:12px; padding:6px 9px; border-top:1px solid #cfd7e2; background:#f6f8fb; }

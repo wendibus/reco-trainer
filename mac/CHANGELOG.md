@@ -10,6 +10,7 @@
 - Neu: „Anonymisierte Trainingsbilder“ – ein Anteil der Trainingsbilder wird mit weichgezeichneten Köpfen trainiert.
 - Neu: Modell-Registry mit Lizenzen (nur Apache-2.0 und MIT) und geprüften Downloads (SHA-256).
 - Geändert: „Spielfeld festlegen“ braucht keine Breite und Länge mehr. Mindestens vier Punkte der Reihe nach am Rand, verbunden durch gerade Linien; liegt das Feld nicht ganz im Bild, kommen Punkte auf den Bildrand, so sind beliebige Formen möglich. Geprüft wird immer im Bild. Bestehende Spielfelder mit Maßen gelten als Umriss weiter. Umrisse mit sich kreuzenden Kanten lassen sich nicht speichern.
+- Geändert: Jede Klasse hat eine eigene, deutlich unterscheidbare Boxfarbe (Ball rot, Spieler blau, Schiedsrichter braun, Torwart grün, Tor/Torpfosten lila, Korb orange). Automatische Vorschläge sind gestrichelt statt andersfarbig; neben der Klassenauswahl zeigt ein Punkt die Farbe.
 
 ## 0.20.0
 
