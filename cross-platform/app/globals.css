@@ -276,6 +276,17 @@ select { height:34px; padding:0 9px; border:1px solid #cbd3df; border-radius:7px
 .progress-dialog-bar span { display:block; height:100%; background:var(--accent); transition:width .4s ease; }
 .progress-dialog-facts { display:flex; flex-wrap:wrap; gap:6px 16px; font-size:12px; color:#29384f; font-variant-numeric:tabular-nums; }
 .progress-dialog small { color:#637087; font-size:11px; }
+.progress-dialog-head { display:flex; align-items:center; justify-content:space-between; gap:12px; }
+.progress-dialog-head .tool-button { min-width:34px; font-size:16px; line-height:1; }
+.progress-dialog-stage { margin:0; font-size:12px; font-weight:650; color:var(--accent); }
+.progress-dialog-message { margin:0; font-size:13px; color:#29384f; overflow-wrap:anywhere; }
+.progress-dialog-error { margin:0; max-height:220px; overflow:auto; padding:10px; border-radius:8px; background:#fff3f2; color:#9b1c13; font-size:12px; white-space:pre-wrap; overflow-wrap:anywhere; }
+.progress-dialog-bar.indeterminate span, .job-chip-bar.indeterminate span { width:35%; animation:job-indeterminate 1.4s ease-in-out infinite; }
+@keyframes job-indeterminate { 0% { transform:translateX(-100%); } 100% { transform:translateX(290%); } }
+@media (prefers-reduced-motion: reduce) { .progress-dialog-bar.indeterminate span, .job-chip-bar.indeterminate span { animation:none; width:100%; opacity:.45; } }
+.job-chip { position:fixed; right:16px; bottom:16px; z-index:55; display:grid; gap:6px; min-width:220px; max-width:calc(100vw - 32px); padding:10px 14px; border:1px solid #c8d1dd; border-radius:12px; background:#fff; color:#29384f; font-size:12px; font-weight:650; text-align:left; box-shadow:0 12px 30px rgba(8,20,42,.18); cursor:pointer; }
+.job-chip-bar { display:block; height:6px; border-radius:4px; background:#e6ebf2; overflow:hidden; }
+.job-chip-bar span { display:block; height:100%; background:var(--accent); transition:width .4s ease; }
 .onnx-dialog { width:min(520px,100%); padding:26px; border-radius:16px; background:#fff; box-shadow:0 28px 80px rgba(8,20,42,.34); display:grid; gap:12px; }
 .onnx-dialog h2 { margin:0; font-size:20px; }
 .onnx-dialog > p { margin:0; color:#637087; font-size:13px; }

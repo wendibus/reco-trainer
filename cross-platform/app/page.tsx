@@ -3,6 +3,7 @@ import BenchmarkPanel from './BenchmarkPanel';
 import BallTrackingPlayer from './BallTrackingPlayer';
 import FieldGeometryEditor, { type FieldGeometry } from './FieldGeometryEditor';
 import { extraText } from './extraText';
+import { JobDialog, type Job, type Jobs } from './JobDialog';
 
 type Platform = 'mac' | 'windows' | 'linux';
 type Language = 'de' | 'en' | 'es' | 'fr';
@@ -22,8 +23,9 @@ type WorkerStatus = {
   framesPerVideo?: number;
   platform?: string; projectRoot?: string | null; fieldGeometry?: FieldGeometry | null;
   message: string; busy: boolean; error: string | null; frames: LocalFrame[]; log: string;
-  detail?: { phase: 'probe' | 'extract'; videoIndex: number; videoCount: number; videoName: string; framesDone: number; framesTarget: number; startedAt: number } | null;
+  detail?: Job['detail'];
   cancellable?: boolean;
+  jobs?: Jobs;
   stats?: { frameCount: number; candidateCount?: number; annotatedFrames: number; annotationCount: number; automaticCount: number; classes: string[] };
   hardware?: { machine: string; cpuCores: number; memoryGB: number | null; accelerator: { kind: 'apple-gpu' | 'cuda' | 'cpu-no-cuda' | 'cuda-pending' | 'cpu'; gpuName?: string | null } };
   lastTraining?: TrainingResult | null;
@@ -45,16 +47,6 @@ const DEFAULT_API = import.meta.env.DEV ? 'http://127.0.0.1:8766' : window.locat
 // VERSION in cross-platform/scripts/package-platforms.sh at every release.
 // Compared against GitHub's latest release tag to power the update banner.
 const CURRENT_VERSION = '0.20.0';
-// Worker operations that extract frames; they show the progress dialog and can be cancelled.
-const EXTRACTION_OPERATIONS = new Set(['scanning', 'extracting', 'active-learning-scan', 'active-learning-extract']);
-
-function formatDuration(seconds: number): string {
-  const total = Math.max(0, Math.round(seconds));
-  const hours = Math.floor(total / 3600);
-  const minutes = Math.floor((total % 3600) / 60);
-  const rest = total % 60;
-  return hours ? `${hours}:${String(minutes).padStart(2, '0')}:${String(rest).padStart(2, '0')}` : `${minutes}:${String(rest).padStart(2, '0')}`;
-}
 const LATEST_RELEASE_API = 'https://api.github.com/repos/wendibus/reco-trainer/releases/latest';
 const LATEST_RELEASE_PAGE = 'https://github.com/wendibus/reco-trainer/releases/latest';
 const DISMISSED_UPDATE_KEY = 'reco-dismissed-update-version-v1';
@@ -220,9 +212,7 @@ export default function Home() {
   const selectedAnnotation = selectedFrame?.annotations.find((annotation) => annotation.id === selectedAnnotationID) ?? null;
   const folderName = worker?.folderName ?? '';
   const isWorking = worker?.busy ?? false;
-  const extractionOpen = isWorking && EXTRACTION_OPERATIONS.has(worker?.operation ?? '');
-  const [cancelRequested, setCancelRequested] = useState(false);
-  useEffect(() => { if (!extractionOpen) setCancelRequested(false); }, [extractionOpen]);
+  const refreshStatus = useRef<(() => void) | null>(null);
   const categories = sport === 'basketball' ? ['ball', 'player', 'referee', 'hoop'] : sport === 'hockey' ? ['puck', 'player', 'goalkeeper', 'referee', 'goal'] : sport === 'rugby' || sport === 'american_football' ? ['ball', 'player', 'referee', 'goalpost'] : ['ball', 'player', 'goalkeeper', 'referee', 'goal'];
   const sportDisplayName = (value: Sport) => value === 'basketball' ? 'Basketball' : value === 'football' ? t.football : value === 'futsal' ? 'Futsal' : value === 'handball' ? 'Handball' : value === 'hockey' ? 'Hockey' : value === 'rugby' ? 'Rugby' : value === 'lacrosse' ? 'Lacrosse' : t.americanFootball;
   const sportName = sportDisplayName(sport);
@@ -311,6 +301,7 @@ export default function Home() {
         setSelectedFrameID((current) => current && status.frames.some((frame) => frame.id === current) ? current : status.frames[0]?.id ?? null);
       } catch { if (active) setWorkerOnline(false); }
     };
+    refreshStatus.current = () => { void poll(); };
     void poll();
     const timer = window.setInterval(poll, 900);
     return () => { active = false; window.clearInterval(timer); };
@@ -568,20 +559,7 @@ export default function Home() {
       </section>}
     </div></div></section>
     {languagePromptOpen && <div className="walkthrough-backdrop language-backdrop"><section className="language-dialog" role="dialog" aria-modal="true" aria-labelledby="language-title"><div className="language-globe" aria-hidden="true">文</div><h2 id="language-title">Sprache wählen · Choose your language</h2><p>Elige tu idioma · Choisissez votre langue</p><div className="language-choices">{([['de', 'Deutsch'], ['en', 'English'], ['es', 'Español'], ['fr', 'Français']] as [Language, string][]).map(([code, label]) => <button type="button" key={code} onClick={() => chooseLanguage(code)}><strong>{label}</strong><span>{code.toUpperCase()} <b aria-hidden="true">→</b></span></button>)}</div><small>Videos and images always remain on this computer.</small></section></div>}
-    {extractionOpen && worker && (() => {
-      const detail = worker.detail;
-      const progress = Math.min(Math.max(worker.progress ?? 0, 0), 1);
-      const elapsed = detail ? Date.now() / 1000 - detail.startedAt : 0;
-      const remaining = detail?.phase === 'extract' && progress > 0.03 ? elapsed * (1 - progress) / progress : null;
-      return <div className="walkthrough-backdrop" role="presentation"><section className="progress-dialog" role="dialog" aria-modal="true" aria-labelledby="extract-title">
-        <h2 id="extract-title">{x.extractTitle}</h2>
-        {detail && <p className="progress-dialog-video"><strong>{detail.phase === 'probe' ? x.extractProbe(detail.videoIndex, detail.videoCount) : x.extractVideo(detail.videoIndex, detail.videoCount)}</strong><span>{detail.videoName}</span></p>}
-        <div className="progress-dialog-bar" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(progress * 100)}><span style={{ width: `${Math.max(progress, 0.02) * 100}%` }} /></div>
-        <div className="progress-dialog-facts"><span>{Math.round(progress * 100)} %</span>{detail && detail.phase === 'extract' && <span>{x.extractFrames(detail.framesDone, detail.framesTarget)}</span>}{detail && <span>{x.extractElapsed(formatDuration(elapsed))}{remaining !== null ? ` · ${x.extractRemaining(formatDuration(remaining))}` : ''}</span>}</div>
-        <small>{x.extractHint}</small>
-        <div className="onnx-actions"><button type="button" className="secondary-button" disabled={cancelRequested || !worker.cancellable} onClick={() => { setCancelRequested(true); void post('/api/cancel').catch((error) => { setCancelRequested(false); setWorker((current) => current ? { ...current, error: String(error) } : current); }); }}>{cancelRequested ? x.extractCancelling : x.extractCancel}</button></div>
-      </section></div>;
-    })()}
+    <JobDialog api={api} language={language} fallback={worker?.jobs} cancel={(jobId) => post(`/api/jobs/${jobId}/cancel`)} onJobEnded={() => refreshStatus.current?.()} />
     {onnxForm && <div className="walkthrough-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setOnnxForm(null); }}><form className="onnx-dialog" role="dialog" aria-modal="true" aria-labelledby="onnx-title" onSubmit={(event) => { event.preventDefault(); const form = onnxForm; setOnnxForm(null); void runML('/api/import-onnx', form); }}><h2 id="onnx-title">{x.importOnnx}</h2><p>{x.importOnnxHelp}</p><label>{x.onnxName}<input value={onnxForm.name} onChange={(event) => setOnnxForm({ ...onnxForm, name: event.target.value })} /></label><label>{x.onnxClasses}<input required placeholder="player, ball, referee" value={onnxForm.classNames} onChange={(event) => setOnnxForm({ ...onnxForm, classNames: event.target.value })} /><small>{x.onnxClassesHint(categories.join(', '))}</small></label><label>{x.onnxInputSize}<input type="number" min={64} max={4096} step={32} value={onnxForm.inputSize} onChange={(event) => setOnnxForm({ ...onnxForm, inputSize: Number(event.target.value) })} /><small>{x.onnxInputSizeHint}</small></label><label>{x.onnxLicense}<input placeholder="AGPL-3.0" value={onnxForm.license} onChange={(event) => setOnnxForm({ ...onnxForm, license: event.target.value })} /></label><div className="onnx-actions"><button type="button" className="secondary-button" onClick={() => setOnnxForm(null)}>{x.cancel}</button><button type="submit" className="primary-button" disabled={!onnxForm.classNames.trim()}>{x.onnxChooseFile}</button></div></form></div>}
     {fieldEditorOpen && (selectedFrame ?? frames[0]) && <FieldGeometryEditor language={language} api={api} frame={(selectedFrame ?? frames[0])!} existing={worker?.fieldGeometry} onSave={saveFieldGeometry} onCancel={() => setFieldEditorOpen(false)} />}
     {onboardingChoiceOpen && !languagePromptOpen && <div className="walkthrough-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) finishOnboarding(); }}><section className="onboarding-choice-dialog" role="dialog" aria-modal="true" aria-labelledby="onboarding-choice-title"><button type="button" className="walkthrough-close" aria-label={t.close} onClick={finishOnboarding}>×</button><h2 id="onboarding-choice-title">{t.onboardingChoiceTitle}</h2><p>{t.onboardingChoiceSubtitle}</p><div className="onboarding-choice-options"><button type="button" onClick={() => { setOnboardingChoiceOpen(false); setVideoWalkthroughOpen(true); }}><strong>▶ {t.onboardingWatchVideo}</strong><span>{t.onboardingWatchVideoHint}</span></button><button type="button" onClick={() => { setOnboardingChoiceOpen(false); setWalkthroughStep(0); setWalkthroughOpen(true); }}><strong>☰ {t.onboardingSteps}</strong><span>{t.onboardingStepsHint}</span></button></div><small>Videos and images always remain on this computer.</small></section></div>}
