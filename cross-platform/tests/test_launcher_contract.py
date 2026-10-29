@@ -13,7 +13,7 @@ from pathlib import Path
 ROOT = Path(__file__).parents[1]
 
 # Must stay identical to WorkerController.launchSnippet in the Swift launcher.
-LAUNCH_SNIPPET = "import os, sys; os.setsid(); os.execv(sys.executable, [sys.executable] + sys.argv[1:])"
+LAUNCH_SNIPPET = "import os, sys; os.getpgrp() == os.getpid() or os.setsid(); os.execv(sys.executable, [sys.executable] + sys.argv[1:])"
 
 
 class LauncherContractTests(unittest.TestCase):
@@ -35,6 +35,15 @@ class LauncherContractTests(unittest.TestCase):
         data = json.loads(result.stdout)
         self.assertTrue(data["leader"])
         self.assertEqual(data["argv"], ["--port", "8766"])
+
+    def test_launch_snippet_runs_when_already_a_process_group_leader(self):
+        # Foundation's Process starts the child as a group leader; os.setsid() would raise EPERM there.
+        result = subprocess.run(
+            [sys.executable, "-c", LAUNCH_SNIPPET, "-c", "import os; print(os.getpgrp() == os.getpid())"],
+            capture_output=True, text=True, timeout=20, process_group=0,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.strip(), "True")
 
     def test_bundled_frame_extractor_override(self):
         spec_path = ROOT / "local_worker.py"
