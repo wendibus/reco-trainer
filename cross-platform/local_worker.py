@@ -37,6 +37,7 @@ BASE_DIR = Path(__file__).resolve().parent
 # 8765 stays allowed for the Vite dev server (npm run dev).
 ALLOWED_ORIGINS = {"http://localhost:8765", "http://127.0.0.1:8765"}
 UI_DIR = Path(os.environ.get("RECO_UI_DIR") or (BASE_DIR / "ui")).resolve()
+MODEL_REGISTRY = Path(os.environ.get("RECO_MODEL_REGISTRY") or (BASE_DIR / "model_registry.json"))
 STATIC_TYPES = {
     ".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".mjs": "text/javascript; charset=utf-8",
     ".css": "text/css; charset=utf-8", ".json": "application/json; charset=utf-8", ".svg": "image/svg+xml",
@@ -203,6 +204,21 @@ def non_apple_accelerator() -> dict:
     return info
 
 
+def model_registry_snapshot(root: Path | None) -> list[dict]:
+    """Registry models with their license (shown in the UI) and whether they are downloaded."""
+    try:
+        models = json.loads(MODEL_REGISTRY.read_text(encoding="utf-8"))["models"]
+    except (OSError, ValueError, KeyError):
+        return []
+    result = []
+    for entry in models:
+        installed = None
+        if entry.get("file") and root is not None:
+            installed = (root / ".runtime" / "models" / Path(entry["file"]).name).is_file()
+        result.append({key: entry.get(key) for key in ("id", "name", "purpose", "license", "licenseUrl", "source", "bytes", "managedBy")} | {"installed": installed})
+    return result
+
+
 def safe_name(value: str) -> str:
     return "".join(character if character.isalnum() or character in " ._-" else "_" for character in value).strip() or "video"
 
@@ -284,6 +300,7 @@ class LocalState:
                 "lastTraining": (self.project or {}).get("lastTraining"),
                 "trainingHistory": (self.project or {}).get("trainingHistory", []),
                 "modelLibrary": model_library_snapshot(self.project_root),
+                "modelRegistry": model_registry_snapshot(self.project_root),
                 "benchmark": benchmark_snapshot(self.project_root),
                 "frames": frames,
                 "log": "\n".join(self.log[-80:]),
@@ -1703,6 +1720,13 @@ def ml_action(action: str, payload: dict) -> None:
                     "--name", str(payload.get("name", "")), "--class-names", str(payload.get("classNames", "")),
                     "--input-size", str(input_size), "--license", str(payload.get("license", "")), "--language", language,
                 ]
+            elif action == "download-models":
+                ids = [str(item) for item in payload.get("ids") or [] if re.fullmatch(r"[a-z0-9-]{1,60}", str(item))]
+                if not ids:
+                    raise RuntimeError(localized("Keine Modelle ausgewählt.", "No models selected.", "No se seleccionó ningún modelo.", "Aucun modèle sélectionné."))
+                # Downloads need only the standard library.
+                executable = system_python()
+                args = ["download-models", "--project", str(root), "--ids", ",".join(ids), "--language", language]
             elif action == "import-labels":
                 source = Path(str(payload.get("source", ""))).resolve()
                 if not source.is_dir():
@@ -2244,7 +2268,7 @@ class Handler(BaseHTTPRequestHandler):
                 label_folder = choose_video_folder(labels=True)
                 job = JOBS.submit("import-labels", ml_action, "import-labels", {**payload, "source": str(label_folder)})
                 self.json_response({"ok": True, "folder": str(label_folder), "job": job})
-            elif self.path in {"/api/setup", "/api/autolabel", "/api/train", "/api/export-coreml", "/api/export-onnx", "/api/refine-boxes", "/api/package-model", "/api/combine-models", "/api/benchmark", "/api/activate-model", "/api/rename-model", "/api/delete-model"}:
+            elif self.path in {"/api/setup", "/api/autolabel", "/api/train", "/api/export-coreml", "/api/export-onnx", "/api/refine-boxes", "/api/package-model", "/api/combine-models", "/api/benchmark", "/api/activate-model", "/api/rename-model", "/api/delete-model", "/api/download-models"}:
                 action = self.path.removeprefix("/api/")
                 job = JOBS.submit(action, ml_action, action, payload, cancellable=action not in QUICK_ACTIONS)
                 self.json_response({"ok": True, "job": job})

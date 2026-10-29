@@ -16,7 +16,7 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /opt/reco-trainer
-COPY local_worker.py ml_worker.py ./
+COPY local_worker.py ml_worker.py model_registry.json ./
 COPY docker ./docker
 COPY --from=ui /build/ui ./ui
 

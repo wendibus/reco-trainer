@@ -30,7 +30,8 @@ rm -rf "$PAYLOAD_DIR" "$ZIP_PATH" "$ZIP_PATH.sig"
 mkdir -p "$PAYLOAD_DIR"
 
 cp -R "$UI_SOURCE" "$PAYLOAD_DIR/ui"
-cp "$PROJECT_DIR/local_worker.py" "$PROJECT_DIR/ml_worker.py" "$PROJECT_DIR/frame_extractor.swift" "$PAYLOAD_DIR/"
+# Python modules and data next to the workers; keep in sync with the Dockerfile COPY line.
+cp "$PROJECT_DIR/local_worker.py" "$PROJECT_DIR/ml_worker.py" "$PROJECT_DIR/model_registry.json" "$PROJECT_DIR/frame_extractor.swift" "$PAYLOAD_DIR/"
 printf '{\n  "version": "%s",\n  "minLauncher": "%s"\n}\n' "$VERSION" "$MIN_LAUNCHER" > "$PAYLOAD_DIR/payload.json"
 find "$PAYLOAD_DIR" -name '.DS_Store' -delete
 

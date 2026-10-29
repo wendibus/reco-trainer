@@ -1,0 +1,66 @@
+{
+  "schemaVersion": 1,
+  "allowedLicenses": ["Apache-2.0", "MIT"],
+  "models": [
+    {
+      "id": "yunet-face",
+      "name": "YuNet face detector (2023mar)",
+      "purpose": "anonymize-faces",
+      "license": "MIT",
+      "licenseUrl": "https://github.com/opencv/opencv_zoo/blob/main/models/face_detection_yunet/LICENSE",
+      "source": "https://github.com/opencv/opencv_zoo/tree/main/models/face_detection_yunet",
+      "url": "https://github.com/opencv/opencv_zoo/raw/main/models/face_detection_yunet/face_detection_yunet_2023mar.onnx",
+      "file": "face_detection_yunet_2023mar.onnx",
+      "sha256": "8f2383e4dd3cfbb4553ea8718107fc0423210dc964f9f4280604804ed2552fa4",
+      "bytes": 232589
+    },
+    {
+      "id": "ppocr-text-detector",
+      "name": "PP-OCRv3 text detector (English, 2023may)",
+      "purpose": "anonymize-text",
+      "license": "Apache-2.0",
+      "licenseUrl": "https://github.com/opencv/opencv_zoo/blob/main/models/text_detection_ppocr/LICENSE",
+      "source": "https://github.com/opencv/opencv_zoo/tree/main/models/text_detection_ppocr",
+      "url": "https://github.com/opencv/opencv_zoo/raw/main/models/text_detection_ppocr/text_detection_en_ppocrv3_2023may.onnx",
+      "file": "text_detection_en_ppocrv3_2023may.onnx",
+      "sha256": "03f550c6b406fda8bf54bd8327815f6c7e2edd98cea02348c93d879254366587",
+      "bytes": 2423490
+    },
+    {
+      "id": "rf-detr-nano",
+      "name": "RF-DETR Nano (COCO)",
+      "purpose": "detector",
+      "license": "Apache-2.0",
+      "licenseUrl": "https://github.com/roboflow/rf-detr/blob/main/LICENSE",
+      "source": "https://github.com/roboflow/rf-detr",
+      "managedBy": "rfdetr"
+    },
+    {
+      "id": "rf-detr-small",
+      "name": "RF-DETR Small (COCO)",
+      "purpose": "detector",
+      "license": "Apache-2.0",
+      "licenseUrl": "https://github.com/roboflow/rf-detr/blob/main/LICENSE",
+      "source": "https://github.com/roboflow/rf-detr",
+      "managedBy": "rfdetr"
+    },
+    {
+      "id": "rf-detr-medium",
+      "name": "RF-DETR Medium (COCO)",
+      "purpose": "detector",
+      "license": "Apache-2.0",
+      "licenseUrl": "https://github.com/roboflow/rf-detr/blob/main/LICENSE",
+      "source": "https://github.com/roboflow/rf-detr",
+      "managedBy": "rfdetr"
+    },
+    {
+      "id": "rf-detr-large",
+      "name": "RF-DETR Large (COCO)",
+      "purpose": "detector",
+      "license": "Apache-2.0",
+      "licenseUrl": "https://github.com/roboflow/rf-detr/blob/main/LICENSE",
+      "source": "https://github.com/roboflow/rf-detr",
+      "managedBy": "rfdetr"
+    }
+  ]
+}

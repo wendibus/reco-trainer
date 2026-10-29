@@ -25,6 +25,7 @@ import struct
 import sys
 import tempfile
 import time
+import urllib.request
 import uuid
 import zipfile
 from collections import defaultdict
@@ -2936,6 +2937,78 @@ def sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
+# --- Model registry: every model Reco Trainer downloads, with source, license and checksum ---
+
+REGISTRY_PATH = Path(os.environ.get("RECO_MODEL_REGISTRY") or Path(__file__).resolve().with_name("model_registry.json"))
+
+
+def load_registry() -> dict[str, Any]:
+    return json.loads(REGISTRY_PATH.read_text(encoding="utf-8"))
+
+
+def registry_model(model_id: str, language: str = "de") -> dict[str, Any]:
+    for entry in load_registry()["models"]:
+        if entry["id"] == model_id:
+            return entry
+    raise SystemExit(localized(language, f"Unbekanntes Modell: {model_id}", f"Unknown model: {model_id}"))
+
+
+def registry_model_path(project_root: Path, model_id: str, language: str = "de") -> Path:
+    entry = registry_model(model_id, language)
+    if not entry.get("file"):
+        raise SystemExit(localized(language, f"{model_id} wird nicht einzeln heruntergeladen.", f"{model_id} is not downloaded on its own."))
+    return project_root / ".runtime" / "models" / Path(entry["file"]).name
+
+
+def download_registry_model(project_root: Path, model_id: str, language: str = "de") -> Path:
+    """Download one registry model into .runtime/models/ and check its SHA-256.
+
+    The file is written as <name>.part and only renamed once the checksum matches, so a
+    cancel (SIGTERM -> SystemExit) or a broken download never leaves a usable-looking file.
+    """
+    entry = registry_model(model_id, language)
+    target = registry_model_path(project_root, model_id, language)
+    if target.is_file() and sha256_file(target) == entry["sha256"]:
+        return target
+    if not str(entry.get("url", "")).startswith("https://"):
+        raise SystemExit(localized(language, f"Für {model_id} ist keine sichere Download-Adresse hinterlegt.", f"No secure download address is registered for {model_id}."))
+    target.parent.mkdir(parents=True, exist_ok=True)
+    partial = target.with_name(target.name + ".part")
+    digest = hashlib.sha256()
+    try:
+        request = urllib.request.Request(entry["url"], headers={"User-Agent": "RecoTrainer"})
+        with urllib.request.urlopen(request, timeout=60) as response, partial.open("wb") as sink:
+            total = int(response.headers.get("Content-Length") or entry.get("bytes") or 0)
+            done = 0
+            while chunk := response.read(256 * 1024):
+                sink.write(chunk)
+                digest.update(chunk)
+                done += len(chunk)
+                if total:
+                    print(f"RECO_PROGRESS {min(done, total)} {total}", file=sys.stderr, flush=True)
+        if digest.hexdigest() != entry["sha256"]:
+            raise SystemExit(localized(
+                language,
+                f"Die Prüfsumme von {entry['name']} stimmt nicht. Die Datei wurde verworfen.",
+                f"The checksum of {entry['name']} does not match. The file was discarded.",
+            ))
+        partial.replace(target)
+        return target
+    finally:
+        partial.unlink(missing_ok=True)
+
+
+def download_models(args: argparse.Namespace) -> None:
+    ids = [item for item in str(args.ids).split(",") if item]
+    paths = {}
+    for index, model_id in enumerate(ids, start=1):
+        entry = registry_model(model_id, args.language)
+        stage(index, len(ids), f"{entry['name']} ({entry['license']})")
+        paths[model_id] = str(download_registry_model(Path(args.project).resolve(), model_id, args.language))
+        emit(localized(args.language, f"{entry['name']} geladen und geprüft.", f"{entry['name']} downloaded and verified."))
+    print(json.dumps({"downloaded": paths}, ensure_ascii=False))
+
+
 def verify_weights_pickle_safety(weights_path: Path, language: str, label: str) -> None:
     """Reject a weights file whose pickle stream references anything beyond
     plain tensors and basic containers - the actual protection against a
@@ -3892,6 +3965,12 @@ def build_parser() -> argparse.ArgumentParser:
     benchmark_parser.add_argument("--threshold", type=float, default=0.05)
     benchmark_parser.add_argument("--language", choices=["de", "en", "es", "fr"], default="de")
     benchmark_parser.set_defaults(func=benchmark)
+
+    download_parser = commands.add_parser("download-models")
+    download_parser.add_argument("--project", required=True)
+    download_parser.add_argument("--ids", required=True, help="comma-separated ids from model_registry.json")
+    download_parser.add_argument("--language", choices=["de", "en", "es", "fr"], default="de")
+    download_parser.set_defaults(func=download_models)
 
     import_labels_parser = commands.add_parser("import-labels")
     import_labels_parser.add_argument("--project", required=True)
