@@ -61,6 +61,12 @@ class RegistryContentTests(unittest.TestCase):
         for entry in REGISTRY["models"]:
             if entry.get("managedBy"):
                 continue
+            if entry.get("huggingFace"):
+                # Pinned to one commit, so the files cannot change under us.
+                self.assertRegex(entry["huggingFace"]["revision"], r"^[0-9a-f]{40}$", entry["id"])
+                self.assertRegex(entry["huggingFace"]["repo"], r"^[\w.-]+/[\w.-]+$")
+                self.assertGreater(entry["bytes"], 0)
+                continue
             self.assertTrue(entry["url"].startswith("https://"), entry["id"])
             self.assertRegex(entry["sha256"], r"^[0-9a-f]{64}$")
             self.assertGreater(entry["bytes"], 0)
@@ -117,10 +123,14 @@ class RegistrySnapshotTests(unittest.TestCase):
             root = Path(temporary)
             (root / ".runtime" / "models").mkdir(parents=True)
             (root / ".runtime" / "models" / "face_detection_yunet_2023mar.onnx").write_bytes(b"x")
+            (root / ".runtime" / "models" / "hf" / "florence-2-base").mkdir(parents=True)
+            (root / ".runtime" / "models" / "hf" / "florence-2-base" / ".reco-complete").write_text("rev")
             entries = {entry["id"]: entry for entry in local_worker.model_registry_snapshot(root)}
         self.assertTrue(entries["yunet-face"]["installed"])
         self.assertFalse(entries["ppocr-text-detector"]["installed"])
         self.assertIsNone(entries["rf-detr-large"]["installed"])  # managed by the rfdetr package itself
+        self.assertIs(entries["sam2.1-hiera-small"]["installed"], False)
+        self.assertIs(entries["florence-2-base"]["installed"], True)
         self.assertEqual(entries["yunet-face"]["license"], "MIT")
         for entry in entries.values():
             self.assertTrue(re.fullmatch(r"Apache-2\.0|MIT", entry["license"]))

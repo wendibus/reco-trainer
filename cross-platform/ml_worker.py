@@ -96,7 +96,7 @@ def import_model_class(size: str, language: str = "de"):
             "RF-DETR is not installed. Select “Set up ML” in the app first.",
         )) from error
     try:
-        return getattr(rfdetr, MODEL_CLASSES[size])
+        return getattr(rfdetr, {**MODEL_CLASSES, **BASE_DETECTOR_CLASSES}[size])
     except AttributeError as error:
         raise SystemExit(localized(
             language,
@@ -538,6 +538,39 @@ def active_library_manifest(project_root: Path) -> tuple[Path, dict[str, Any]] |
         return None
 
 
+BASE_DETECTOR_CLASSES = {"nano": "RFDETRNano", "small": "RFDETRSmall", "medium": "RFDETRMedium", "large": "RFDETRLarge"}
+
+
+def hardware_tier(override: str | None = None) -> str:
+    """strong / medium / weak (see teachers.choose_tier); an explicit choice from the app wins."""
+    import teachers
+    if override in teachers.TIERS:
+        return str(override)
+    device = detect_device()
+    vram_gb = None
+    if device == "cuda":
+        try:
+            import torch
+            vram_gb = torch.cuda.get_device_properties(0).total_memory / 1024**3
+        except Exception:
+            vram_gb = None
+    return teachers.choose_tier(device, vram_gb, total_memory_bytes() / 1024**3)
+
+
+def base_detector(size: str, language: str = "de"):
+    """Apache-2.0 RF-DETR COCO model of any size N/S/M/L (XL/2XL are PML and not used)."""
+    model_class = import_model_class(size, language)
+    emit(localized(language, f"Lade Apache-2.0-Basismodell RF-DETR {size} (Teacher) …", f"Loading Apache-2.0 RF-DETR {size} base model (teacher) …"))
+    return model_class(device=detect_device())
+
+
+def teacher_size(choice: str | None, tier: str) -> str:
+    import teachers
+    if choice in BASE_DETECTOR_CLASSES:
+        return str(choice)
+    return teachers.TEACHER_SIZES[teachers.tier_plan(tier)["teacher"]]
+
+
 def model_instance(project_root: Path, size: str, trained: bool, language: str = "de"):
     if trained:
         found = active_library_manifest(project_root)
@@ -548,6 +581,8 @@ def model_instance(project_root: Path, size: str, trained: bool, language: str =
                 f"Loading imported ONNX model: {found[1].get('displayName') or found[1].get('packageID')}",
             ))
             return load_onnx_package_model(found[0], found[1], language)
+    if not trained:
+        return base_detector(size, language)
     model_class = import_model_class(size, language)
     checkpoint = newest_checkpoint(project_root, size) if trained else None
     kwargs: dict[str, Any] = {"device": detect_device()}
@@ -1307,6 +1342,25 @@ def opencv_refined_box(image: Any, annotation: dict[str, Any], cv2: Any, np: Any
     return best
 
 
+def sam2_refiner(project_root: Path, method: str, tier: str | None, language: str):
+    """SAM 2 when the method and the hardware tier allow it, else None (OpenCV is used).
+    method "sam2" insists on it (falls back to the small model on a weak tier)."""
+    import teachers
+    if method == "opencv":
+        return None, None
+    model_id = teachers.tier_plan(tier or hardware_tier())["refiner"] or ("sam2.1-hiera-small" if method == "sam2" else None)
+    if model_id is None:
+        return None, None
+    try:
+        model_dir = download_registry_model(project_root, model_id, language)
+        return teachers.Sam2Refiner(model_dir, detect_device()), model_id
+    except Exception as error:
+        if method == "sam2":
+            raise
+        emit(localized(language, f"SAM 2 nicht verfügbar ({error}); verfeinere mit OpenCV.", f"SAM 2 not available ({error}); refining with OpenCV."))
+        return None, None
+
+
 def refinable_annotations(frame: dict[str, Any]) -> list[dict[str, Any]]:
     """Boxes eligible for a one-time OpenCV tightening pass.
 
@@ -1322,7 +1376,7 @@ def refinable_annotations(frame: dict[str, Any]) -> list[dict[str, Any]]:
     return [
         item for item in frame.get("annotations", [])
         if item.get("category") in CATEGORY_ASPECT_BOUNDS
-        and not item.get("opencvRefinement")
+        and not item.get("opencvRefinement") and not item.get("refinement")
     ]
 
 
@@ -1341,14 +1395,29 @@ def refine_boxes(args: argparse.Namespace) -> None:
         )) from error
     project_root = Path(args.project).resolve()
     document = require_project(project_root, args.language)
+    refiner, refiner_id = sam2_refiner(project_root, getattr(args, "method", "auto"), getattr(args, "tier", None), args.language)
     checked = refined = unchanged = unreadable = 0
-    for frame in document.get("frames", []):
+    work = [frame for frame in document.get("frames", []) if refinable_annotations(frame)]
+    for done, frame in enumerate(work, start=1):
+        print(f"RECO_PROGRESS {done} {len(work)}", file=sys.stderr, flush=True)
         eligible = refinable_annotations(frame)
-        if not eligible:
-            continue
         image = cv2.imread(str(project_root / frame["relativePath"]), cv2.IMREAD_COLOR)
         if image is None:
             unreadable += 1
+            continue
+        if refiner is not None:
+            from PIL import Image
+            proposals = refiner.refine(Image.fromarray(image[:, :, ::-1]), [(float(a["x"]), float(a["y"]), float(a["width"]), float(a["height"])) for a in eligible])
+            for annotation, candidate in zip(eligible, proposals):
+                checked += 1
+                original = {key: float(annotation.get(key, 0)) for key in ("x", "y", "width", "height")}
+                box = (original["x"], original["y"], original["width"], original["height"])
+                if candidate is None or not plausible_refined_box(box, candidate, str(annotation.get("category", "ball"))):
+                    unchanged += 1
+                    continue
+                annotation.update({"x": candidate[0], "y": candidate[1], "width": candidate[2], "height": candidate[3]})
+                annotation["refinement"] = {"method": refiner_id, "original": original}
+                refined += 1
             continue
         for annotation in eligible:
             checked += 1
@@ -1363,6 +1432,15 @@ def refine_boxes(args: argparse.Namespace) -> None:
             refined += 1
     document["updatedAt"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     atomic_json(project_file(project_root), document)
+    if refiner is not None:
+        emit(localized(
+            args.language,
+            f"SAM-2-Verfeinerung abgeschlossen: {refined} von {checked} Boxen plausibel angepasst, {unchanged} sicherheitshalber unverändert, {unreadable} Bilder nicht lesbar. Die ursprünglichen Koordinaten bleiben gespeichert.",
+            f"SAM 2 refinement finished: plausibly adjusted {refined} of {checked} boxes, kept {unchanged} unchanged for safety, {unreadable} images unreadable. The original coordinates remain stored.",
+            f"Refinado con SAM 2 terminado: {refined} de {checked} cuadros ajustados; {unchanged} sin cambios por seguridad y {unreadable} imágenes ilegibles. Las coordenadas originales se conservan.",
+            f"Affinage SAM 2 terminé : {refined} boîtes ajustées sur {checked} ; {unchanged} conservées par sécurité et {unreadable} images illisibles. Les coordonnées d’origine restent enregistrées.",
+        ))
+        return
     emit(localized(
         args.language,
         f"OpenCV-Prüfung abgeschlossen: {refined} von {checked} Boxen (automatisch und manuell) plausibel verfeinert; {unchanged} sicherheitshalber unverändert, {unreadable} Bilder nicht lesbar. Die ursprünglichen Koordinaten jeder verfeinerten Box bleiben gespeichert.",
@@ -1452,6 +1530,41 @@ def compute_disagreement(
     return (unmatched_primary + unmatched_secondary) / total
 
 
+def flag_disagreement_with_florence(
+    project_root: Path,
+    frames: list[dict[str, Any]],
+    target_categories: list[str],
+    category_map: dict[str, str],
+    threshold: float,
+    language: str,
+    tier: str | None,
+) -> None:
+    """No second trained model installed: Florence-2 (MIT) is the second opinion for people and
+    the ball. Like the model comparison, it only flags frames, it never writes boxes."""
+    import teachers
+    compared = [category for category in target_categories if category in {"player", "ball", "puck"}]
+    if not compared:
+        return
+    model_id = teachers.tier_plan(tier or hardware_tier())["second"]
+    try:
+        model_dir = download_registry_model(project_root, model_id, language)
+        detector = teachers.Florence2Detector(model_dir, detect_device())
+        secondary_boxes = predict_boxes(detector, project_root, frames, compared, category_map, threshold, 1)
+    except Exception as error:  # the comparison is optional; auto-label itself already succeeded
+        emit(localized(language, f"Zweite Meinung (Florence-2) übersprungen: {error}", f"Second opinion (Florence-2) skipped: {error}"))
+        return
+    flagged = 0
+    for frame in frames:
+        primary = [box for box in frame.get("annotations", []) if box.get("category") in compared and box.get("source") == "auto"]
+        secondary = secondary_boxes.get(frame["id"], [])
+        if (primary or secondary) and compute_disagreement(primary, secondary) >= 0.3:
+            flags = frame.setdefault("reviewFlags", [])
+            if "ensemble-disagreement" not in flags:
+                flags.append("ensemble-disagreement")
+                flagged += 1
+    emit(localized(language, f"Zweite Meinung (Florence-2): {flagged} Bilder mit Abweichungen zur Prüfung markiert.", f"Second opinion (Florence-2): {flagged} frames with differences flagged for review."))
+
+
 def flag_ensemble_disagreement(
     project_root: Path,
     frames: list[dict[str, Any]],
@@ -1462,6 +1575,7 @@ def flag_ensemble_disagreement(
     batch_size: int,
     sport: str,
     language: str,
+    tier: str | None = None,
 ) -> None:
     """Run a second, comparison-only model over the same frames/categories the
     primary pass just auto-labeled, and flag frames where the two disagree
@@ -1504,6 +1618,7 @@ def flag_ensemble_disagreement(
             continue
         candidates.append((manifest_path.parent, manifest))
     if not candidates:
+        flag_disagreement_with_florence(project_root, frames, target_categories, category_map, threshold, language, tier)
         return
     candidates.sort(key=lambda item: ranked_ids.index(str(item[1].get("packageID"))) if str(item[1].get("packageID")) in ranked_ids else math.inf)
     package_dir, manifest = candidates[0]
@@ -1851,6 +1966,8 @@ def auto_label(args: argparse.Namespace) -> None:
     profile = training_profile(args.model, device)
     batch_size = profile["batch_size"] if device != "cpu" else 1
     category_list = ", ".join(target_categories)
+    tier = hardware_tier(getattr(args, "tier", None))
+    base_size = teacher_size(getattr(args, "teacher", None), tier)
     emit(localized(
         args.language,
         f"Vorbeschriftung für „{category_list}“ nutzt {device.upper()} mit Batch {batch_size}.",
@@ -1883,7 +2000,12 @@ def auto_label(args: argparse.Namespace) -> None:
                 boxes_added += pass_boxes
                 del member_model
         else:
-            model = model_instance(project_root, args.model, trained=True, language=args.language)
+            # Without a trained model (or an imported ONNX one) the teacher - the largest base
+            # model the hardware tier allows - suggests people and the ball.
+            if has_checkpoint or active_library_manifest(project_root) is not None:
+                model = model_instance(project_root, args.model, trained=True, language=args.language)
+            else:
+                model = model_instance(project_root, base_size, trained=False, language=args.language)
             pass_processed, pass_with_detections, pass_boxes = run_autolabel_pass(
                 model, frames, custom_categories, category_map, args.threshold, batch_size,
                 project_root, document, args.language, is_on_field, referee_clothing_match,
@@ -1894,7 +2016,7 @@ def auto_label(args: argparse.Namespace) -> None:
             del model
 
     if base_fallback_categories:
-        base_model = model_instance(project_root, args.model, trained=False, language=args.language)
+        base_model = model_instance(project_root, base_size, trained=False, language=args.language)
         pass_processed, pass_with_detections, pass_boxes = run_autolabel_pass(
             base_model, frames, base_fallback_categories, category_map, args.threshold, batch_size,
             project_root, document, args.language, is_on_field, referee_clothing_match,
@@ -1908,8 +2030,13 @@ def auto_label(args: argparse.Namespace) -> None:
         flag_ensemble_disagreement(
             project_root, frames, custom_categories, category_map,
             active_model_manifest(project_root, args.model), args.threshold, batch_size,
-            sport, args.language,
+            sport, args.language, tier=tier,
         )
+    if any(category in ("ball", "puck") for category in target_categories):
+        import teachers
+        interpolated = teachers.interpolate_ball(document.get("frames", []))
+        if interpolated:
+            emit(localized(args.language, f"{interpolated} Ball-Positionen zwischen nahen Bildern interpoliert (zur Prüfung markiert).", f"{interpolated} ball positions interpolated between nearby frames (marked for review)."))
     flag_temporal_outliers(document.get("frames", []))
 
     document["updatedAt"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -1934,7 +2061,7 @@ def auto_label(args: argparse.Namespace) -> None:
         ))
     elif any(category in CATEGORY_ASPECT_BOUNDS for category in target_categories):
         try:
-            refine_boxes(argparse.Namespace(project=str(project_root), language=args.language))
+            refine_boxes(argparse.Namespace(project=str(project_root), language=args.language, method=getattr(args, "refine_method", "auto"), tier=tier))
         except SystemExit as error:
             emit(localized(
                 args.language,
@@ -3245,6 +3372,8 @@ def registry_model(model_id: str, language: str = "de") -> dict[str, Any]:
 
 def registry_model_path(project_root: Path, model_id: str, language: str = "de") -> Path:
     entry = registry_model(model_id, language)
+    if entry.get("huggingFace"):
+        return project_root / ".runtime" / "models" / "hf" / model_id
     if not entry.get("file"):
         raise SystemExit(localized(language, f"{model_id} wird nicht einzeln heruntergeladen.", f"{model_id} is not downloaded on its own."))
     return project_root / ".runtime" / "models" / Path(entry["file"]).name
@@ -3258,6 +3387,8 @@ def download_registry_model(project_root: Path, model_id: str, language: str = "
     """
     entry = registry_model(model_id, language)
     target = registry_model_path(project_root, model_id, language)
+    if entry.get("huggingFace"):
+        return download_hugging_face_model(entry, target, language)
     if target.is_file() and sha256_file(target) == entry["sha256"]:
         return target
     if not str(entry.get("url", "")).startswith("https://"):
@@ -3286,6 +3417,46 @@ def download_registry_model(project_root: Path, model_id: str, language: str = "
         return target
     finally:
         partial.unlink(missing_ok=True)
+
+
+def download_hugging_face_model(entry: dict[str, Any], target: Path, language: str) -> Path:
+    """Download a Hugging Face model pinned to one commit (the registry's revision) into
+    .runtime/models/hf/<id>/. huggingface_hub checks every file it fetches; the folder is
+    built as <id>.partial and only renamed once complete, so a cancel leaves nothing usable-looking."""
+    spec = entry["huggingFace"]
+    marker = target / ".reco-complete"
+    if marker.is_file() and marker.read_text(encoding="utf-8").strip() == spec["revision"]:
+        return target
+    try:
+        from huggingface_hub import snapshot_download
+    except ImportError as error:
+        raise SystemExit(localized(language, "Für dieses Modell zuerst „ML einrichten“ ausführen.", "Run “Set up ML” first for this model.")) from error
+    import threading
+    partial = target.with_name(target.name + ".partial")
+    finished = threading.Event()
+    expected = int(entry.get("bytes") or 0)
+
+    def report_progress() -> None:
+        while not finished.wait(1.0):
+            if expected and partial.is_dir():
+                done = sum(path.stat().st_size for path in partial.rglob("*") if path.is_file())
+                print(f"RECO_PROGRESS {min(done, expected)} {expected}", file=sys.stderr, flush=True)
+
+    watcher = threading.Thread(target=report_progress, daemon=True)
+    watcher.start()
+    try:
+        if partial.exists():
+            shutil.rmtree(partial)
+        snapshot_download(spec["repo"], revision=spec["revision"], local_dir=str(partial), allow_patterns=spec.get("files"))
+        (partial / ".reco-complete").write_text(spec["revision"] + "\n", encoding="utf-8")
+        if target.exists():
+            shutil.rmtree(target)
+        partial.replace(target)
+        return target
+    finally:
+        finished.set()
+        if partial.exists():
+            shutil.rmtree(partial, ignore_errors=True)
 
 
 def download_models(args: argparse.Namespace) -> None:
@@ -4160,9 +4331,15 @@ def build_parser() -> argparse.ArgumentParser:
     label_parser.add_argument("--language", choices=["de", "en", "es", "fr"], default="de")
     label_parser.add_argument("--candidate-only", action="store_true")
     label_parser.add_argument("--compare-models", action="store_true")
+    label_parser.add_argument("--teacher", choices=["auto", "nano", "small", "medium", "large"], default="auto",
+                              help="RF-DETR base model used while no trained model knows a class (auto: by hardware tier)")
+    label_parser.add_argument("--tier", choices=["auto", "strong", "medium", "weak"], default="auto")
+    label_parser.add_argument("--refine-method", choices=["auto", "sam2", "opencv"], default="auto")
     label_parser.set_defaults(func=auto_label)
 
     refine_parser = commands.add_parser("refine-boxes")
+    refine_parser.add_argument("--method", choices=["auto", "sam2", "opencv"], default="auto")
+    refine_parser.add_argument("--tier", choices=["auto", "strong", "medium", "weak"], default="auto")
     refine_parser.add_argument("--project", required=True)
     refine_parser.add_argument("--language", choices=["de", "en", "es", "fr"], default="de")
     refine_parser.set_defaults(func=refine_boxes)

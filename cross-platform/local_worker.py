@@ -29,6 +29,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlparse
 
+import teachers  # standard library only at module level: hardware tiers
+
 
 HOST = os.environ.get("RECO_BIND_HOST", "127.0.0.1")
 DEFAULT_PORT = 8766
@@ -149,6 +151,41 @@ def detect_nvidia_gpu_name() -> str | None:
     return result.stdout.strip().splitlines()[0] if result.returncode == 0 and result.stdout.strip() else None
 
 
+def nvidia_vram_gb() -> float | None:
+    nvidia_smi = shutil.which("nvidia-smi")
+    if not nvidia_smi:
+        return None
+    try:
+        result = subprocess.run([nvidia_smi, "--query-gpu=memory.total", "--format=csv,noheader,nounits"], capture_output=True, text=True, timeout=5, check=False)
+        return float(result.stdout.strip().splitlines()[0]) / 1024 if result.returncode == 0 and result.stdout.strip() else None
+    except (OSError, subprocess.TimeoutExpired, ValueError, IndexError):
+        return None
+
+
+_TIER_CACHE: dict[str, str] = {}
+
+
+def detected_tier() -> str:
+    """strong / medium / weak for this machine (see teachers.choose_tier), without PyTorch."""
+    if "tier" not in _TIER_CACHE:
+        memory_gb = 0.0
+        try:
+            memory_gb = int(os.sysconf("SC_PHYS_PAGES")) * int(os.sysconf("SC_PAGE_SIZE")) / 1024**3
+        except (AttributeError, OSError, TypeError, ValueError):
+            pass
+        if sys.platform == "darwin" and platform.machine() == "arm64":
+            _TIER_CACHE["tier"] = teachers.choose_tier("mps", memory_gb=memory_gb)
+        else:
+            vram = nvidia_vram_gb()
+            _TIER_CACHE["tier"] = teachers.choose_tier("cuda", vram_gb=vram) if vram else teachers.choose_tier("cpu")
+    return _TIER_CACHE["tier"]
+
+
+def tier_argument(payload: dict) -> str:
+    tier = str(payload.get("tier") or "auto")
+    return tier if tier in teachers.TIERS else "auto"
+
+
 def non_apple_accelerator() -> dict:
     """Best-effort accelerator info for Windows/Linux, as {"kind": ..., "gpuName": ...}
     rather than a rendered label (see hardware_summary()) - "kind" is one of
@@ -225,6 +262,8 @@ def model_registry_snapshot(root: Path | None) -> list[dict]:
         installed = None
         if entry.get("file") and root is not None:
             installed = (root / ".runtime" / "models" / Path(entry["file"]).name).is_file()
+        elif entry.get("huggingFace") and root is not None:
+            installed = (root / ".runtime" / "models" / "hf" / str(entry["id"]) / ".reco-complete").is_file()
         result.append({key: entry.get(key) for key in ("id", "name", "purpose", "license", "licenseUrl", "source", "bytes", "managedBy")} | {"installed": installed})
     return result
 
@@ -311,6 +350,7 @@ class LocalState:
                 "trainingHistory": (self.project or {}).get("trainingHistory", []),
                 "modelLibrary": model_library_snapshot(self.project_root),
                 "modelRegistry": model_registry_snapshot(self.project_root),
+                "hardwareTier": {"detected": detected_tier(), "plans": teachers.TIER_PLANS},
                 "mlReady": bool(self.project_root and venv_python_path(self.project_root / ".runtime" / "venv").is_file()),
                 "benchmark": benchmark_snapshot(self.project_root),
                 "frames": frames,
@@ -1787,8 +1827,11 @@ def ml_action(action: str, payload: dict) -> None:
                 ids = [str(item) for item in payload.get("ids") or [] if re.fullmatch(r"[a-z0-9-]{1,60}", str(item))]
                 if not ids:
                     raise RuntimeError(localized("Keine Modelle ausgewählt.", "No models selected.", "No se seleccionó ningún modelo.", "Aucun modèle sélectionné."))
-                # Downloads need only the standard library.
-                executable = system_python()
+                # Plain downloads need only the standard library; Hugging Face models need
+                # huggingface_hub from the ML environment.
+                registry = {entry["id"]: entry for entry in model_registry_snapshot(None)}
+                needs_hub = any(registry.get(item, {}).get("source", "").startswith("https://huggingface.co/") for item in ids)
+                executable = venv_python if needs_hub and venv_python.is_file() else system_python()
                 args = ["download-models", "--project", str(root), "--ids", ",".join(ids), "--language", language]
             elif action == "import-labels":
                 source = Path(str(payload.get("source", ""))).resolve()
@@ -1834,6 +1877,11 @@ def ml_action(action: str, payload: dict) -> None:
                     args.append("--candidate-only")
                 if payload.get("compareModels"):
                     args.append("--compare-models")
+                args += ["--tier", tier_argument(payload)]
+                if payload.get("teacher") in {"nano", "small", "medium", "large"}:
+                    args += ["--teacher", str(payload["teacher"])]
+                if payload.get("refineMethod") in {"sam2", "opencv"}:
+                    args += ["--refine-method", str(payload["refineMethod"])]
             elif action == "benchmark":
                 threshold = min(0.95, max(0.01, float(payload.get("threshold", 0.05))))
                 args = ["benchmark", "--project", str(root), "--threshold", str(threshold), "--language", language]
@@ -1851,7 +1899,9 @@ def ml_action(action: str, payload: dict) -> None:
                 args = ["export", "--project", str(root), "--model", model, "--format", "onnx", "--language", language]
             elif action == "refine-boxes":
                 backup_project(root, "boxen")
-                args = ["refine-boxes", "--project", str(root), "--language", language]
+                args = ["refine-boxes", "--project", str(root), "--language", language, "--tier", tier_argument(payload)]
+                if payload.get("refineMethod") in {"sam2", "opencv"}:
+                    args += ["--method", str(payload["refineMethod"])]
             else:
                 raise RuntimeError(localized("Unbekannter ML-Vorgang.", "Unknown ML operation.", "Operación de ML desconocida.", "Opération ML inconnue."))
             if action == "import-labels":

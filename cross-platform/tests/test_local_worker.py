@@ -516,7 +516,7 @@ class ParityActionTests(unittest.TestCase):
             with mock.patch.object(local_worker, "run_logged", lambda command: commands.append(command)):
                 local_worker.ml_action("refine-boxes", {"language": "en"})
             self.assertEqual(len(commands), 1)
-            self.assertEqual(commands[0][2:], ["refine-boxes", "--project", str(root), "--language", "en"])
+            self.assertEqual(commands[0][2:], ["refine-boxes", "--project", str(root), "--language", "en", "--tier", "auto"])
             self.assertTrue(list((root / "backups").glob("project-*-boxen.json")))
         self.assertIsNone(local_worker.STATE.error)
 

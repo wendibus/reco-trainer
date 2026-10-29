@@ -1,6 +1,9 @@
 {
   "schemaVersion": 1,
-  "allowedLicenses": ["Apache-2.0", "MIT"],
+  "allowedLicenses": [
+    "Apache-2.0",
+    "MIT"
+  ],
   "models": [
     {
       "id": "yunet-face",
@@ -61,6 +64,82 @@
       "licenseUrl": "https://github.com/roboflow/rf-detr/blob/main/LICENSE",
       "source": "https://github.com/roboflow/rf-detr",
       "managedBy": "rfdetr"
+    },
+    {
+      "id": "sam2.1-hiera-small",
+      "name": "SAM 2.1 Hiera Small",
+      "purpose": "refine-boxes",
+      "license": "Apache-2.0",
+      "licenseUrl": "https://huggingface.co/facebook/sam2.1-hiera-small",
+      "source": "https://huggingface.co/facebook/sam2.1-hiera-small",
+      "huggingFace": {
+        "repo": "facebook/sam2.1-hiera-small",
+        "revision": "ee5bba1d82bb8749febdf90f45e84b687142ba03",
+        "files": [
+          "*.json",
+          "*.safetensors",
+          "*.txt",
+          "*.model"
+        ]
+      },
+      "bytes": 184300000
+    },
+    {
+      "id": "sam2.1-hiera-base-plus",
+      "name": "SAM 2.1 Hiera Base+",
+      "purpose": "refine-boxes",
+      "license": "Apache-2.0",
+      "licenseUrl": "https://huggingface.co/facebook/sam2.1-hiera-base-plus",
+      "source": "https://huggingface.co/facebook/sam2.1-hiera-base-plus",
+      "huggingFace": {
+        "repo": "facebook/sam2.1-hiera-base-plus",
+        "revision": "b7320756a13354e7530a63935656d35b2f91a290",
+        "files": [
+          "*.json",
+          "*.safetensors",
+          "*.txt",
+          "*.model"
+        ]
+      },
+      "bytes": 323500000
+    },
+    {
+      "id": "florence-2-base",
+      "name": "Florence-2 Base",
+      "purpose": "second-teacher",
+      "license": "MIT",
+      "licenseUrl": "https://huggingface.co/florence-community/Florence-2-base",
+      "source": "https://huggingface.co/florence-community/Florence-2-base",
+      "huggingFace": {
+        "repo": "florence-community/Florence-2-base",
+        "revision": "00921df66db728a9ceb750f5eca43e5c203a2051",
+        "files": [
+          "*.json",
+          "*.safetensors",
+          "*.txt",
+          "*.model"
+        ]
+      },
+      "bytes": 468600000
+    },
+    {
+      "id": "florence-2-large",
+      "name": "Florence-2 Large",
+      "purpose": "second-teacher",
+      "license": "MIT",
+      "licenseUrl": "https://huggingface.co/florence-community/Florence-2-large",
+      "source": "https://huggingface.co/florence-community/Florence-2-large",
+      "huggingFace": {
+        "repo": "florence-community/Florence-2-large",
+        "revision": "4271c66b88cdbc05735372ec13b2360108de5317",
+        "files": [
+          "*.json",
+          "*.safetensors",
+          "*.txt",
+          "*.model"
+        ]
+      },
+      "bytes": 1558900000
     }
   ]
 }
