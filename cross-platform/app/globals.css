@@ -296,6 +296,16 @@ select { height:34px; padding:0 9px; border:1px solid #cbd3df; border-radius:7px
 .onnx-dialog input { padding:7px 9px; border:1px solid #c8d1dd; border-radius:7px; font:inherit; font-weight:400; }
 .onnx-dialog small { color:#637087; font-weight:400; }
 .onnx-actions { display:flex; justify-content:flex-end; gap:8px; }
+.advanced-options { flex:1 1 100%; order:99; padding:10px 12px; border:1px solid #e1e6ee; border-radius:10px; background:#fafbfd; font-size:12px; color:#29384f; }
+.advanced-options summary { cursor:pointer; font-weight:700; }
+.advanced-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(240px,1fr)); gap:10px 18px; margin-top:10px; }
+.advanced-options label { display:grid; gap:4px; font-weight:650; }
+.advanced-options select { font:inherit; padding:5px 6px; border:1px solid #c8d1dd; border-radius:6px; background:#fff; }
+.advanced-options small { font-weight:400; color:#637087; }
+.advanced-models { grid-column:1 / -1; }
+.advanced-models ul { margin:6px 0 0; padding:0; list-style:none; display:grid; gap:4px; }
+.advanced-models li { display:flex; flex-wrap:wrap; justify-content:space-between; gap:4px 12px; padding:4px 0; border-bottom:1px solid #eef1f6; }
+.advanced-model-meta { color:#637087; }
 .export-dialog { width:min(560px,100%); max-height:calc(100vh - 48px); overflow:auto; }
 .export-choice { display:flex; flex-wrap:wrap; gap:6px 16px; margin:0; padding:0; border:0; font-size:13px; }
 .export-choice legend { width:100%; margin-bottom:4px; font-size:12px; font-weight:650; color:#29384f; }
