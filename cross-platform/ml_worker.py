@@ -2105,6 +2105,232 @@ def build_dataset(project_root: Path, language: str = "de", categories: list[str
     return dataset_root
 
 
+# --- Dataset export (YOLO / COCO), optionally anonymized ----------------------------------------
+
+YOLO_SPLITS = {"train": "train", "valid": "val", "test": "test"}  # Reco split -> Ultralytics folder
+PEOPLE_DETECTOR_IDS = {"nano": "rf-detr-nano", "small": "rf-detr-small", "medium": "rf-detr-medium", "large": "rf-detr-large"}
+
+
+def export_frame_name(frame: dict[str, Any], suffix: str) -> str:
+    """Neutral file name: no video name, no path, stable for the same frame."""
+    return "frame-" + hashlib.sha1(str(frame.get("id")).encode("utf-8")).hexdigest()[:12] + suffix
+
+
+def people_detector(project_root: Path, size: str, language: str):
+    """RF-DETR COCO base model (Apache-2.0) for people without a label: spectators, bench."""
+    try:
+        import rfdetr
+    except ImportError as error:
+        raise SystemExit(localized(language, "RF-DETR ist nicht installiert. Zuerst „ML einrichten“ wählen.", "RF-DETR is not installed. Select “Set up ML” first.")) from error
+    model_class = getattr(rfdetr, {"nano": "RFDETRNano", "small": "RFDETRSmall", "medium": "RFDETRMedium", "large": "RFDETRLarge"}[size])
+    emit(localized(language, f"Lade Personendetektor RF-DETR {size} (COCO, Apache-2.0) …", f"Loading people detector RF-DETR {size} (COCO, Apache-2.0) …"))
+    model = model_class(device=detect_device())
+
+    def detect(image_bgr) -> list[tuple[float, float, float, float]]:
+        prediction = normalize_detection_batch(model.predict(image_bgr[:, :, ::-1].copy(), threshold=0.35), 1)[0]
+        boxes = []
+        for box, class_id in zip(prediction.xyxy, prediction.class_id):
+            if int(class_id) == 1:  # COCO "person"
+                x1, y1, x2, y2 = (float(value) for value in box)
+                boxes.append((x1, y1, x2 - x1, y2 - y1))
+        return boxes
+
+    return detect
+
+
+def export_dataset(args: argparse.Namespace) -> None:
+    project_root = Path(args.project).resolve()
+    document = require_project(project_root, args.language)
+    sport = str(document.get("sport", ""))
+    formats = [item for item in str(args.formats).split(",") if item in {"yolo", "coco"}] or ["yolo", "coco"]
+    frames = [frame for frame in document.get("frames", []) if frame.get("reviewStatus") != "candidate" and not frame.get("heldOut")]
+    if not frames:
+        raise SystemExit(localized(args.language, "Keine geprüften Bilder zum Exportieren.", "No reviewed images to export."))
+    present = {annotation["category"] for frame in frames for annotation in frame.get("annotations", [])}
+    categories = [name for name in sport_categories(sport) if name in present]
+    if not categories:
+        raise SystemExit(localized(args.language, "Noch keine Objekte markiert.", "No objects have been annotated yet."))
+    class_index = {name: index for index, name in enumerate(categories)}
+    splits, warning = split_frames(frames, args.language)
+    if warning:
+        emit(localized(args.language, f"Hinweis: {warning}", f"Note: {warning}"))
+
+    anonymized = bool(args.anonymize)
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+    name = f"reco-{sport}-dataset-{stamp}" + ("-anonymized" if anonymized else "")
+    out_root = project_root / "exports" / "datasets"
+    final = out_root / name
+    partial = out_root / f"{name}.partial"
+    zip_path = out_root / f"{name}.zip"
+    zip_partial = out_root / f"{name}.zip.part"
+    review_path = out_root / f"{name}.review.json"
+    steps = (["models"] if anonymized else []) + (["people"] if anonymized and args.detect_people else []) + ["write"] + (["zip"] if args.zip else [])
+    step = lambda key, label: stage(steps.index(key) + 1, len(steps), label)  # noqa: E731
+
+    used_models: list[dict[str, Any]] = []
+    anonymizer = None
+    detect_people = None
+    try:
+        partial.mkdir(parents=True, exist_ok=False)
+        if anonymized:
+            import cv2  # noqa: F401  (needs the ML environment)
+            import anonymize as anonymize_module
+            step("models", localized(args.language, "Modelle prüfen", "Check models"))
+            face_model = download_registry_model(project_root, "yunet-face", args.language)
+            used_models.append(registry_model("yunet-face"))
+            text_model = None
+            if args.include_text:
+                text_model = download_registry_model(project_root, "ppocr-text-detector", args.language)
+                used_models.append(registry_model("ppocr-text-detector"))
+            anonymizer = anonymize_module.Anonymizer(face_model, args.method, text_model)
+            if args.detect_people:
+                step("people", localized(args.language, "Personendetektor laden", "Load people detector"))
+                size = args.detector_size if args.detector_size != "auto" else ("nano" if detect_device() == "cpu" else "medium")
+                detect_people = people_detector(project_root, size, args.language)
+                used_models.append(registry_model(PEOPLE_DETECTOR_IDS[size]))
+
+        step("write", localized(args.language, "Bilder und Labels schreiben", "Write images and labels"))
+        total = sum(len(items) for items in splits.values())
+        done = 0
+        counts: dict[str, dict[str, int]] = {}
+        coco: dict[str, dict[str, Any]] = {}
+        review: list[dict[str, Any]] = []
+        for split, items in splits.items():
+            yolo_split = YOLO_SPLITS[split]
+            counts[split] = {"images": 0, "annotations": 0}
+            coco[split] = {"images": [], "annotations": []}
+            for frame in items:
+                done += 1
+                print(f"RECO_PROGRESS {done} {total}", file=sys.stderr, flush=True)
+                source = project_root / str(frame["relativePath"])
+                if not source.is_file():
+                    continue
+                boxes = [a for a in frame.get("annotations", []) if a.get("category") in class_index]
+                frame_width, frame_height = float(frame.get("width") or 0), float(frame.get("height") or 0)
+                suffix = ".jpg" if anonymized else source.suffix.lower()
+                file_name = export_frame_name(frame, suffix)
+                image_bytes: bytes | None = None
+                image_width, image_height = frame_width, frame_height
+                if anonymized:
+                    import cv2
+                    image = cv2.imread(str(source))
+                    if image is None:
+                        continue
+                    image_height, image_width = image.shape[:2]
+                    sx, sy = image_width / max(frame_width, 1.0), image_height / max(frame_height, 1.0)
+                    scaled = [{**a, "x": a["x"] * sx, "y": a["y"] * sy, "width": a["width"] * sx, "height": a["height"] * sy} for a in frame.get("annotations", [])]
+                    extra = detect_people(image) if detect_people else []
+                    result, report = anonymizer.anonymize(image, scaled, extra, include_text=args.include_text)
+                    if not report.safe:
+                        review.append({"frameID": frame.get("id"), "split": split, "reason": "face-still-detected", "faces": len(report.residual_faces)})
+                        continue
+                    ok, encoded = cv2.imencode(".jpg", result, [int(cv2.IMWRITE_JPEG_QUALITY), 92])
+                    if not ok:
+                        continue
+                    image_bytes = encoded.tobytes()
+                image_width = image_width or frame_width
+                image_height = image_height or frame_height
+                targets = []
+                if "yolo" in formats:
+                    targets.append(partial / ("yolo" if len(formats) > 1 else "") / "images" / yolo_split / file_name)
+                if "coco" in formats:
+                    targets.append(partial / ("coco" if len(formats) > 1 else "") / split / file_name)
+                for target in targets:
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    if image_bytes is not None:
+                        target.write_bytes(image_bytes)
+                    else:
+                        shutil.copyfile(source, target)
+                if "yolo" in formats:
+                    lines = []
+                    for a in boxes:
+                        cx = (a["x"] + a["width"] / 2) / max(frame_width, 1.0)
+                        cy = (a["y"] + a["height"] / 2) / max(frame_height, 1.0)
+                        lines.append(f"{class_index[a['category']]} {cx:.6f} {cy:.6f} {a['width'] / max(frame_width, 1.0):.6f} {a['height'] / max(frame_height, 1.0):.6f}")
+                    label = partial / ("yolo" if len(formats) > 1 else "") / "labels" / yolo_split / (Path(file_name).stem + ".txt")
+                    label.parent.mkdir(parents=True, exist_ok=True)
+                    label.write_text("\n".join(lines) + ("\n" if lines else ""), encoding="utf-8")
+                image_id = counts[split]["images"] + 1
+                coco[split]["images"].append({"id": image_id, "file_name": file_name, "width": int(image_width), "height": int(image_height)})
+                sx, sy = image_width / max(frame_width, 1.0), image_height / max(frame_height, 1.0)
+                for a in boxes:
+                    w, h = a["width"] * sx, a["height"] * sy
+                    coco[split]["annotations"].append({
+                        "id": len(coco[split]["annotations"]) + 1, "image_id": image_id, "category_id": class_index[a["category"]] + 1,
+                        "bbox": [round(a["x"] * sx, 2), round(a["y"] * sy, 2), round(w, 2), round(h, 2)], "area": round(w * h, 2), "iscrowd": 0,
+                    })
+                counts[split]["images"] += 1
+                counts[split]["annotations"] += len(boxes)
+
+        version = args.app_version or "unknown"
+        if "yolo" in formats:
+            base = partial / ("yolo" if len(formats) > 1 else "")
+            base.mkdir(parents=True, exist_ok=True)
+            names = "\n".join(f"  {index}: {name}" for index, name in enumerate(categories))
+            (base / "data.yaml").write_text(f"path: .\ntrain: images/train\nval: images/val\ntest: images/test\nnames:\n{names}\n", encoding="utf-8")
+        if "coco" in formats:
+            base = partial / ("coco" if len(formats) > 1 else "")
+            for split in splits:
+                (base / split).mkdir(parents=True, exist_ok=True)
+                atomic_json(base / split / "_annotations.coco.json", {
+                    "info": {"description": f"Reco Trainer dataset: {sport}", "version": version, "date_created": datetime.now(timezone.utc).isoformat()},
+                    "licenses": [], "images": coco[split]["images"], "annotations": coco[split]["annotations"],
+                    "categories": [{"id": index + 1, "name": name, "supercategory": "sport"} for index, name in enumerate(categories)],
+                })
+        metadata = {
+            "generator": "Reco Trainer", "version": version, "createdAt": datetime.now(timezone.utc).isoformat(),
+            "sport": sport, "classes": categories, "formats": formats, "splits": counts,
+            "splitMethod": "per video (frames of one video never share a split)",
+            "anonymization": {
+                "enabled": anonymized,
+                "method": args.method if anonymized else None,
+                "regions": ["head of every labelled person", "faces (YuNet)"] + (["people found by the detector"] if detect_people else []) + (["text (jersey numbers, scoreboard)"] if anonymized and args.include_text else []),
+                "excludedForReview": len(review),
+                "note": "Heads are blurred, not covered; labels are unchanged." if anonymized else None,
+            },
+            "models": [{key: entry.get(key) for key in ("id", "name", "license", "licenseUrl", "source")} for entry in used_models],
+            "privacy": "Contains only the exported images and their labels; no video names, source paths or project data.",
+        }
+        atomic_json(partial / "metadata.json", metadata)
+        (partial / "README.txt").write_text(
+            f"Reco Trainer dataset ({sport}), version {version}\n"
+            f"Classes: {', '.join(categories)}\n"
+            + ("YOLO (Ultralytics): yolo/data.yaml, images/<split>, labels/<split>\n" if "yolo" in formats else "")
+            + ("COCO (Roboflow / RF-DETR): coco/<train|valid|test>/_annotations.coco.json\n" if "coco" in formats else "")
+            + ("Faces and heads are blurred; see metadata.json for the method and the models (with licenses) used.\n" if anonymized else ""),
+            encoding="utf-8",
+        )
+        partial.replace(final)
+
+        if args.zip:
+            step("zip", localized(args.language, "ZIP-Datei schreiben", "Write ZIP file"))
+            files = sorted(path for path in final.rglob("*") if path.is_file())
+            with zipfile.ZipFile(zip_partial, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=6) as archive:
+                for index, path in enumerate(files, start=1):
+                    archive.write(path, f"{name}/{path.relative_to(final).as_posix()}")
+                    print(f"RECO_PROGRESS {index} {len(files)}", file=sys.stderr, flush=True)
+            zip_partial.replace(zip_path)
+        if review:
+            # Next to the export, not inside it: frame IDs are project data and must not be shared.
+            atomic_json(review_path, {"export": name, "frames": review})
+        summary = {
+            "folder": str(final), "zip": str(zip_path) if args.zip else None, "name": name,
+            "images": sum(item["images"] for item in counts.values()), "annotations": sum(item["annotations"] for item in counts.values()),
+            "splits": counts, "anonymized": anonymized, "excludedForReview": review, "reviewFile": str(review_path) if review else None,
+            "models": metadata["models"],
+        }
+        emit(localized(
+            args.language,
+            f"Datensatz exportiert: {summary['images']} Bilder, {summary['annotations']} Boxen" + (f", {len(review)} Bilder zur Prüfung zurückgehalten." if review else "."),
+            f"Dataset exported: {summary['images']} images, {summary['annotations']} boxes" + (f", {len(review)} images held back for review." if review else "."),
+        ))
+        print(json.dumps(summary, ensure_ascii=False))
+    finally:
+        if partial.exists():
+            shutil.rmtree(partial, ignore_errors=True)
+        zip_partial.unlink(missing_ok=True)
+
+
 def sport_categories(sport: str) -> list[str]:
     if sport == "basketball":
         return ["ball", "player", "referee", "hoop"]
@@ -3965,6 +4191,19 @@ def build_parser() -> argparse.ArgumentParser:
     benchmark_parser.add_argument("--threshold", type=float, default=0.05)
     benchmark_parser.add_argument("--language", choices=["de", "en", "es", "fr"], default="de")
     benchmark_parser.set_defaults(func=benchmark)
+
+    export_dataset_parser = commands.add_parser("export-dataset")
+    export_dataset_parser.add_argument("--project", required=True)
+    export_dataset_parser.add_argument("--formats", default="yolo,coco", help="yolo, coco or both (comma-separated)")
+    export_dataset_parser.add_argument("--anonymize", action="store_true")
+    export_dataset_parser.add_argument("--method", choices=["gaussian", "pixelate"], default="gaussian")
+    export_dataset_parser.add_argument("--include-text", action="store_true", help="also blur jersey numbers, scoreboard and other text")
+    export_dataset_parser.add_argument("--detect-people", action="store_true", help="find unlabelled people (spectators, bench) with RF-DETR")
+    export_dataset_parser.add_argument("--detector-size", choices=["auto", "nano", "small", "medium", "large"], default="auto")
+    export_dataset_parser.add_argument("--zip", action="store_true")
+    export_dataset_parser.add_argument("--app-version", default="")
+    export_dataset_parser.add_argument("--language", choices=["de", "en", "es", "fr"], default="de")
+    export_dataset_parser.set_defaults(func=export_dataset)
 
     download_parser = commands.add_parser("download-models")
     download_parser.add_argument("--project", required=True)

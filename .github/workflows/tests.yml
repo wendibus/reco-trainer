@@ -2,7 +2,7 @@ name: Tests
 
 on:
   push:
-    branches: [main, launcher]
+    branches: [main, launcher, 'release-*']
   pull_request:
 
 jobs:
@@ -13,8 +13,8 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: ONNX test dependencies
-        run: python3 -m pip install onnx onnxruntime pillow numpy
+      - name: ONNX and anonymization test dependencies
+        run: python3 -m pip install onnx onnxruntime pillow numpy opencv-python-headless
       - name: Cross-platform local worker tests
         run: python3 -m unittest discover -s cross-platform/tests -p "test_*.py"
       - name: Mac ML worker tests

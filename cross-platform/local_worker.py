@@ -204,6 +204,16 @@ def non_apple_accelerator() -> dict:
     return info
 
 
+def app_version() -> str:
+    """Version of this worker: payload.json (Mac payload) or package.json (Windows/Linux/Docker)."""
+    for name in ("payload.json", "package.json"):
+        try:
+            return str(json.loads((BASE_DIR / name).read_text(encoding="utf-8"))["version"])
+        except (OSError, ValueError, KeyError):
+            continue
+    return "unknown"
+
+
 def model_registry_snapshot(root: Path | None) -> list[dict]:
     """Registry models with their license (shown in the UI) and whether they are downloaded."""
     try:
@@ -1463,7 +1473,7 @@ def system_python() -> Path:
     ))
 
 
-def run_logged(command: list[str]) -> None:
+def run_logged(command: list[str]) -> dict | None:
     # Without an explicit UTF-8 encoding on both ends, a subprocess whose stdout
     # is piped (not a real terminal) falls back to the OS's locale-preferred
     # encoding to decide how to write text - on Windows that's typically a
@@ -1478,8 +1488,16 @@ def run_logged(command: list[str]) -> None:
         bufsize=1, env={**os.environ, "PYTHONUNBUFFERED": "1", "PYTORCH_ENABLE_MPS_FALLBACK": "1", "PYTHONIOENCODING": "utf-8"},
     )
     assert process.stdout is not None
+    last_json: dict | None = None
     try:
         for line in process.stdout:
+            if line.startswith("{"):
+                # A command's result (for example a dataset export summary) - not log text.
+                try:
+                    last_json = json.loads(line)
+                    continue
+                except ValueError:
+                    pass
             stage = STAGE_LINE.match(line.strip())
             if stage:
                 STATE.update(stage={"index": int(stage.group(1)), "count": int(stage.group(2)), "label": stage.group(3).strip()}, progress=0.0)
@@ -1505,6 +1523,7 @@ def run_logged(command: list[str]) -> None:
         raise OperationCancelled()
     if code != 0:
         raise RuntimeError(localized(f"Lokaler ML-Worker wurde mit Code {code} beendet.", f"The local ML worker exited with code {code}.", f"El proceso local de ML terminó con el código {code}.", f"Le processus ML local s’est terminé avec le code {code}."))
+    return last_json
 
 
 PROGRESS_LINE = re.compile(r"^RECO_PROGRESS (\d+) (\d+)\s*$")
@@ -1598,6 +1617,26 @@ def job_output_dirs(root: Path, action: str) -> list[Path]:
         "export-dataset": [root / "exports" / "datasets"],
         "download-models": [root / ".runtime" / "models"],
     }.get(action, [])
+
+
+def export_result_for_ui(root: Path, summary: dict) -> dict:
+    """What the export's result window needs; paths are shown, frames held back can be opened."""
+    return {
+        "kind": "dataset-export", "name": summary.get("name"), "folder": summary.get("folder"), "zip": summary.get("zip"),
+        "images": summary.get("images"), "annotations": summary.get("annotations"), "anonymized": summary.get("anonymized"),
+        "excludedFrames": [item.get("frameID") for item in summary.get("excludedForReview") or []],
+        "models": summary.get("models") or [],
+    }
+
+
+def export_message(summary: dict) -> str:
+    held = len(summary.get("excludedForReview") or [])
+    return localized(
+        f"Datensatz exportiert: {summary.get('images')} Bilder, {summary.get('annotations')} Boxen." + (f" {held} Bilder wurden zur Prüfung zurückgehalten." if held else ""),
+        f"Dataset exported: {summary.get('images')} images, {summary.get('annotations')} boxes." + (f" {held} images were held back for review." if held else ""),
+        f"Conjunto exportado: {summary.get('images')} imágenes, {summary.get('annotations')} cuadros." + (f" {held} imágenes quedaron retenidas para revisión." if held else ""),
+        f"Jeu de données exporté : {summary.get('images')} images, {summary.get('annotations')} boîtes." + (f" {held} images ont été retenues pour vérification." if held else ""),
+    )
 
 
 def cancelled_message(action: str) -> str:
@@ -1720,6 +1759,22 @@ def ml_action(action: str, payload: dict) -> None:
                     "--name", str(payload.get("name", "")), "--class-names", str(payload.get("classNames", "")),
                     "--input-size", str(input_size), "--license", str(payload.get("license", "")), "--language", language,
                 ]
+            elif action == "export-dataset":
+                anonymized = bool(payload.get("anonymize"))
+                if anonymized and not venv_python.is_file():
+                    raise RuntimeError(localized("Für einen anonymisierten Export zuerst „ML einrichten“ anklicken.", "For an anonymized export, click “Set up ML” first.", "Para una exportación anonimizada, primero haz clic en «Configurar ML».", "Pour un export anonymisé, cliquez d’abord sur « Configurer le ML »."))
+                # A plain export only copies files and needs no ML libraries.
+                executable = venv_python if venv_python.is_file() else system_python()
+                formats = [item for item in payload.get("formats") or ["yolo", "coco"] if item in {"yolo", "coco"}] or ["yolo", "coco"]
+                args = ["export-dataset", "--project", str(root), "--formats", ",".join(formats), "--app-version", app_version(), "--language", language]
+                if anonymized:
+                    args += ["--anonymize", "--method", "pixelate" if payload.get("method") == "pixelate" else "gaussian"]
+                    if payload.get("includeText"):
+                        args.append("--include-text")
+                    if payload.get("detectPeople", True):
+                        args.append("--detect-people")
+                if payload.get("zip", True):
+                    args.append("--zip")
             elif action == "download-models":
                 ids = [str(item) for item in payload.get("ids") or [] if re.fullmatch(r"[a-z0-9-]{1,60}", str(item))]
                 if not ids:
@@ -1794,7 +1849,11 @@ def ml_action(action: str, payload: dict) -> None:
                 STATE.append_log(message)
                 STATE.update(project=load_project(root), operation="ready", busy=False, progress=1.0, message=message)
                 return
-            run_logged([str(executable), str(worker), *args])
+            result = run_logged([str(executable), str(worker), *args])
+            if action == "export-dataset" and result:
+                STATE.update(result=export_result_for_ui(root, result), message=export_message(result))
+                STATE.update(project=load_project(root), operation="ready", busy=False, progress=1.0)
+                return
         project = load_project(root)
         STATE.update(project=project, operation="ready", busy=False, progress=1.0, message=localized("Lokaler Vorgang abgeschlossen.", "Local operation completed.", "Operación local completada.", "Opération locale terminée."))
     except OperationCancelled:
@@ -1839,9 +1898,9 @@ def save_field_geometry(payload: dict) -> None:
     STATE.update(project=project, message=localized("Spielfeld lokal gespeichert.", "Field boundaries saved locally.", "Límites del campo guardados localmente.", "Limites du terrain enregistrées localement."))
 
 
-def reveal_training_folder() -> None:
+def reveal_training_folder(export_name: str | None = None) -> None:
     """Open the project's visible training folder in the system file manager
-    (the web counterpart of the Mac app's "Show training folder")."""
+    (the web counterpart of the Mac app's "Show training folder"), or one dataset export."""
     root = STATE.project_root
     if root is None:
         raise RuntimeError(localized("Zuerst einen Videoordner auswählen.", "Select a video folder first.", "Primero selecciona una carpeta de vídeos.", "Sélectionnez d’abord un dossier vidéo."))
@@ -1854,6 +1913,11 @@ def reveal_training_folder() -> None:
         ))
     visible = root.parent / "Reco Training"
     target = visible if visible.exists() else root
+    if export_name is not None:
+        exports = (root / "exports" / "datasets").resolve()
+        target = (exports / export_name).resolve()
+        if exports not in target.parents or not target.is_dir():
+            raise RuntimeError(localized("Der Export wurde nicht gefunden.", "The export was not found.", "No se encontró la exportación.", "L’export est introuvable."))
     target.mkdir(parents=True, exist_ok=True)
     if os.name == "nt":
         os.startfile(str(target))  # type: ignore[attr-defined]
@@ -2236,7 +2300,7 @@ class Handler(BaseHTTPRequestHandler):
                 save_field_geometry(payload)
                 self.json_response({"ok": True, "status": STATE.snapshot()})
             elif self.path == "/api/reveal-training-folder":
-                reveal_training_folder()
+                reveal_training_folder(str(payload["exportName"]) if payload.get("exportName") else None)
                 self.json_response({"ok": True})
             elif self.path == "/api/remove-frame":
                 if STATE.busy:
@@ -2268,7 +2332,7 @@ class Handler(BaseHTTPRequestHandler):
                 label_folder = choose_video_folder(labels=True)
                 job = JOBS.submit("import-labels", ml_action, "import-labels", {**payload, "source": str(label_folder)})
                 self.json_response({"ok": True, "folder": str(label_folder), "job": job})
-            elif self.path in {"/api/setup", "/api/autolabel", "/api/train", "/api/export-coreml", "/api/export-onnx", "/api/refine-boxes", "/api/package-model", "/api/combine-models", "/api/benchmark", "/api/activate-model", "/api/rename-model", "/api/delete-model", "/api/download-models"}:
+            elif self.path in {"/api/setup", "/api/autolabel", "/api/train", "/api/export-coreml", "/api/export-onnx", "/api/refine-boxes", "/api/package-model", "/api/combine-models", "/api/benchmark", "/api/activate-model", "/api/rename-model", "/api/delete-model", "/api/download-models", "/api/export-dataset"}:
                 action = self.path.removeprefix("/api/")
                 job = JOBS.submit(action, ml_action, action, payload, cancellable=action not in QUICK_ACTIONS)
                 self.json_response({"ok": True, "job": job})
