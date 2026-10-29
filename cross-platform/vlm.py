@@ -43,8 +43,24 @@ def shared_models_dir() -> Path | None:
 
 # --- which llama-server build ------------------------------------------------------------------
 
-def runtime_ids(system: str | None = None, machine: str | None = None, nvidia: bool = False) -> list[str]:
-    """Registry ids of the llama-server build (plus its CUDA runtime) for this platform."""
+# The Linux CUDA and arm64 builds need glibc 2.38 (Ubuntu 24.04, Debian 13); the x64 CPU build 2.34.
+LINUX_GLIBC = {"llama-server-linux-cuda": (2, 38), "llama-server-linux-arm64": (2, 38), "llama-server-linux-cpu": (2, 34)}
+
+
+def glibc_version() -> tuple[int, int] | None:
+    name, version = platform.libc_ver()
+    if name != "glibc" or not version:
+        return None
+    try:
+        major, minor = version.split(".")[:2]
+        return int(major), int(minor)
+    except ValueError:
+        return None
+
+
+def runtime_ids(system: str | None = None, machine: str | None = None, nvidia: bool = False, glibc: tuple[int, int] | None = None) -> list[str]:
+    """Registry ids of the llama-server build (plus its CUDA runtime) for this platform.
+    On Linux the C library decides: a system too old for the CUDA build uses the CPU build."""
     system = (system or platform.system()).lower()
     machine = (machine or platform.machine()).lower()
     arm = machine in {"arm64", "aarch64"}
@@ -54,9 +70,19 @@ def runtime_ids(system: str | None = None, machine: str | None = None, nvidia: b
         return ["llama-server-macos-arm64"]
     if system == "windows":
         return ["llama-server-windows-cuda", "llama-server-windows-cudart"] if nvidia and not arm else ["llama-server-windows-cpu"]
+    if glibc is None:
+        glibc = glibc_version()
+    def fits(model_id: str) -> bool:
+        return glibc is None or glibc >= LINUX_GLIBC[model_id]
     if arm:
+        if not fits("llama-server-linux-arm64"):
+            raise RuntimeError("The VLM on Linux arm64 needs glibc 2.38 or newer (for example Ubuntu 24.04 or Debian 13).")
         return ["llama-server-linux-arm64"]
-    return ["llama-server-linux-cuda", "llama-server-linux-cudart"] if nvidia else ["llama-server-linux-cpu"]
+    if nvidia and fits("llama-server-linux-cuda"):
+        return ["llama-server-linux-cuda", "llama-server-linux-cudart"]
+    if not fits("llama-server-linux-cpu"):
+        raise RuntimeError("The VLM on Linux needs glibc 2.34 or newer (for example Ubuntu 22.04 or Debian 12).")
+    return ["llama-server-linux-cpu"]
 
 
 def find_server_binary(folder: Path) -> Path | None:

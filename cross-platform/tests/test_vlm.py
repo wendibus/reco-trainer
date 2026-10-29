@@ -36,12 +36,21 @@ class PlatformTests(unittest.TestCase):
             ("Linux", "aarch64", False): ["llama-server-linux-arm64"],  # Docker on Apple silicon
         }
         for (system, machine, nvidia), expected in cases.items():
-            ids = vlm.runtime_ids(system, machine, nvidia)
+            ids = vlm.runtime_ids(system, machine, nvidia, glibc=(2, 41))
             self.assertEqual(ids, expected)
             for model_id in ids:
                 self.assertEqual(REGISTRY[model_id]["license"], "MIT")
         with self.assertRaises(RuntimeError):
             vlm.runtime_ids("Darwin", "x86_64")
+
+    def test_linux_build_follows_the_c_library(self):
+        # Ubuntu 22.04 (glibc 2.35) with NVIDIA: the CUDA build needs 2.38, so the CPU build is used.
+        self.assertEqual(vlm.runtime_ids("Linux", "x86_64", True, glibc=(2, 35)), ["llama-server-linux-cpu"])
+        self.assertEqual(vlm.runtime_ids("Linux", "x86_64", True, glibc=(2, 39)), ["llama-server-linux-cuda", "llama-server-linux-cudart"])
+        with self.assertRaises(RuntimeError):
+            vlm.runtime_ids("Linux", "aarch64", False, glibc=(2, 36))  # Debian 12 on arm64
+        with self.assertRaises(RuntimeError):
+            vlm.runtime_ids("Linux", "x86_64", False, glibc=(2, 31))
 
     def test_cuda_runtime_installs_next_to_its_server(self):
         self.assertEqual(REGISTRY["llama-server-windows-cudart"]["installInto"], "llama-server-windows-cuda")

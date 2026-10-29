@@ -9,7 +9,8 @@ COPY public ./public
 RUN npm run build
 
 # Stage 2: Python worker that also serves the interface.
-FROM debian:bookworm-slim
+# Debian 13: the llama.cpp builds for the local VLM need glibc 2.38 or newer.
+FROM debian:trixie-slim
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends python3 python3-venv ffmpeg ca-certificates \
