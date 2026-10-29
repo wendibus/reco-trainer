@@ -9,6 +9,10 @@ The web interface is now built ahead of time and served by the Python worker its
 - The Docker image builds the interface in a first stage and runs only Python; `docker compose` publishes only port 8766 on `127.0.0.1`.
 - The interface toolchain dropped Next.js, vinext, Cloudflare and Wrangler for plain Vite and React. The look and behavior of the interface are unchanged.
 
+## Fix: quality score of a trained model
+
+After training, the quality score was measured on the weights of the last epoch, although the saved model is the best checkpoint. A model that peaked early (for example at epoch 4 of 24) was therefore listed with a much lower score than it really has, which also affected the automatic "best model" decision. The best checkpoint is now evaluated.
+
 ## For developers
 
 - `npm run dev` starts the Vite dev server on 8765 against a worker on 8766; `npm run build` writes `ui/`; `npm run typecheck` replaces the old lint script.

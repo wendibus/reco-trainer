@@ -1489,5 +1489,42 @@ class FlagTemporalOutliersTests(unittest.TestCase):
         self.assertEqual(frames[1].get("reviewFlags", []), [])
 
 
+class EvaluateTrainedModelTests(unittest.TestCase):
+    """The stored quality score must describe the archived (best) checkpoint, not the last epoch."""
+
+    class _Model:
+        def __init__(self, label, pretrain_weights=None, device=None):
+            self.label = label
+            self.pretrain_weights = pretrain_weights
+
+        def evaluate(self, dataset_dir, split):
+            return {"val/mAP_50_95": 0.141 if self.pretrain_weights else 0.064}
+
+    def test_best_checkpoint_is_evaluated_instead_of_the_in_memory_last_epoch(self):
+        last_epoch_model = self._Model("last")
+        metrics = ml_worker.evaluate_trained_model(
+            last_epoch_model, lambda **kwargs: self._Model("best", **kwargs), Path("checkpoint_best_total.pth"), "cpu", Path("."), "en"
+        )
+        self.assertEqual(metrics, {"val/mAP_50_95": 0.141})
+
+    def test_falls_back_to_the_in_memory_model_when_the_checkpoint_cannot_load(self):
+        def broken(**kwargs):
+            raise RuntimeError("bad checkpoint")
+
+        metrics = ml_worker.evaluate_trained_model(self._Model("last"), broken, Path("x.pth"), "cpu", Path("."), "en")
+        self.assertEqual(metrics, {"val/mAP_50_95": 0.064})
+
+    def test_without_a_checkpoint_the_in_memory_model_is_evaluated(self):
+        metrics = ml_worker.evaluate_trained_model(self._Model("last"), None, None, "cpu", Path("."), "en")
+        self.assertEqual(metrics, {"val/mAP_50_95": 0.064})
+
+    def test_evaluation_failure_returns_no_metrics(self):
+        class Failing:
+            def evaluate(self, dataset_dir, split):
+                raise RuntimeError("no evaluate")
+
+        self.assertEqual(ml_worker.evaluate_trained_model(Failing(), None, None, "cpu", Path("."), "en"), {})
+
+
 if __name__ == "__main__":
     unittest.main()

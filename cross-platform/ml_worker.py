@@ -2367,6 +2367,47 @@ def dataset_class_count(dataset_root: Path, split: str) -> int | None:
         return None
 
 
+def evaluate_trained_model(
+    model: Any,
+    model_class: Any,
+    best_checkpoint: Path | None,
+    device: str,
+    dataset_root: Path,
+    language: str = "de",
+) -> dict[str, float]:
+    """Validation metrics of the checkpoint that will actually be archived.
+
+    After model.train() the in-memory model holds the weights of the LAST epoch, but the
+    archived (and compared) checkpoint is the BEST one. Evaluating the in-memory model
+    would store a quality score for different, usually worse, weights - so load the best
+    checkpoint into a fresh model and evaluate that. If it cannot be loaded, fall back to
+    the in-memory model and say so.
+    """
+    evaluated = model
+    if best_checkpoint is not None:
+        try:
+            evaluated = model_class(pretrain_weights=str(best_checkpoint), device=device)
+        except Exception as error:
+            evaluated = model
+            emit(localized(
+                language,
+                f"Hinweis: Der beste Checkpoint konnte für die Bewertung nicht geladen werden ({error}); bewertet wird der letzte Trainingsstand.",
+                f"Note: the best checkpoint could not be loaded for evaluation ({error}); the final training state is evaluated instead.",
+            ))
+    if not hasattr(evaluated, "evaluate"):
+        return {}
+    try:
+        emit(localized(language, "Bewerte das Modell auf dem Validierungssatz …", "Evaluating the model on the validation split …"))
+        return numeric_metrics(evaluated.evaluate(dataset_dir=str(dataset_root), split="val"))
+    except Exception as error:
+        emit(localized(
+            language,
+            f"Hinweis: Die Qualitätsbewertung war mit dieser RF-DETR-Version nicht verfügbar: {error}",
+            f"Note: quality evaluation was unavailable with this RF-DETR version: {error}",
+        ))
+        return {}
+
+
 def validate_resume_checkpoint(
     resume_checkpoint: Path | None, dataset_root: Path, language: str = "de"
 ) -> Path | None:
@@ -2634,18 +2675,9 @@ def train(args: argparse.Namespace) -> None:
             f"The installed RF-DETR version does not yet support these optional optimizations: "
             f"{', '.join(ignored)}.",
         ))
-    validation_metrics: dict[str, float] = {}
-    if hasattr(model, "evaluate"):
-        try:
-            emit(localized(args.language, "Bewerte das Modell auf dem Validierungssatz …", "Evaluating the model on the validation split …"))
-            evaluation = model.evaluate(dataset_dir=str(dataset_root), split="val")
-            validation_metrics = numeric_metrics(evaluation)
-        except Exception as error:
-            emit(localized(
-                args.language,
-                f"Hinweis: Die Qualitätsbewertung war mit dieser RF-DETR-Version nicht verfügbar: {error}",
-                f"Note: quality evaluation was unavailable with this RF-DETR version: {error}",
-            ))
+    validation_metrics = evaluate_trained_model(
+        model, model_class, preferred_run_checkpoint(output_dir), device, dataset_root, args.language
+    )
 
     refreshed = require_project(project_root, args.language)
     refreshed_frames = [
