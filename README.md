@@ -75,7 +75,7 @@ The extracted folders also contain `START-HERE.md` with a step-by-step tour of t
 1. **Prepare** — choose a sport and a video folder; frames are extracted locally (60 per video by default; you can lower or raise the number) and unsuitable ones can be removed.
 2. **Label** — draw and correct boxes, or let a model suggest them (**auto-label**) and review each suggestion. Mark the **field boundaries** (at least four points along the edge, joined by straight lines; points on the image edge when the field leaves the frame) so auto-label only considers people standing on the field, and tighten boxes with **Refine boxes with OpenCV**. Ten undo/redo steps per image.
 3. **Train** — fine-tune RF-DETR Nano or Small locally. Every run is kept as its own model version; a worse run never silently replaces the active one.
-4. **Improve** — **Review new videos** builds a review queue from footage the model has not seen, prioritizing uncertain frames (model disagreement, positional outliers). Only frames you reviewed enter training.
+4. **Improve** — **Review new videos** builds a review queue from footage the model has not seen, prioritizing uncertain frames (model disagreement, positional outliers). Only frames you reviewed enter training. **Check consistency** looks for missing, duplicate or jumping boxes (see [Consistency check](#consistency-check)).
 5. **Test** — **Independent model test** builds a held-out test set from videos never used for training; **Test models** ranks all compatible models on it (mAP@0.50, precision, recall, F1, mean IoU, false positives/negatives, inference time). You can also bake a **combined model** that uses the best model per category.
 6. **Inspect tracking** — the **ball-tracking simulation** plays a short clip frame by frame and shows detected, interpolated, held and lost ball positions.
 7. **Exchange** — export a CPU model (ONNX) or, on a Mac, an Apple model (Core ML); export a `.recomodel` package, or import one from a source you trust. Imports are checked against their checksum and scanned for executable code before they are ever used. ONNX detector packages (automatic labeling and benchmark only) are checked against their checksum; they contain no executable checkpoint. A YOLO model in ONNX format (NMS built in) can also be imported directly: **Import model** on the Mac accepts the `.onnx` file, the web UI has **Import ONNX model**; Reco Trainer asks for the classes and builds the package itself (see [MODEL-EXCHANGE.md](cross-platform/MODEL-EXCHANGE.md)).
@@ -116,6 +116,21 @@ python3 ml_worker.py import-labels --project "/path/to/videos/.reco-training" --
 
 Automatic anonymization is very good but not perfect - check samples before you share a dataset.
 
+## Consistency check
+
+**Check consistency** (in the review area) compares your labels with a second detector and with the timeline of each video:
+
+- **Second detector:** boxes that do not match (from an adjustable IoU on, default 0.5) mark a frame for review.
+- **Timeline:** players who suddenly vanish between two close frames, and positional outliers, are flagged too.
+- **Local VLM (optional):** a vision-language model (Qwen3.5) looks only at the flagged frames plus an optional sample of unremarkable ones. Confirmed problems become **hard examples**, which are used twice in training; unfounded warnings are cleared. With an anonymized export, the VLM can also check a sample of heads for faces that are still recognizable.
+
+The VLM runs **inside Reco Trainer on every platform** - no Ollama or other separate installation. On first use the app downloads a pinned `llama-server` build of llama.cpp for the system (macOS Apple silicon with Metal, Windows and Linux with CUDA or CPU, Linux arm64) and the model, verifies their checksums, and keeps them once per computer (macOS: `~/Library/Application Support/Reco Trainer/models`, Windows: `%LOCALAPPDATA%\Reco Trainer\models`, Linux: `~/.local/share/reco-trainer/models`; in Docker inside the project folder). The server listens on `127.0.0.1` only, runs just for the job and is stopped afterwards, which frees the GPU memory.
+
+- Qwen3.5-4B needs about 3.4 GB of downloads, Qwen3.5-9B (strong tier only) about 6.6 GB.
+- Linux: the CUDA and arm64 builds need glibc 2.38 or newer (Ubuntu 24.04, Debian 13); otherwise the CPU build is used (glibc 2.34, Ubuntu 22.04, Debian 12). The Docker image is based on Debian 13.
+- Intel Macs are not supported for the VLM; the check without the VLM still works everywhere.
+- Docker and other CPU-only systems count as the weak tier, so the VLM is not offered by default. Choose **medium** under **Advanced options** to use it anyway; on the CPU expect roughly 20 seconds per image.
+
 ## Models and licenses
 
 Reco Trainer only downloads models under **Apache-2.0** or **MIT**, each with a checksum ([`cross-platform/model_registry.json`](cross-platform/model_registry.json)); the licenses are shown in the export dialog and written into every export's `metadata.json`.
@@ -127,6 +142,8 @@ Reco Trainer only downloads models under **Apache-2.0** or **MIT**, each with a 
 | PP-OCRv3 text detector (OpenCV Zoo) | hiding text (optional) | Apache-2.0 |
 | SAM 2.1 Hiera Small / Base+ | refining boxes (optional) | Apache-2.0 |
 | Florence-2 Base / Large | second opinion during auto-label | MIT |
+| Qwen3.5-4B / 9B (GGUF by unsloth) | consistency check, anonymization check (optional) | Apache-2.0 |
+| llama.cpp `llama-server` (b11985) | runs the VLM locally | MIT |
 
 RF-DETR XL/2XL (PML 1.0), SAM 3 and Ultralytics models are not used. Hugging Face models are pinned to one exact revision.
 
@@ -134,9 +151,9 @@ RF-DETR XL/2XL (PML 1.0), SAM 3 and Ultralytics models are not used. Hugging Fac
 
 Reco Trainer picks a **hardware tier** and uses the models that fit (override under **Advanced options**):
 
-- **Strong** - NVIDIA GPU with 16 GB VRAM or Apple silicon with 32 GB or more: RF-DETR Large as suggestion model, Florence-2 Large as second opinion, SAM 2 Base+ when chosen.
-- **Medium** - NVIDIA with 8 GB or Apple with 16 GB: RF-DETR Medium, Florence-2 Base, SAM 2 Small.
-- **Weak** - CPU only: RF-DETR Small and Florence-2 Base, no SAM 2. Training and the anonymized export are much slower; a plain export needs no ML environment at all.
+- **Strong** - NVIDIA GPU with 16 GB VRAM or Apple silicon with 32 GB or more: RF-DETR Large as suggestion model, Florence-2 Large as second opinion, SAM 2 Base+ when chosen, VLM on by default (Qwen3.5-4B, 9B selectable).
+- **Medium** - NVIDIA with 8 GB or Apple with 16 GB: RF-DETR Medium, Florence-2 Base, SAM 2 Small, VLM optional (Qwen3.5-4B).
+- **Weak** - CPU only: RF-DETR Small and Florence-2 Base, no SAM 2 and no VLM. Training and the anonymized export are much slower; a plain export needs no ML environment at all.
 
 ## Privacy and security
 

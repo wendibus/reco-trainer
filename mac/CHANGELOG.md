@@ -1,5 +1,14 @@
 # Änderungen
 
+## 0.23.0
+
+- Neu: „Konsistenz prüfen“ – ein zweiter Detektor vergleicht alle geprüften Bilder mit den Labels (Übereinstimmung ab einstellbarem IoU, Standard 0,5), und der zeitliche Verlauf meldet plötzlich fehlende Spieler und springende Boxen. Auffällige Bilder kommen in eine Prüfliste, die sich Bild für Bild öffnen lässt.
+- Neu: Lokales Sprach-Bild-Modell (VLM, Qwen3.5-4B oder -9B, Apache-2.0) – schaut sich nur die auffälligen Bilder und optional eine Stichprobe an. Bestätigte Probleme werden als „Hard Example“ markiert und im Training doppelt verwendet; unbegründete Warnungen werden entfernt.
+- Neu: Das VLM ist fest in die App eingebaut, auf jeder Plattform – ohne Ollama oder andere Zusatzinstallation. Beim ersten Einsatz lädt die App eine feste llama.cpp-Version (`llama-server`, MIT) für das System (macOS Apple Silicon mit Metal, Windows und Linux mit CUDA oder CPU, Linux arm64) und das Modell, prüft die Prüfsummen und legt beides einmal pro Rechner ab. Der Server läuft nur während des Jobs auf 127.0.0.1 und gibt danach den Grafikspeicher frei.
+- Neu: Beim anonymisierten Export kann das VLM eine Stichprobe vergrößerter Kopfausschnitte auf noch erkennbare Gesichter prüfen; Treffer kommen auf die Prüfliste statt in den Export.
+- Hardware-Stufen: Auf „stark“ ist das VLM standardmäßig an (9B wählbar), auf „mittel“ optional, auf „schwach“ (nur CPU) nicht angeboten.
+- Geändert (Docker): Das Image basiert auf Debian 13, weil die llama.cpp-Versionen für Linux arm64 und CUDA glibc 2.38 brauchen. Ältere Linux-Systeme nutzen automatisch die CPU-Version.
+
 ## 0.22.0
 
 - Neu: Hardware-Stufen (stark, mittel, schwach) – erkannt über NVIDIA-VRAM bzw. den Arbeitsspeicher des Apple-Chips, nur CPU = schwach. Sie bestimmen, welche Modelle genutzt werden, und lassen sich unter „Erweiterte Optionen“ festlegen.
