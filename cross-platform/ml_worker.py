@@ -182,6 +182,54 @@ def training_profile(
     }
 
 
+class EpochProgressWatcher:
+    """Reports "epoch n of m" while RF-DETR trains, read from the metrics.csv its CSV logger
+    writes into the run folder (its own progress bar uses carriage returns, which a piped
+    log never sees). Only a file written after training started counts."""
+
+    def __init__(self, metrics_file: Path, target_epochs: int, language: str) -> None:
+        import threading
+        self.metrics_file = metrics_file
+        self.target = max(int(target_epochs), 1)
+        self.language = language
+        self.started = time.time()
+        self.stopped = threading.Event()
+        self.thread = threading.Thread(target=self.run, daemon=True)
+        self.reported = -1
+
+    def start(self) -> None:
+        self.thread.start()
+
+    def stop(self) -> None:
+        self.stopped.set()
+        self.thread.join(timeout=2)
+
+    def latest_epoch(self) -> int | None:
+        try:
+            if self.metrics_file.stat().st_mtime < self.started:
+                return None
+            with self.metrics_file.open(encoding="utf-8", errors="replace") as handle:
+                rows = csv.reader(handle)
+                header = next(rows, [])
+                if "epoch" not in header:
+                    return None
+                column = header.index("epoch")
+                epochs = [int(float(row[column])) for row in rows if len(row) > column and row[column]]
+            return max(epochs) if epochs else None
+        except (OSError, ValueError):
+            return None
+
+    def run(self) -> None:
+        while not self.stopped.wait(3.0):
+            epoch = self.latest_epoch()
+            if epoch is None or epoch == self.reported:
+                continue
+            self.reported = epoch
+            current = min(epoch + 1, self.target)
+            emit(localized(self.language, f"Epoche {current} von {self.target}", f"Epoch {current} of {self.target}", f"Época {current} de {self.target}", f"Époque {current} sur {self.target}"))
+            print(f"RECO_PROGRESS {min(epoch, self.target)} {self.target}", file=sys.stderr, flush=True)
+
+
 def call_with_supported_kwargs(function, kwargs: dict[str, Any]) -> tuple[Any, list[str]]:
     """Use newer RF-DETR performance switches while staying compatible with older installs."""
     try:
@@ -2953,7 +3001,12 @@ def train(args: argparse.Namespace) -> None:
         if use_continuation_checkpoint is not None:
             train_kwargs.update({"lr": 0.00005, "lr_encoder": 0.000075})
     stage(2, 3, localized(args.language, "Trainieren", "Train", "Entrenar", "Entraîner"))
-    _, ignored = call_with_supported_kwargs(model.train, train_kwargs)
+    watcher = EpochProgressWatcher(output_dir / "metrics.csv", target_epochs, args.language)
+    watcher.start()
+    try:
+        _, ignored = call_with_supported_kwargs(model.train, train_kwargs)
+    finally:
+        watcher.stop()
     if ignored:
         emit(localized(
             args.language,

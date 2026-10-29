@@ -1511,10 +1511,17 @@ def run_logged(command: list[str]) -> dict | None:
             STATE.append_log(line)
             clean = line.strip()
             match = re.search(r"(?:^|\s)(\d+)\s*/\s*(\d+)(?:\s|$)", clean)
-            values = {"message": clean or STATE.message}
-            if match and int(match.group(2)) > 0:
+            # Library warnings, indented continuation lines and timestamped library logs stay in
+            # the log but do not replace the status line shown in the progress window.
+            noise = (
+                not clean or line[:1].isspace() or "warn" in clean.lower() or "site-packages" in clean
+                or clean.startswith(("[20", "Traceback", "W1", "I1")) or clean[0] in "│┃└┌├┏┡┗┣━─╭╰═║╘╞╔╚"
+            )
+            values = {} if noise else {"message": clean}
+            if match and int(match.group(2)) > 0 and not noise:
                 values["progress"] = min(0.99, int(match.group(1)) / int(match.group(2)))
-            STATE.update(**values)
+            if values:
+                STATE.update(**values)
         code = process.wait()
     finally:
         untrack(process)
