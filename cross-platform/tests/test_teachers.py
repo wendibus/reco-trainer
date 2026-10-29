@@ -141,8 +141,10 @@ class Sam2RefinePathTests(unittest.TestCase):
     def test_opencv_method_never_loads_sam(self):
         self.assertEqual(ml_worker.sam2_refiner(self.root, "opencv", "strong", "en"), (None, None))
 
-    def test_weak_tier_without_sam_falls_back_to_opencv(self):
-        self.assertEqual(ml_worker.sam2_refiner(self.root, "auto", "weak", "en"), (None, None))
+    def test_sam_is_opt_in(self):
+        # "auto" keeps OpenCV on every tier; only an explicit "sam2" loads SAM 2.
+        for tier in ("strong", "medium", "weak"):
+            self.assertEqual(ml_worker.sam2_refiner(self.root, "auto", tier, "en"), (None, None))
 
 
 if __name__ == "__main__":

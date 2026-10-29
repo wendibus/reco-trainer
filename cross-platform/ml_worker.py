@@ -1342,11 +1342,16 @@ def opencv_refined_box(image: Any, annotation: dict[str, Any], cv2: Any, np: Any
     return best
 
 
+SAM_MIN_IOU = 0.75
+
+
 def sam2_refiner(project_root: Path, method: str, tier: str | None, language: str):
-    """SAM 2 when the method and the hardware tier allow it, else None (OpenCV is used).
-    method "sam2" insists on it (falls back to the small model on a weak tier)."""
+    """SAM 2 only when explicitly chosen (method "sam2"); "auto" and "opencv" keep OpenCV.
+    A first comparison against existing labels showed no measurable gain from SAM 2 (its masks
+    drop arms and legs of moving players), so it stays opt-in until a hand-checked set proves
+    otherwise. The model size follows the hardware tier (small on a weak tier)."""
     import teachers
-    if method == "opencv":
+    if method != "sam2":
         return None, None
     model_id = teachers.tier_plan(tier or hardware_tier())["refiner"] or ("sam2.1-hiera-small" if method == "sam2" else None)
     if model_id is None:
@@ -1412,7 +1417,9 @@ def refine_boxes(args: argparse.Namespace) -> None:
                 checked += 1
                 original = {key: float(annotation.get(key, 0)) for key in ("x", "y", "width", "height")}
                 box = (original["x"], original["y"], original["width"], original["height"])
-                if candidate is None or not plausible_refined_box(box, candidate, str(annotation.get("category", "ball"))):
+                # SAM 2 masks tend to drop arms and legs of moving players; only small, confident
+                # corrections are taken over (IoU >= 0.75 with the box it started from).
+                if candidate is None or not plausible_refined_box(box, candidate, str(annotation.get("category", "ball"))) or box_iou_xywh(box, candidate) < SAM_MIN_IOU:
                     unchanged += 1
                     continue
                 annotation.update({"x": candidate[0], "y": candidate[1], "width": candidate[2], "height": candidate[3]})
@@ -1587,6 +1594,7 @@ def flag_ensemble_disagreement(
     """
     library_root = (project_root / "models" / "library").resolve()
     if not library_root.is_dir():
+        flag_disagreement_with_florence(project_root, frames, target_categories, category_map, threshold, language, tier)
         return
     active_package_id = str((active_manifest or {}).get("packageID") or "")
     ranked_ids: list[str] = []
