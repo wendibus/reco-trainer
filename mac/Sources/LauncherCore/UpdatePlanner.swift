@@ -44,16 +44,21 @@ public enum UpdateDecision: Equatable, Sendable {
 public enum UpdatePlanner {
     public static func payloadAssetName(version: String) -> String { "Reco.Trainer.Payload.\(version).zip" }
 
-    public static func decide(release: Release, installedVersion: String) -> UpdateDecision {
+    /// `allowFileURLs` is only for local update tests (RECO_UPDATE_FEED); releases from GitHub must use https.
+    public static func decide(release: Release, installedVersion: String, allowFileURLs: Bool = false) -> UpdateDecision {
         let version = normalizedVersion(release.tagName)
         guard isNewerVersion(version, than: installedVersion) else { return .upToDate }
         let zipName = payloadAssetName(version: version)
         guard
             let zip = release.assets.first(where: { $0.name == zipName }),
             let signature = release.assets.first(where: { $0.name == zipName + ".sig" }),
-            zip.browserDownloadURL.scheme == "https",
-            signature.browserDownloadURL.scheme == "https"
+            isAllowed(zip.browserDownloadURL, allowFileURLs: allowFileURLs),
+            isAllowed(signature.browserDownloadURL, allowFileURLs: allowFileURLs)
         else { return .needsNewApp(version: version, releasePage: release.htmlURL) }
         return .available(version: version, zip: zip.browserDownloadURL, signature: signature.browserDownloadURL)
+    }
+
+    static func isAllowed(_ url: URL, allowFileURLs: Bool) -> Bool {
+        url.scheme == "https" || (allowFileURLs && url.isFileURL)
     }
 }

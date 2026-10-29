@@ -212,3 +212,22 @@ private func zip(directory: URL, to archive: URL) throws {
     let store = PayloadStore(installRoot: root, bundledRoot: nil, launcherVersion: "0.20.0")
     #expect(store.installedPayloads().isEmpty)
 }
+
+@Test func planRejectsFileURLsUnlessAllowedForLocalTests() {
+    let zip = URL(fileURLWithPath: "/tmp/feed/Reco.Trainer.Payload.0.21.0.zip")
+    let local = Release(
+        tagName: "v0.21.0",
+        htmlURL: URL(string: "https://github.com/wendibus/reco-trainer/releases/tag/v0.21.0")!,
+        assets: [
+            ReleaseAsset(name: zip.lastPathComponent, browserDownloadURL: zip),
+            ReleaseAsset(name: zip.lastPathComponent + ".sig", browserDownloadURL: zip.appendingPathExtension("sig")),
+        ]
+    )
+    guard case .needsNewApp = UpdatePlanner.decide(release: local, installedVersion: "0.20.0") else {
+        Issue.record("file URLs must not be accepted from a normal release"); return
+    }
+    guard case .available(let version, _, _) = UpdatePlanner.decide(release: local, installedVersion: "0.20.0", allowFileURLs: true) else {
+        Issue.record("expected available with allowFileURLs"); return
+    }
+    #expect(version == "0.21.0")
+}

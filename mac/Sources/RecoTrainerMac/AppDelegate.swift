@@ -111,7 +111,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
         defer { updateCheckRunning = false }
         do {
             let release = try await Updater.fetchLatestRelease()
-            switch UpdatePlanner.decide(release: release, installedVersion: installed) {
+            switch UpdatePlanner.decide(release: release, installedVersion: installed, allowFileURLs: Updater.allowsFileURLs) {
             case .upToDate:
                 if userInitiated {
                     inform(L("Reco Trainer ist auf dem neuesten Stand (Version \(installed)).",
