@@ -28,7 +28,17 @@ final class WorkerController {
     /// Keep identical to LAUNCH_SNIPPET in cross-platform/tests/test_launcher_contract.py.
     /// os.setsid() makes the worker the leader of its own process group, so quitting can stop it
     /// together with everything it spawned (training processes) in one go.
-    static let launchSnippet = "import os, sys; os.setsid(); os.execv(sys.executable, [sys.executable] + sys.argv[1:])"
+    /// Starts the worker in its own session so stop() can signal the whole process group. Process
+    /// already makes the child a process-group leader, and setsid() then fails with EPERM - in that
+    /// case the group exists already and the worker simply continues.
+    static let launchSnippet = """
+        import os, sys
+        try:
+            os.setsid()
+        except OSError:
+            pass
+        os.execv(sys.executable, [sys.executable] + sys.argv[1:])
+        """
 
     private(set) var port = WorkerController.preferredPort
     private var process: Process?

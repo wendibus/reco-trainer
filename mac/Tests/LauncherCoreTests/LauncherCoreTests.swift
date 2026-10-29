@@ -231,3 +231,18 @@ private func zip(directory: URL, to archive: URL) throws {
     }
     #expect(version == "0.21.0")
 }
+
+@Test func bundledVersionStaysRunnableWhenEverythingIsMarkedBad() throws {
+    let base = try makeTemporaryDirectory()
+    defer { try? FileManager.default.removeItem(at: base) }
+    let bundled = try writePayload(at: base.appendingPathComponent("bundled"), version: "0.20.0")
+    let root = base.appendingPathComponent("installed")
+    let store = PayloadStore(installRoot: root, bundledRoot: bundled, launcherVersion: "0.20.0")
+    _ = try store.seedBundledPayloadIfNeeded()
+    try writePayload(at: root.appendingPathComponent("0.20.1"), version: "0.20.1")
+
+    store.markBad(version: "0.20.1")
+    store.markBad(version: "0.20.0")
+    #expect(store.usablePayloads().isEmpty)
+    #expect(store.activePayload()?.version == "0.20.0")
+}

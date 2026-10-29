@@ -103,7 +103,14 @@ public final class PayloadStore {
         }
     }
 
-    public func activePayload() -> Payload? { usablePayloads().first }
+    /// The newest usable payload. When every installed version is marked as failing, the copy of
+    /// the version bundled inside the app is returned anyway: a failure caused by the environment
+    /// (a missing Python package, a busy port ...) must not lock the app out until a new app is installed.
+    public func activePayload() -> Payload? {
+        if let usable = usablePayloads().first { return usable }
+        guard let bundled = bundledRoot.flatMap(loadPayload(at:)) else { return nil }
+        return installedPayloads().first { $0.version == bundled.version }
+    }
 
     // MARK: Failing versions
 
