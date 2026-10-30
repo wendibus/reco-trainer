@@ -1,6 +1,6 @@
 # Änderungen
 
-## Unveröffentlicht
+## 0.24.0
 
 - Neu: Augmentation Studio – erzeugt aus einem Ordner mit Bildern und COCO-Labels einen synthetischen Trainingsdatensatz: Masken mit SAM 2 (Zwischenspeicher), leere Hallenplatte per Pixel-Median ab 15 Bildern, sonst Inpainting (LaMa, ersatzweise OpenCV), Personen werden mit passender Größe und Neigung neu platziert, Labels kommen aus der sichtbaren Maske. Feste Regeln: höchstens zwei Teams, 5 Spieler je Team, 3 Schiedsrichter, 1 Ball, keine Klone. Ein Prüfer erzeugt verletzende Bilder automatisch neu. Validierung und Test bleiben echt und nach Sessions getrennt. Gleicher Seed ergibt bitgleiche Bilder, ein abgebrochener Lauf lässt sich fortsetzen.
 - Studio: Ohne Kalibrierung und bei bewegter Kamera (weniger als 15 Bilder je Session) bleiben Personen nah an ihrer Originalposition, weil der Hallenboden nur dort bekannt ist. Als Ball markierte Objekte, die größer als eine halbe Person sind (z. B. ein Senderlogo), werden ignoriert und protokolliert.

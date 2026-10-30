@@ -91,5 +91,21 @@ class LauncherContractTests(unittest.TestCase):
         self.assertIn('["payload.json", "local_worker.py", "ml_worker.py", "ui/index.html"]', swift)
 
 
+class NoTrainingImagesInTheRepositoryTests(unittest.TestCase):
+    """Pictures of a training set, generated or real, must never reach the repository."""
+
+    ALLOWED = ("mac/Assets/", "mac/Assets.xcassets/", "mac/Sources/RecoTrainerMac/Resources/", "cross-platform/public/", "docs/screenshots/", "docs/training-video/")
+    SUFFIXES = {".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp", ".heic", ".tif", ".tiff"}
+
+    def test_tracked_pictures_are_only_the_apps_own(self):
+        repository = Path(__file__).resolve().parents[2]
+        try:
+            listed = subprocess.run(["git", "ls-files"], cwd=repository, capture_output=True, text=True, check=True).stdout
+        except (OSError, subprocess.CalledProcessError):
+            self.skipTest("not a git checkout")
+        pictures = [name for name in listed.splitlines() if Path(name).suffix.lower() in self.SUFFIXES]
+        self.assertEqual([name for name in pictures if not name.startswith(self.ALLOWED)], [])
+
+
 if __name__ == "__main__":
     unittest.main()

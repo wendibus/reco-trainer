@@ -22,3 +22,21 @@ __pycache__/
 # footage ever ends up committed to this repo by accident.
 !mac/Sources/RecoTrainerMac/Resources/walkthrough-*.mp4
 !cross-platform/public/walkthrough-*.mp4
+
+# No picture of a training set, generated or real, may ever reach this repository.
+# The exceptions are the app's own icons, documentation and UI assets.
+*.png
+*.jpg
+*.jpeg
+*.webp
+*.gif
+*.bmp
+*.heic
+*.tif
+*.tiff
+!mac/Assets/**
+!mac/Assets.xcassets/**
+!mac/Sources/RecoTrainerMac/Resources/**
+!cross-platform/public/**
+!docs/screenshots/**
+!docs/training-video/**
