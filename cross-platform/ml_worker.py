@@ -2347,6 +2347,28 @@ def anonymize_for_training(frame: dict[str, Any], fraction: float) -> bool:
     return bucket < fraction
 
 
+def build_augmented_dataset(project_root: Path, document: dict[str, Any], augmentation: dict[str, Any], categories: list[str] | None, language: str) -> Path:
+    """Training data from the Augmentation Studio: real validation and test images by session,
+    synthetic images only in training. "real-only" trains the same real split alone, which is
+    the fair comparison run for the benchmark."""
+    import augment_studio
+    work = Path(str(augmentation.get("work", "")))
+    if not (work / "output" / "split.json").is_file():
+        raise SystemExit(localized(language, "Der erzeugte Datensatz wurde nicht gefunden. Im Augmentation Studio neu erzeugen oder dort abschalten.", "The generated dataset was not found. Generate it again in the Augmentation Studio or switch it off there.", "No se encontró el conjunto generado. Vuelve a generarlo en Augmentation Studio o desactívalo allí.", "Le jeu de données généré est introuvable. Générez-le à nouveau dans Augmentation Studio ou désactivez-le."))
+    allowed = sport_categories(str(document.get("sport", "")))
+    dataset_root = project_root / "dataset"
+    counts = augment_studio.build_training_dataset(
+        work, dataset_root, int(augmentation.get("realWeight", 3)), augmentation["mode"] == "mixed", categories,
+        lambda name: normalized_label_class(name, allowed),
+    )
+    emit(localized(
+        language,
+        f"Augmentation Studio: Training {counts['train']}, Validierung {counts['valid']}, Test {counts['test']} Bilder (Validierung und Test nur echt).",
+        f"Augmentation Studio: training {counts['train']}, validation {counts['valid']}, test {counts['test']} images (validation and test real only).",
+    ))
+    return dataset_root
+
+
 def build_dataset(
     project_root: Path,
     language: str = "de",
@@ -2362,6 +2384,9 @@ def build_dataset(
     keeps the existing behavior: every category that has at least one annotation.
     """
     document = require_project(project_root, language)
+    augmentation = document.get("augmentation") or {}
+    if augmentation.get("mode") in {"mixed", "real-only"}:
+        return build_augmented_dataset(project_root, document, augmentation, categories, language)
     frames = [
         frame for frame in document.get("frames", [])
         if frame.get("reviewStatus") != "candidate" and not frame.get("heldOut")
@@ -4678,9 +4703,72 @@ def import_labels(args: argparse.Namespace) -> None:
 
 
 
+def augment_scan(args: argparse.Namespace) -> None:
+    """What the source folder holds; stops right away when annotations are missing."""
+    import augment_studio
+    try:
+        images, classes = augment_studio.load_source(Path(args.source), args.language)
+    except augment_studio.StudioError as error:
+        raise SystemExit(str(error))
+    print(json.dumps({"images": len(images), "classes": classes, "roles": augment_studio.default_roles(classes)}, ensure_ascii=False))
+
+
+def augment_config(args: argparse.Namespace) -> dict[str, Any]:
+    return json.loads((Path(args.work) / "config.json").read_text(encoding="utf-8"))
+
+
+def augment_analyze(args: argparse.Namespace) -> None:
+    import augment_studio
+    project_root = Path(args.project).resolve()
+
+    def make_masks():
+        import teachers
+        model_id = teachers.tier_plan(hardware_tier())["refiner"] or "sam2.1-hiera-small"
+        return augment_studio.Sam2Masks(download_registry_model(project_root, model_id, args.language), detect_device())
+
+    def make_inpaint():
+        try:
+            folder = download_registry_model(project_root, "lama-inpainting", args.language)
+            lama = augment_studio.LamaInpaint(next(Path(folder).rglob("*.onnx")))
+        except (ImportError, OSError, StopIteration, SystemExit) as error:
+            emit(localized(args.language, f"Hinweis: LaMa nicht verfügbar ({error}), es wird mit OpenCV gefüllt.", f"Note: LaMa is not available ({error}), OpenCV fills the gaps instead."))
+            return augment_studio.opencv_inpaint
+        return lama
+
+    try:
+        analysis = augment_studio.analyze(Path(args.source), Path(args.work), augment_config(args), args.language, make_masks, make_inpaint)
+    except augment_studio.StudioError as error:
+        raise SystemExit(str(error))
+    print(json.dumps({"sessions": len(analysis["sessions"]), "instances": len(analysis["instances"]), "dropped": analysis["dropped"]}, ensure_ascii=False))
+
+
+def augment_generate(args: argparse.Namespace) -> None:
+    import augment_studio
+    config = augment_config(args)
+    face_model = download_registry_model(Path(args.project).resolve(), "yunet-face", args.language) if config.get("anonymize") else None
+    try:
+        report = augment_studio.generate(Path(args.work), config, args.language, face_model=face_model)
+    except augment_studio.StudioError as error:
+        raise SystemExit(str(error))
+    print(json.dumps(report, ensure_ascii=False))
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Reco Trainer local ML worker")
     commands = parser.add_subparsers(dest="command", required=True)
+
+    scan_parser = commands.add_parser("augment-scan")
+    scan_parser.add_argument("--source", required=True)
+    scan_parser.add_argument("--language", choices=["de", "en", "es", "fr"], default="de")
+    scan_parser.set_defaults(func=augment_scan)
+
+    for name, handler in (("augment-analyze", augment_analyze), ("augment-generate", augment_generate)):
+        studio_parser = commands.add_parser(name)
+        studio_parser.add_argument("--project", required=True)
+        studio_parser.add_argument("--source", required=True)
+        studio_parser.add_argument("--work", required=True)
+        studio_parser.add_argument("--language", choices=["de", "en", "es", "fr"], default="de")
+        studio_parser.set_defaults(func=handler)
 
     doctor_parser = commands.add_parser("doctor")
     doctor_parser.set_defaults(func=doctor)

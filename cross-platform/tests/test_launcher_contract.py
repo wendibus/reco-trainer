@@ -80,7 +80,7 @@ class LauncherContractTests(unittest.TestCase):
             for required in ("payload.json", "local_worker.py", "ml_worker.py", "ui/index.html"):
                 self.assertIn(required, names)
             # Modules and data the workers load at run time must travel with them.
-            for companion in ("anonymize.py", "teachers.py", "vlm.py", "model_registry.json"):
+            for companion in ("anonymize.py", "teachers.py", "augment_studio.py", "vlm.py", "model_registry.json"):
                 self.assertIn(companion, names)
             manifest = json.loads(archive.read("payload.json"))
             self.assertEqual(manifest, {"version": version, "minLauncher": "0.20.0"})

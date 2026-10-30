@@ -1734,6 +1734,107 @@ def label_import_message(summary: dict, candidates: bool) -> str:
     return " ".join(parts)
 
 
+def augment_paths(root: Path) -> dict | None:
+    """The source the Augmentation Studio works on and its work folder inside the project."""
+    try:
+        current = json.loads((root / "augment" / "current.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    return current if current.get("source") and current.get("work") else None
+
+
+def augment_read_json(path: Path) -> dict | None:
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+
+
+def augment_select_source(root: Path, language: str) -> dict:
+    venv_python = venv_python_path(root / ".runtime" / "venv")
+    if not venv_python.is_file():
+        raise RuntimeError(localized("Für das Augmentation Studio zuerst „ML einrichten“ anklicken.", "For the Augmentation Studio, click “Set up ML” first.", "Para Augmentation Studio, pulsa primero «Configurar ML».", "Pour Augmentation Studio, cliquez d’abord sur « Configurer le ML »."))
+    source = choose_video_folder(labels=True).resolve()
+    scan = run_json([str(venv_python), str(find_ml_worker()), "augment-scan", "--source", str(source), "--language", language])
+    work = root / "augment" / hashlib.sha256(str(source).encode("utf-8")).hexdigest()[:12]
+    work.mkdir(parents=True, exist_ok=True)
+    atomic_json(root / "augment" / "current.json", {"source": str(source), "work": str(work)})
+    config = augment_read_json(work / "config.json") or {}
+    config.setdefault("roles", scan["roles"])
+    atomic_json(work / "config.json", config)
+    return scan
+
+
+def augment_state(root: Path) -> dict:
+    """Everything the studio page shows. Instances only with what the gallery needs."""
+    studio = augment_paths(root)
+    project = load_project(root) or {}
+    state: dict = {"source": None, "training": project.get("augmentation")}
+    if studio is None:
+        return state
+    work = Path(studio["work"])
+    analysis = augment_read_json(work / "analysis.json")
+    if analysis:
+        analysis["instances"] = [
+            {key: item.get(key) for key in ("id", "session", "role", "team", "uncertain", "complete", "image")}
+            for item in analysis["instances"] if item["role"] in {"player", "referee"}
+        ]
+        for session in analysis["sessions"]:
+            plate = session["plate"]["files"]
+            session["plateFile"] = plate.get("*") or next(iter(plate.values()), None)
+            session.pop("plate", None)
+            session.pop("sizeMap", None)
+            session.pop("tiltMap", None)
+    output = work / "output"
+    previews = sorted(path.name for path in (output / "preview").glob("*.jpg")) if (output / "preview").is_dir() else []
+    done = 0
+    if (output / "manifest.jsonl").is_file():
+        with (output / "manifest.jsonl").open(encoding="utf-8") as lines:
+            done = sum(1 for _ in lines)
+    state.update(source=studio["source"], config=augment_read_json(work / "config.json") or {}, analysis=analysis, report=augment_read_json(output / "report.json"), previews=previews, generated=done)
+    return state
+
+
+def augment_file(root: Path, kind: str, name: str) -> Path | None:
+    studio = augment_paths(root)
+    folder = {"thumb": "cache/thumbs", "plate": "cache/plates", "preview": "output/preview"}.get(kind)
+    if studio is None or folder is None or not name:
+        return None
+    base = (Path(studio["work"]) / folder).resolve()
+    target = (base / name).resolve()
+    return target if base in target.parents and target.is_file() else None
+
+
+AUGMENT_CONFIG_KEYS = {
+    "variations", "cropShare", "zoom", "outputSize", "seed", "roles", "limits", "jerseyVariation", "yolo", "anonymize",
+    "minVisible", "cropMinVisible", "sessionOverrides", "sessionLinks", "teamOverrides", "polygons", "splitOverrides",
+}
+
+
+def augment_save_config(root: Path, changes: dict) -> None:
+    studio = augment_paths(root)
+    if studio is None:
+        raise RuntimeError(localized("Zuerst einen Quellordner wählen.", "Select a source folder first.", "Primero selecciona una carpeta de origen.", "Sélectionnez d’abord un dossier source."))
+    path = Path(studio["work"]) / "config.json"
+    config = augment_read_json(path) or {}
+    config.update({key: value for key, value in changes.items() if key in AUGMENT_CONFIG_KEYS})
+    atomic_json(path, config)
+
+
+def augment_set_training(root: Path, payload: dict) -> None:
+    studio = augment_paths(root)
+    project = load_project(root)
+    if project is None or studio is None:
+        raise RuntimeError(localized("Zuerst einen Quellordner wählen.", "Select a source folder first.", "Primero selecciona una carpeta de origen.", "Sélectionnez d’abord un dossier source."))
+    mode = payload.get("mode")
+    if mode in {"mixed", "real-only"}:
+        project["augmentation"] = {"mode": mode, "work": studio["work"], "realWeight": max(1, min(20, int(payload.get("realWeight", 3))))}
+    else:
+        project.pop("augmentation", None)
+    atomic_json(root / "project.json", project)
+    STATE.update(project=project)
+
+
 def job_output_dirs(root: Path, action: str) -> list[Path]:
     """Folders a job writes into; after a cancel, entries it created or rewrote there are removed.
     Training is left out on purpose: its checkpoints are what a later run resumes from."""
@@ -1901,6 +2002,13 @@ def ml_action(action: str, payload: dict) -> None:
                     "--name", str(payload.get("name", "")), "--class-names", str(payload.get("classNames", "")),
                     "--input-size", str(input_size), "--license", str(payload.get("license", "")), "--language", language,
                 ]
+            elif action in {"augment-analyze", "augment-generate"}:
+                if not venv_python.is_file():
+                    raise RuntimeError(localized("Für das Augmentation Studio zuerst „ML einrichten“ anklicken.", "For the Augmentation Studio, click “Set up ML” first.", "Para Augmentation Studio, pulsa primero «Configurar ML».", "Pour Augmentation Studio, cliquez d’abord sur « Configurer le ML »."))
+                studio = augment_paths(root)
+                if studio is None:
+                    raise RuntimeError(localized("Zuerst einen Quellordner wählen.", "Select a source folder first.", "Primero selecciona una carpeta de origen.", "Sélectionnez d’abord un dossier source."))
+                args = [action, "--project", str(root), "--source", studio["source"], "--work", studio["work"], "--language", language]
             elif action == "export-dataset":
                 anonymized = bool(payload.get("anonymize"))
                 if anonymized and not venv_python.is_file():
@@ -2319,6 +2427,26 @@ class Handler(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(data)
             return
+        if route.path == "/api/augment/state":
+            root = STATE.project_root
+            self.json_response(augment_state(root) if root else {"source": None})
+            return
+        if route.path == "/api/augment/file":
+            root = STATE.project_root
+            query = parse_qs(route.query)
+            target = augment_file(root, (query.get("kind") or [""])[0], (query.get("name") or [""])[0]) if root else None
+            if target is None:
+                self.send_error(HTTPStatus.NOT_FOUND)
+                return
+            data = target.read_bytes()
+            self.send_response(HTTPStatus.OK)
+            self.add_cors()
+            self.send_header("Content-Type", "image/png" if target.suffix == ".png" else "image/jpeg")
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+            return
         if route.path == "/api/simulation-frame":
             root = STATE.project_root
             file_name = (parse_qs(route.query).get("file") or [""])[0]
@@ -2472,6 +2600,21 @@ class Handler(BaseHTTPRequestHandler):
                 self.json_response({"ok": True, "job": job})
             elif match := re.fullmatch(r"/api/jobs/([0-9a-f]{12})/cancel", self.path):
                 job = JOBS.cancel(match.group(1))
+                self.json_response({"ok": True, "job": job})
+            elif self.path in {"/api/augment/select-source", "/api/augment/config", "/api/augment/training"}:
+                root = STATE.project_root
+                if root is None or not (root / "project.json").is_file():
+                    raise RuntimeError(localized("Zuerst den Arbeitsordner vorbereiten.", "Prepare the working folder first.", "Primero prepara la carpeta de trabajo.", "Préparez d’abord le dossier de travail."))
+                if self.path == "/api/augment/select-source":
+                    augment_select_source(root, STATE.language)
+                elif self.path == "/api/augment/config":
+                    augment_save_config(root, payload.get("config") or {})
+                else:
+                    augment_set_training(root, payload)
+                self.json_response({"ok": True, "augment": augment_state(root)})
+            elif self.path in {"/api/augment/analyze", "/api/augment/generate"}:
+                action = "augment-" + self.path.rsplit("/", 1)[1]
+                job = JOBS.submit(action, ml_action, action, payload)
                 self.json_response({"ok": True, "job": job})
             elif self.path == "/api/prepare":
                 count = frames_per_video(payload.get("framesPerVideo"))

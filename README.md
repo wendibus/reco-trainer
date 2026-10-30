@@ -131,6 +131,18 @@ The VLM runs **inside Reco Trainer on every platform** - no Ollama or other sepa
 - Intel Macs are not supported for the VLM; the check without the VLM still works everywhere.
 - Docker and other CPU-only systems count as the weak tier, so the VLM is not offered by default. Choose **medium** under **Advanced options** to use it anyway; on the CPU expect roughly 20 seconds per image.
 
+## Augmentation Studio
+
+**✦ Augmentation Studio** generates a labelled synthetic training set from a folder with images and COCO annotations.
+
+- **Analyze:** SAM 2 masks from the boxes (existing masks are used, unusable ones are logged), sessions, an empty-hall plate (pixel median from 15 frames of a session, otherwise inpainting with LaMa or OpenCV), size and tilt of people across the image, two teams per session. Sessions, teams and the court outline can be corrected in the UI.
+- **Generate:** people are placed at a new spot with the size and lean of that spot. Labels come from the visible mask. Fixed rules: at most two teams, 5 players per team and 3 referees on the court, 1 ball, no person twice. A validator regenerates any image that breaks a rule.
+- **Training:** validation and test stay real and are split by session; real images count 3x by default. The same seed gives bit-identical images, and a cancelled run continues where it stopped.
+- **Output:** `images/`, `annotations.coco.json`, `manifest.jsonl`, `report.json`, a preview gallery and optionally YOLO labels.
+- **Calibration (optional):** `calibration.json` in the source folder, `{"homography": 3x3 image to court in metres, "polygon": [[x, y], ...]}`, directly or per session under `"sessions"`.
+
+The studio works best with a fixed camera. With a moving camera a session has only a few frames, so people stay close to where they stood. It has not yet been shown that synthetic images improve a model: compare real+synthetic against real-only with the benchmark on real validation data.
+
 ## Models and licenses
 
 Reco Trainer only downloads models under **Apache-2.0** or **MIT**, each with a checksum ([`cross-platform/model_registry.json`](cross-platform/model_registry.json)); the licenses are shown in the export dialog and written into every export's `metadata.json`.
@@ -140,7 +152,8 @@ Reco Trainer only downloads models under **Apache-2.0** or **MIT**, each with a 
 | RF-DETR Nano / Small / Medium / Large (COCO) | training base, auto-label, finding people for anonymization | Apache-2.0 |
 | YuNet face detector (OpenCV Zoo) | anonymization | MIT |
 | PP-OCRv3 text detector (OpenCV Zoo) | hiding text (optional) | Apache-2.0 |
-| SAM 2.1 Hiera Small / Base+ | refining boxes (optional) | Apache-2.0 |
+| SAM 2.1 Hiera Small / Base+ | refining boxes (optional), Augmentation Studio masks | Apache-2.0 |
+| LaMa (ONNX by Carve) | empty-hall plates in the Augmentation Studio | Apache-2.0 |
 | Florence-2 Base / Large | second opinion during auto-label | MIT |
 | Qwen3.5-4B / 9B (GGUF by unsloth) | consistency check, anonymization check (optional) | Apache-2.0 |
 | llama.cpp `llama-server` (b11985) | runs the VLM locally | MIT |

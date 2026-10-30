@@ -104,6 +104,22 @@
       "bytes": 323500000
     },
     {
+      "id": "lama-inpainting",
+      "name": "LaMa (ONNX)",
+      "purpose": "augmentation-inpaint",
+      "license": "Apache-2.0",
+      "licenseUrl": "https://huggingface.co/Carve/LaMa-ONNX",
+      "source": "https://huggingface.co/Carve/LaMa-ONNX",
+      "huggingFace": {
+        "repo": "Carve/LaMa-ONNX",
+        "revision": "c3c0c9e468934d62e79c329e35d82dd09ff8c444",
+        "files": [
+          "lama_fp32.onnx"
+        ]
+      },
+      "bytes": 208000000
+    },
+    {
       "id": "florence-2-base",
       "name": "Florence-2 Base",
       "purpose": "second-teacher",
