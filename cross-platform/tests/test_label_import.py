@@ -195,6 +195,57 @@ if __name__ == "__main__":
     unittest.main()
 
 
+class WorkingFolderImportTests(unittest.TestCase):
+    def setUp(self):
+        self.temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temporary.cleanup)
+        self.folder = Path(self.temporary.name)
+        self.project = self.folder / ".reco-training"
+        self.project.mkdir()
+        (self.project / "project.json").write_text(json.dumps({"sport": "football", "frames": []}), encoding="utf-8")
+
+    def image(self, path: Path, shade: int) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        Image.new("RGB", (100, 50), (shade, shade, shade)).save(path)
+
+    def frames(self) -> list[dict]:
+        return json.loads((self.project / "project.json").read_text(encoding="utf-8"))["frames"]
+
+    def test_images_without_labels_become_frames_to_label(self):
+        self.image(self.folder / "a.jpg", 10)
+        self.image(self.folder / "sub" / "b.png", 20)
+        summary = run_import(self.project, self.folder, include_unlabelled=True)
+        self.assertEqual((summary["imported"], summary["unlabelled"]), (2, 2))
+        frames = self.frames()
+        self.assertTrue(all(frame["annotations"] == [] and "reviewStatus" not in frame for frame in frames))
+        self.assertTrue(all((self.project / frame["relativePath"]).is_file() for frame in frames))
+
+    def test_a_dataset_keeps_its_labels_next_to_plain_images(self):
+        self.image(self.folder / "images" / "labelled.jpg", 10)
+        self.image(self.folder / "images" / "plain.jpg", 20)
+        (self.folder / "labels").mkdir()
+        (self.folder / "labels" / "labelled.txt").write_text("0 0.5 0.5 0.2 0.2\n", encoding="utf-8")
+        (self.folder / "data.yaml").write_text("names:\n  0: Ball\n", encoding="utf-8")
+        summary = run_import(self.project, self.folder, include_unlabelled=True)
+        self.assertEqual((summary["imported"], summary["unlabelled"], summary["annotations"]), (2, 1, 1))
+        self.assertEqual(sorted(frame.get("reviewStatus", "none") for frame in self.frames()), ["none", "reviewed"])
+
+    def test_labels_without_class_names_do_not_stop_the_images(self):
+        self.image(self.folder / "images" / "a.jpg", 10)
+        (self.folder / "labels").mkdir()
+        (self.folder / "labels" / "a.txt").write_text("0 0.5 0.5 0.2 0.2\n", encoding="utf-8")
+        summary = run_import(self.project, self.folder, include_unlabelled=True)
+        self.assertEqual(summary["imported"], 1)
+        self.assertEqual(summary["skippedClasses"], {"class 0": 1})
+
+    def test_the_project_and_hidden_folders_are_not_read_as_images(self):
+        self.image(self.folder / "a.jpg", 10)
+        self.image(self.project / "frames" / "old.jpg", 30)
+        self.image(self.folder / ".thumbnails" / "t.jpg", 40)
+        self.assertEqual(run_import(self.project, self.folder, include_unlabelled=True)["imported"], 1)
+        self.assertEqual(run_import(self.project, self.folder, include_unlabelled=True)["duplicates"], 1)
+
+
 class ImportedFramesSplitTests(unittest.TestCase):
     @staticmethod
     def frames(video_id: str, count: int) -> list[dict]:

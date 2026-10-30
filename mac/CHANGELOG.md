@@ -2,6 +2,8 @@
 
 ## Unveröffentlicht
 
+- Neu: Fährt man mit der Maus über eine Taste, erscheint ein kurzer Hinweis in der eingestellten Sprache (DE, EN, ES, FR). Die Taste „Hinweise“ oben neben den Systemen schaltet das ab; die Einstellung bleibt gespeichert.
+- Neu: Aus dem Videoordner wird der Arbeitsordner. Videos werden wie bisher zu Frames, Bilder werden zum Beschriften übernommen, und liegen Labels dabei (YOLO oder COCO), werden sie mitübernommen. Ist der Ordner leer, erscheint ein Hinweis, dass Videos, Bilder oder Datensätze hineingehören. Liegen nur Bilder darin, bleiben früher vorbereitete Video-Frames erhalten.
 - Korrigiert: Ein Projekt nur aus importierten Bildern wird nicht mehr nach Dateireihenfolge geteilt, sondern gemischt und reproduzierbar. Beim Fußball-Datensatz bestand der Test-Split vorher nur aus v7-Ausschnitten. Der Hinweis nennt die Qualitätswerte jetzt ausdrücklich „nicht unabhängig“, weil gleiche Szenen in Training und Test liegen können.
 - Korrigiert: Neben echten Videos dienen importierte Bilder nur noch dem Training; Validierung und Test kommen aus den Videos. Bisher konnte der ganze Import in einem Split landen und ein Test mit Importbildern als unabhängig gelten. Die Splits solcher Projekte ändern sich dadurch, Qualitätswerte sind mit älteren Trainings nicht direkt vergleichbar.
 

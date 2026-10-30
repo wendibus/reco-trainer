@@ -2,12 +2,15 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import re
 import stat
 import sys
 import tempfile
 import unittest
 from unittest import mock
 from pathlib import Path, PurePosixPath, PureWindowsPath
+
+from PIL import Image
 
 
 WORKER_PATH = Path(__file__).parents[1] / "local_worker.py"
@@ -418,6 +421,61 @@ class CancelExtractionTests(unittest.TestCase):
             self.assertIsNone(local_worker.STATE.error)
             self.assertEqual(json.loads((root / "project.json").read_text()), previous)
             self.assertEqual(list(root.glob("frames.next-*")), [])
+
+
+class WorkingFolderTests(unittest.TestCase):
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.folder = Path(temporary.name)
+        self.root = self.folder / ".reco-training"
+        self.root.mkdir()
+        saved = (local_worker.STATE.selected_folder, local_worker.STATE.project_root, local_worker.STATE.project, local_worker.STATE.folder_empty)
+        self.addCleanup(lambda: local_worker.STATE.update(selected_folder=saved[0], project_root=saved[1], project=saved[2], folder_empty=saved[3]))
+        language = local_worker.STATE.language
+        self.addCleanup(lambda: setattr(local_worker.STATE, "language", language))
+        local_worker.STATE.language = "de"
+        local_worker.STATE.update(selected_folder=self.folder, project_root=self.root, project=None, folder_empty=False, operation="selected", error=None)
+
+    def test_an_empty_folder_counts_as_empty_even_with_a_project_inside(self):
+        (self.root / "frames").mkdir()
+        (self.root / "frames" / "old.jpg").write_bytes(b"x")
+        (self.folder / "notes.txt").write_text("x", encoding="utf-8")
+        self.assertTrue(local_worker.folder_is_empty(self.folder))
+        (self.folder / "a.JPG").write_bytes(b"x")
+        self.assertFalse(local_worker.folder_is_empty(self.folder))
+
+    def test_a_video_is_content(self):
+        (self.folder / "game.mp4").write_bytes(b"x")
+        self.assertFalse(local_worker.folder_is_empty(self.folder))
+
+    def test_preparing_an_empty_folder_says_what_to_add_and_writes_nothing(self):
+        local_worker.extract_project("football", 20)
+        self.assertEqual(local_worker.STATE.operation, "error")
+        self.assertIn("noch leer", local_worker.STATE.error or "")
+        self.assertTrue(local_worker.STATE.folder_empty)
+        self.assertFalse((self.root / "project.json").exists())
+
+    def test_only_images_keeps_frames_of_videos_prepared_earlier(self):
+        earlier = {"id": "v-1", "videoID": "abc", "relativePath": "frames/abc-000001.jpg", "timestamp": 0.0, "width": 10, "height": 10,
+                   "annotations": [{"id": "1", "category": "ball", "x": 1, "y": 1, "width": 2, "height": 2}]}
+        (self.root / "project.json").write_text(json.dumps({"schemaVersion": 2, "sport": "football", "frames": [earlier]}), encoding="utf-8")
+        Image.new("RGB", (40, 20)).save(self.folder / "a.jpg")
+        local_worker.extract_project("football", 20)
+        self.assertEqual(local_worker.STATE.operation, "ready", local_worker.STATE.error)
+        frames = local_worker.STATE.project["frames"]
+        self.assertEqual(len(frames), 2)
+        self.assertEqual(frames[0]["annotations"], earlier["annotations"])
+        self.assertTrue(frames[1]["videoID"].startswith("import-"))
+
+
+class StaticHintsTests(unittest.TestCase):
+    def test_every_button_has_a_hint_and_no_native_tooltip_bypasses_the_switch(self):
+        for path in (Path(local_worker.__file__).parent / "app").glob("*.tsx"):
+            text = path.read_text(encoding="utf-8")
+            self.assertNotIn(" title={", text, path.name)
+            for match in re.finditer(r"<button\b(.{0,40})", text):
+                self.assertIn("data-hint=", match.group(1), f"{path.name}: {match.group(0)}")
 
 
 class RunLoggedEncodingTests(unittest.TestCase):

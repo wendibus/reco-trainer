@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import type { Job } from './JobDialog';
+import { hintText } from './hints';
 
 type Language = 'de' | 'en' | 'es' | 'fr';
 export type RegistryModel = { id: string; name: string; purpose?: string; license: string; licenseUrl?: string; source?: string; installed?: boolean | null };
@@ -96,7 +97,7 @@ export function ExportDialog({ language, mlReady, accelerated, registry, vlmAllo
       </div>}
       <label className="export-toggle"><input type="checkbox" checked={options.zip} onChange={(event) => set({ zip: event.target.checked })} /><span>{t.zip}</span></label>
       {models.length > 0 && <details className="export-models"><summary>{t.models}</summary><ul>{models.map((model) => <li key={model.id}>{model.name} · {model.licenseUrl ? <a href={model.licenseUrl} target="_blank" rel="noreferrer">{model.license}</a> : model.license}</li>)}</ul></details>}
-      <div className="onnx-actions"><button type="button" className="secondary-button" onClick={onClose}>{t.cancel}</button><button type="submit" className="primary-button">{t.start}</button></div>
+      <div className="onnx-actions"><button data-hint={hintText[language].cancel} type="button" className="secondary-button" onClick={onClose}>{t.cancel}</button><button data-hint={hintText[language].startExport} type="submit" className="primary-button">{t.start}</button></div>
     </form>
   </div>;
 }
@@ -112,10 +113,10 @@ export function ExportResult({ job, language, onReveal, onOpenFrame }: {
   return <div className="export-result">
     <p>{t.resultImages(result.images ?? 0, result.annotations ?? 0)}</p>
     <p className="export-path"><span>{t.resultFolder}</span><code>{result.zip ?? result.folder}</code></p>
-    {result.name && <button type="button" className="secondary-button" onClick={() => onReveal(result.name!)}>{t.showFolder}</button>}
+    {result.name && <button data-hint={hintText[language].showFolder} type="button" className="secondary-button" onClick={() => onReveal(result.name!)}>{t.showFolder}</button>}
     {held.length > 0 && <div className="export-held">
       <p><strong>{t.heldBack(held.length)}</strong> {t.heldBackHint}</p>
-      <div className="export-held-list">{held.slice(0, 40).map((frameID, index) => <button type="button" key={frameID} className="tool-button" onClick={() => onOpenFrame(frameID)}>{t.openFrame(index + 1)}</button>)}</div>
+      <div className="export-held-list">{held.slice(0, 40).map((frameID, index) => <button data-hint={hintText[language].openFrame} type="button" key={frameID} className="tool-button" onClick={() => onOpenFrame(frameID)}>{t.openFrame(index + 1)}</button>)}</div>
     </div>}
     {result.models && result.models.length > 0 && <details className="export-models"><summary>{t.models}</summary><ul>{result.models.map((model) => <li key={model.id}>{model.name} · {model.license}</li>)}</ul></details>}
   </div>;

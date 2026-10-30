@@ -4327,6 +4327,14 @@ def export_model(args: argparse.Namespace) -> None:
 
 
 IMPORT_IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png"}
+
+
+def dataset_rglob(source: Path, pattern: str):
+    """rglob without hidden entries and the project Reco Trainer keeps inside a working folder."""
+    for path in source.rglob(pattern):
+        parts = path.relative_to(source).parts
+        if not any(part.startswith(".") or part == "Reco Training" for part in parts):
+            yield path
 LABEL_CLASS_ALIASES = {
     "player": "player", "players": "player", "person": "player", "people": "player",
     "ball": "ball", "soccer ball": "ball", "soccerball": "ball", "sports ball": "ball", "basketball": "ball",
@@ -4385,7 +4393,7 @@ def parse_class_map(text: str | None) -> dict[int, str]:
 
 def yolo_class_names(source: Path) -> dict[int, str]:
     """Class id -> name from data.yaml (names: list / inline list / id: name block) or classes.txt."""
-    for yaml_path in sorted(source.rglob("*.yaml"))[:20]:
+    for yaml_path in sorted(dataset_rglob(source, "*.yaml"))[:20]:
         try:
             lines = yaml_path.read_text(encoding="utf-8").splitlines()
         except (OSError, UnicodeDecodeError):
@@ -4420,7 +4428,7 @@ def yolo_class_names(source: Path) -> dict[int, str]:
                         result[int(key.strip())] = value.strip().strip("'\"")
             return result or dict(enumerate(list_names))
     for name_file in ("classes.txt", "obj.names", "labels.txt"):
-        for candidate in sorted(source.rglob(name_file))[:1]:
+        for candidate in sorted(dataset_rglob(source, name_file))[:1]:
             try:
                 names = [line.strip() for line in candidate.read_text(encoding="utf-8").splitlines() if line.strip()]
             except (OSError, UnicodeDecodeError):
@@ -4446,7 +4454,7 @@ def parse_yolo_labels(source: Path, class_names: dict[int, str]) -> tuple[list[d
     """Images with YOLO txt labels -> items with pixel boxes; counts what was left out."""
     items: list[dict[str, Any]] = []
     stats = {"imagesWithoutLabels": 0, "invalidLines": 0, "unreadableImages": 0}
-    for image in sorted(path for path in source.rglob("*") if path.suffix.lower() in IMPORT_IMAGE_SUFFIXES and path.is_file()):
+    for image in sorted(path for path in dataset_rglob(source, "*") if path.suffix.lower() in IMPORT_IMAGE_SUFFIXES and path.is_file()):
         label_file = yolo_label_path(image)
         if label_file is None:
             stats["imagesWithoutLabels"] += 1
@@ -4487,7 +4495,7 @@ def parse_yolo_labels(source: Path, class_names: dict[int, str]) -> tuple[list[d
 def parse_coco_labels(source: Path) -> tuple[list[dict[str, Any]], dict[str, int]]:
     items: list[dict[str, Any]] = []
     stats = {"imagesWithoutLabels": 0, "invalidLines": 0, "unreadableImages": 0}
-    for json_path in sorted(source.rglob("*.json")):
+    for json_path in sorted(dataset_rglob(source, "*.json")):
         try:
             document = json.loads(json_path.read_text(encoding="utf-8"))
         except (OSError, ValueError, UnicodeDecodeError):
@@ -4511,7 +4519,7 @@ def parse_coco_labels(source: Path) -> tuple[list[dict[str, Any]], dict[str, int
             file_name = str(entry.get("file_name", ""))
             image = next((c for c in (json_path.parent / file_name, source / file_name) if c.is_file()), None)
             if image is None:
-                matches = [p for p in source.rglob(Path(file_name).name) if p.is_file()] if file_name else []
+                matches = [p for p in dataset_rglob(source, Path(file_name).name) if p.is_file()] if file_name else []
                 image = matches[0] if matches else None
             if image is None or image.suffix.lower() not in IMPORT_IMAGE_SUFFIXES:
                 stats["unreadableImages"] += 1
@@ -4530,6 +4538,7 @@ def import_labels(args: argparse.Namespace) -> None:
     Images are copied to frames/imported/ and added as frames of one pseudo-video per
     import (split_frames treats these separately from real videos). A frame already in the project with the
     same file name only gets the labels. Re-importing the same image is skipped.
+    With include_unlabelled (working folder) images without labels become frames to label.
     """
     project_root = Path(args.project).resolve()
     document = require_project(project_root, args.language)
@@ -4541,20 +4550,32 @@ def import_labels(args: argparse.Namespace) -> None:
 
     coco_present = any(
         path.suffix.lower() == ".json" and '"annotations"' in path.read_text(encoding="utf-8", errors="ignore")[:2_000_000]
-        for path in sorted(source.rglob("*.json"))[:50]
+        for path in sorted(dataset_rglob(source, "*.json"))[:50]
     )
     chosen = args.format if args.format != "auto" else ("coco" if coco_present else "yolo")
+    include_unlabelled = bool(getattr(args, "include_unlabelled", False))
     if chosen == "coco":
         items, stats = parse_coco_labels(source)
     else:
         class_names = {**yolo_class_names(source), **parse_class_map(args.class_map)}
-        if not class_names:
+        if not class_names and not include_unlabelled:
             raise SystemExit(localized(
                 args.language,
                 "Keine Klassennamen gefunden. Eine data.yaml/classes.txt in den Ordner legen oder --class-map \"0=player,1=ball,2=referee\" angeben.",
                 "No class names found. Put a data.yaml/classes.txt in the folder or pass --class-map \"0=player,1=ball,2=referee\".",
             ))
         items, stats = parse_yolo_labels(source, class_names)
+    if include_unlabelled:
+        labelled = {item["image"].resolve() for item in items}
+        for image in sorted(path for path in dataset_rglob(source, "*") if path.suffix.lower() in IMPORT_IMAGE_SUFFIXES and path.is_file()):
+            if image.resolve() in labelled:
+                continue
+            size = image_size(image)
+            if size is None:
+                stats["unreadableImages"] += 1
+                continue
+            items.append({"image": image, "width": size[0], "height": size[1], "boxes": [], "unlabelled": True})
+        stats["imagesWithoutLabels"] = 0
     if not items:
         raise SystemExit(localized(args.language, "Keine Bilder mit Labels gefunden.", "No labelled images were found."))
 
@@ -4565,10 +4586,13 @@ def import_labels(args: argparse.Namespace) -> None:
     known_ids = {str(frame.get("id")) for frame in frames}
     target_dir = project_root / "frames" / "imported"
     skipped_classes: dict[str, int] = defaultdict(int)
-    summary = {"imported": 0, "matched": 0, "duplicates": 0, "annotations": 0, "format": chosen}
+    summary = {"imported": 0, "unlabelled": 0, "matched": 0, "duplicates": 0, "annotations": 0, "format": chosen}
     pending_copies: list[tuple[Path, Path]] = []
 
     for order, item in enumerate(items):
+        if include_unlabelled and order % 50 == 0:
+            print(f"RECO_PROGRESS {order} {len(items) * 2}", file=sys.stderr, flush=True)
+        unlabelled = bool(item.get("unlabelled"))
         annotations: list[dict[str, Any]] = []
         for box in item["boxes"]:
             category = normalized_label_class(box["class"], allowed)
@@ -4589,7 +4613,7 @@ def import_labels(args: argparse.Namespace) -> None:
             })
         existing = by_name.get(item["image"].name)
         if existing is not None and not is_imported_frame(existing):
-            if existing.get("annotations") and not args.overwrite:
+            if unlabelled or (existing.get("annotations") and not args.overwrite):
                 summary["duplicates"] += 1
                 continue
             existing["annotations"] = annotations
@@ -4615,14 +4639,17 @@ def import_labels(args: argparse.Namespace) -> None:
             "width": item["width"],
             "height": item["height"],
             "annotations": annotations,
-            "reviewStatus": "candidate" if as_candidates else "reviewed",
+            **({} if unlabelled else {"reviewStatus": "candidate" if as_candidates else "reviewed"}),
         })
         summary["imported"] += 1
+        summary["unlabelled"] += int(unlabelled)
         summary["annotations"] += len(annotations)
 
     if summary["imported"] or summary["matched"]:
         target_dir.mkdir(parents=True, exist_ok=True)
-        for source_file, destination in pending_copies:
+        for copied, (source_file, destination) in enumerate(pending_copies):
+            if include_unlabelled and copied % 50 == 0:
+                print(f"RECO_PROGRESS {len(items) + copied * len(items) // len(pending_copies)} {len(items) * 2}", file=sys.stderr, flush=True)
             shutil.copy2(source_file, destination)
         backup = project_file(project_root).with_name("project.json.before-import")
         shutil.copy2(project_file(project_root), backup)
@@ -4809,6 +4836,7 @@ def build_parser() -> argparse.ArgumentParser:
     import_labels_parser.add_argument("--class-map", default="", help='YOLO class ids, e.g. "0=player,1=ball,2=referee"')
     import_labels_parser.add_argument("--candidates", action="store_true", help="import as unreviewed suggestions instead of reviewed labels")
     import_labels_parser.add_argument("--overwrite", action="store_true", help="replace labels of frames that already have some")
+    import_labels_parser.add_argument("--include-unlabelled", action="store_true", help="also add images without labels as frames to label (working folder)")
     import_labels_parser.add_argument("--language", default="de", choices=["de", "en", "es", "fr"])
     import_labels_parser.set_defaults(func=import_labels)
     return parser

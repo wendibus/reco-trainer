@@ -7,7 +7,7 @@ This is no longer a UI-only preview. The browser provides the interface while a 
 1. Double-click `Start Reco Trainer.command` (macOS), `Start Reco Trainer Windows.bat` (Windows), or `Start Reco Trainer Linux.sh` (Linux).
 2. Leave the terminal window open.
 3. In Reco Trainer, choose a sport.
-4. Click "Select video folder" and confirm the folder in the native file dialog.
+4. Click "Select working folder" and confirm the folder in the native file dialog.
 5. Click "Prepare videos locally". Real JPEG frames are now generated under `.reco-training/frames/` inside the selected folder. A later re-run keeps existing annotations and creates a local backup first. The default is 60 images per video; the field can be lowered or raised before preparing.
 6. Run "Set up ML" once. This sets up an isolated Python environment under `.reco-training/.runtime/` and downloads RF-DETR.
 7. Auto-label, set the minimum confidence, and review the suggestions. Automatic annotations can be accepted or discarded per frame. Optionally use "Set field boundaries" (four corners plus the field's real size, or more points around any outline; points can be dragged and the last one removed) so auto-label only considers people standing on the field, and "Refine boxes with OpenCV" to tighten boxes locally.
@@ -44,16 +44,16 @@ To stop, double-click `Stop Reco Preview.command` (macOS) or press `Ctrl+C` in t
 
 ### Docker
 
-- An explicitly mounted video folder, provided via `RECO_VIDEO_FOLDER`.
+- An explicitly mounted working folder, provided via `RECO_VIDEO_FOLDER`.
 - The port is published only on `127.0.0.1` of the host machine; open <http://localhost:8766/>.
-- To import a model package, place the single `.recomodel` file in the mounted video folder or in `.reco-training/inbox/`.
+- To import a model package, place the single `.recomodel` file in the mounted working folder or in `.reco-training/inbox/`.
 
 ## Privacy
 
 - The worker binds exclusively to `127.0.0.1:8766`.
 - It has no upload endpoint.
 - Folders are selected through the native OS file dialog.
-- Videos, frames, annotations, training runs, and models live exclusively under `.reco-training/` inside the selected video folder.
+- Videos, frames, annotations, training runs, and models live exclusively under `.reco-training/` inside the selected working folder.
 - Up to 30 local project backups are kept under `.reco-training/backups/` before changes.
 - The first-time RF-DETR setup needs internet access for the ML packages and pretrained weights. Sports videos are never uploaded.
 

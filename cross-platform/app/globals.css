@@ -395,3 +395,9 @@ select { height:34px; padding:0 9px; border:1px solid #cbd3df; border-radius:7px
 .field-editor-dot b { position:absolute; left:50%; bottom:100%; transform:translateX(-50%); margin-bottom:2px; font-size:11px; line-height:1; color:#000; text-shadow:0 0 3px #fff; }
 .field-editor-missing { padding:60px 20px; color:#657287; font-size:13px; }
 .field-editor-actions { display:flex; justify-content:flex-end; gap:10px; margin-top:14px; }
+
+.hints-toggle { border:1px solid #d7deea; border-radius:12px; padding:8px 12px; background:#edf1f6; color:#596579; font-size:12px; font-weight:650; white-space:nowrap; }
+.hints-toggle.active { background:#fff; color:#162238; box-shadow:0 2px 8px rgba(20,39,70,.12); }
+button:disabled[data-hint] { pointer-events:none; }
+.hint-bubble { position:fixed; z-index:10000; max-width:280px; padding:7px 10px; border-radius:8px; background:#162238; color:#fff; font-size:12px; font-weight:500; line-height:1.35; box-shadow:0 4px 14px rgba(20,39,70,.28); pointer-events:none; }
+.folder-empty-hint { margin:8px 0 0; padding:8px 10px; border:1px solid #e8c97a; border-radius:8px; background:#fff8e6; color:#6b4e00; font-size:12px; line-height:1.4; }

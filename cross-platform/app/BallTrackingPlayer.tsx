@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { hintText } from './hints';
 
 type Language = 'de' | 'en' | 'es' | 'fr';
 type SimulationFrame = { file: string; timestamp: number; width: number; height: number; ball: { x: number; y: number; confidence: number } | null };
@@ -114,7 +115,7 @@ export default function BallTrackingPlayer(props: Props) {
   return <section className="ball-tracking-workspace">
     <div className="benchmark-heading"><div><span className="benchmark-kicker">◆ SIMULATION</span><h2>{t.title}</h2><p>{t.intro}</p></div></div>
     <div className="ball-tracking-controls">
-      <button type="button" className="primary-button" onClick={() => void pick()} disabled={props.busy}>{t.pick}</button>
+      <button data-hint={hintText[props.language].pickClip} type="button" className="primary-button" onClick={() => void pick()} disabled={props.busy}>{t.pick}</button>
       {props.busy && props.operation?.startsWith('simulation') && <div className="ball-tracking-progress"><div className="benchmark-progress"><span style={{ width: `${Math.max(props.progress, .02) * 100}%` }} /></div><small>{props.message} · {Math.round(props.progress * 100)} %</small></div>}
     </div>
     {props.error && <div className="benchmark-error">{props.error}</div>}
@@ -140,7 +141,7 @@ export default function BallTrackingPlayer(props: Props) {
         <span><i className="lost" />{t.lost}</span>
       </div>
       <div className="ball-tracking-transport">
-        <button type="button" className="secondary-button" onClick={() => setIsPlaying((value) => !value)}>{isPlaying ? '⏸' : '▶'}</button>
+        <button data-hint={hintText[props.language].playPause} type="button" className="secondary-button" onClick={() => setIsPlaying((value) => !value)}>{isPlaying ? '⏸' : '▶'}</button>
         <input type="range" min={0} max={Math.max(0, frames.length - 1)} value={currentIndex} onChange={(event) => setCurrentIndex(Number(event.target.value))} />
         <span className="ball-tracking-frame-count">{currentIndex + 1} / {frames.length}</span>
       </div>

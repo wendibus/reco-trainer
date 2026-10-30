@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { hintText } from './hints';
 
 type Language = 'de' | 'en' | 'es' | 'fr';
 
@@ -146,7 +147,7 @@ export function JobDialog({ api, language, fallback, cancel, onJobEnded, renderR
         ? <pre className="progress-dialog-error">{finishedJob.error || finishedJob.message}</pre>
         : finishedJob.message && <p className="progress-dialog-message">{finishedJob.message}</p>}
       {renderResult?.(finishedJob, () => setFinishedJob(null))}
-      <div className="onnx-actions"><button type="button" className="primary-button" onClick={() => setFinishedJob(null)}>{t.close}</button></div>
+      <div className="onnx-actions"><button data-hint={hintText[language].closeJob} type="button" className="primary-button" onClick={() => setFinishedJob(null)}>{t.close}</button></div>
     </section></div>;
   }
 
@@ -159,14 +160,14 @@ export function JobDialog({ api, language, fallback, cancel, onJobEnded, renderR
   const remaining = progress !== null && progress > 0.03 && progress < 1 ? elapsed * (1 - progress) / progress : null;
 
   if (minimizedJob === current.id) {
-    return <button type="button" className="job-chip" onClick={() => setMinimizedJob(null)} title={t.restore}>
+    return <button data-hint={hintText[language].restore} type="button" className="job-chip" onClick={() => setMinimizedJob(null)}>
       <span className={`job-chip-bar${progress === null ? ' indeterminate' : ''}`}><span style={progress === null ? undefined : { width: `${Math.max(progress, 0.02) * 100}%` }} /></span>
       {title(current)}{percent !== null ? ` · ${percent} %` : ''}
     </button>;
   }
 
   return <div className="walkthrough-backdrop" role="presentation"><section className="progress-dialog" role="dialog" aria-modal="true" aria-labelledby="job-title">
-    <div className="progress-dialog-head"><h2 id="job-title">{title(current)}</h2><button type="button" className="tool-button" onClick={() => setMinimizedJob(current.id)} title={t.minimize} aria-label={t.minimize}>–</button></div>
+    <div className="progress-dialog-head"><h2 id="job-title">{title(current)}</h2><button data-hint={hintText[language].minimize} type="button" className="tool-button" onClick={() => setMinimizedJob(current.id)} aria-label={t.minimize}>–</button></div>
     {current.stage && <p className="progress-dialog-stage">{t.step(current.stage.index, current.stage.count, current.stage.label)}</p>}
     {detail
       ? <p className="progress-dialog-video"><strong>{detail.phase === 'probe' ? t.probe(detail.videoIndex, detail.videoCount) : t.video(detail.videoIndex, detail.videoCount)}</strong><span>{detail.videoName}</span></p>
@@ -181,7 +182,7 @@ export function JobDialog({ api, language, fallback, cancel, onJobEnded, renderR
     </div>
     {jobs.queue.length > 0 && <small>{t.queued(jobs.queue.length)}</small>}
     <div className="onnx-actions">
-      {current.cancellable && <button type="button" className="secondary-button" disabled={cancelling} onClick={() => void requestCancel(current)}>{cancelling ? t.cancelling : t.cancel}</button>}
+      {current.cancellable && <button data-hint={hintText[language].cancelJob} type="button" className="secondary-button" disabled={cancelling} onClick={() => void requestCancel(current)}>{cancelling ? t.cancelling : t.cancel}</button>}
     </div>
   </section></div>;
 }

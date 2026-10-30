@@ -37,7 +37,7 @@ Requirements: macOS 14 or newer, Apple silicon, and **Python 3** (3.12 recommend
 2. Open it and drag **Reco Trainer** into **Applications**.
 3. Start the app. It is signed with a Developer ID certificate and notarized by Apple, so macOS opens it without a security warning.
 4. Choose your language, then watch the short walkthrough video or click through the guided tour.
-5. Pick a sport and a video folder, then run **Set up ML** once.
+5. Pick a sport and a working folder, then run **Set up ML** once.
 
 The Mac app is a thin launcher around the same interface that Windows, Linux and Docker use. It updates itself: when a new release is published it offers to install the new interface and workers (signature-checked), without a new app download.
 
@@ -48,7 +48,7 @@ Requirements: Python 3.10 or newer (3.12 recommended) and FFmpeg. Node.js is *no
 1. Download and extract `Reco.Trainer.Windows.<version>.zip` from the [latest release](https://github.com/wendibus/reco-trainer/releases/latest).
 2. Open the extracted folder and run `Start Reco Trainer Windows.bat`.
 3. Keep the terminal window open. The interface runs at <http://localhost:8766/>.
-4. Pick a sport and a video folder, then run **Set up ML** once. If an NVIDIA GPU is detected, PyTorch is installed with CUDA support automatically.
+4. Pick a sport and a working folder, then run **Set up ML** once. If an NVIDIA GPU is detected, PyTorch is installed with CUDA support automatically.
 
 ### Linux
 
@@ -57,7 +57,7 @@ Requirements: Python 3.10 or newer (3.12 recommended), FFmpeg, and Zenity or KDi
 1. Download and extract `Reco.Trainer.Linux.<version>.zip` from the [latest release](https://github.com/wendibus/reco-trainer/releases/latest).
 2. Run `chmod +x "Start Reco Trainer Linux.sh"` once, then `./Start\ Reco\ Trainer\ Linux.sh`.
 3. If your browser does not open by itself, go to <http://localhost:8766/>.
-4. Pick a sport and a video folder, then run **Set up ML** once.
+4. Pick a sport and a working folder, then run **Set up ML** once.
 
 ### Docker
 
@@ -72,7 +72,7 @@ The extracted folders also contain `START-HERE.md` with a step-by-step tour of t
 
 ## What you can do with it
 
-1. **Prepare** — choose a sport and a video folder; frames are extracted locally (60 per video by default; you can lower or raise the number) and unsuitable ones can be removed.
+1. **Prepare** — choose a sport and a working folder with videos, images or datasets; frames are extracted locally from videos (60 per video by default; you can lower or raise the number) and unsuitable ones can be removed.
 2. **Label** — draw and correct boxes, or let a model suggest them (**auto-label**) and review each suggestion. Mark the **field boundaries** (at least four points along the edge, joined by straight lines; points on the image edge when the field leaves the frame) so auto-label only considers people standing on the field, and tighten boxes with **Refine boxes with OpenCV**. Ten undo/redo steps per image.
 3. **Train** — fine-tune RF-DETR Nano or Small locally. Every run is kept as its own model version; a worse run never silently replaces the active one.
 4. **Improve** — **Review new videos** builds a review queue from footage the model has not seen, prioritizing uncertain frames (model disagreement, positional outliers). Only frames you reviewed enter training. **Check consistency** looks for missing, duplicate or jumping boxes (see [Consistency check](#consistency-check)).

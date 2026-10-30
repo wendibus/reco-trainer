@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import type { Job } from './JobDialog';
+import { hintText } from './hints';
 
 type Language = 'de' | 'en' | 'es' | 'fr';
 type Tier = 'strong' | 'medium' | 'weak';
@@ -80,7 +81,7 @@ export function ConsistencyDialog({ language, tier, registry, onStart, onClose }
         </select><small>{model?.installed ? t.downloaded : t.download(sizeLabel(model?.bytes ?? 3.4e9))} · {model?.license ?? 'Apache-2.0'}</small></label>
         <label>{t.sample} {Math.round(options.sample * 100)} %<input type="range" min={0} max={0.5} step={0.05} value={options.sample} onChange={(event) => setOptions({ ...options, sample: Number(event.target.value) })} /><small>{t.sampleHint}</small></label>
       </div>}
-      <div className="onnx-actions"><button type="button" className="secondary-button" onClick={onClose}>{t.cancel}</button><button type="submit" className="primary-button">{t.start}</button></div>
+      <div className="onnx-actions"><button data-hint={hintText[language].cancel} type="button" className="secondary-button" onClick={onClose}>{t.cancel}</button><button data-hint={hintText[language].startCheck} type="submit" className="primary-button">{t.start}</button></div>
     </form>
   </div>;
 }
@@ -95,6 +96,6 @@ export function ConsistencyResult({ job, language, onOpenFrame }: { job: Job; la
     <p>{t.details(result.detectorDisagreement ?? 0, result.playersVanished ?? 0)}</p>
     {(result.vlmChecked ?? 0) > 0 && <p>{t.vlmResult(result.vlmChecked ?? 0, result.vlmIssues ?? 0, result.vlmResolved ?? 0)}</p>}
     {(result.hardExamples ?? 0) > 0 && <p>{t.hard(result.hardExamples ?? 0)}</p>}
-    {review.length ? <div className="export-held-list">{review.slice(0, 60).map((frameID, index) => <button type="button" key={frameID} className="tool-button" onClick={() => onOpenFrame(frameID)}>{t.open(index + 1)}</button>)}</div> : <p>{t.none}</p>}
+    {review.length ? <div className="export-held-list">{review.slice(0, 60).map((frameID, index) => <button data-hint={hintText[language].openFrame} type="button" key={frameID} className="tool-button" onClick={() => onOpenFrame(frameID)}>{t.open(index + 1)}</button>)}</div> : <p>{t.none}</p>}
   </div>;
 }

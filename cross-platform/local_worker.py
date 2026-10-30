@@ -51,6 +51,7 @@ configured_origin = os.environ.get("RECO_ALLOWED_ORIGIN")
 if configured_origin and re.fullmatch(r"http://(?:localhost|127\.0\.0\.1):\d{2,5}", configured_origin):
     ALLOWED_ORIGINS.add(configured_origin)
 VIDEO_EXTENSIONS = {".mp4", ".mov", ".m4v"}
+IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png"}  # same as ml_worker.IMPORT_IMAGE_SUFFIXES
 DEFAULT_FRAMES_PER_VIDEO = 60
 MIN_FRAMES_PER_VIDEO = 4
 MAX_FRAMES_PER_VIDEO = 5000
@@ -281,6 +282,7 @@ class LocalState:
     def __init__(self) -> None:
         self.lock = threading.RLock()
         self.selected_folder: Path | None = None
+        self.folder_empty = False
         self.project_root: Path | None = None
         self.project: dict | None = None
         self.operation = "idle"
@@ -333,6 +335,7 @@ class LocalState:
                 "platform": platform.system(),
                 "selectedFolder": str(self.selected_folder) if self.selected_folder else None,
                 "folderName": self.selected_folder.name if self.selected_folder else None,
+                "folderEmpty": self.folder_empty,
                 "projectRoot": str(self.project_root) if self.project_root else None,
                 "operation": self.operation,
                 "progress": self.progress,
@@ -789,15 +792,15 @@ def choose_video_folder(*, expansion: bool = False, labels: bool = False) -> Pat
         configured_folder = os.environ.get("RECO_EXPANSION_FOLDER") or os.environ.get("RECO_TEST_EXPANSION_FOLDER")
     else:
         configured_folder = os.environ.get("RECO_VIDEO_FOLDER") or os.environ.get("RECO_TEST_FOLDER")
-    dialog_title = "Select folder with images and YOLO or COCO labels" if labels else "Select folder containing sports videos"
+    dialog_title = "Select folder with images and YOLO or COCO labels" if labels else "Select folder with new sports videos" if expansion else "Select working folder"
     prompt = localized(
         "Ordner mit Bildern und YOLO- oder COCO-Labels auswählen",
         "Select a folder with images and YOLO or COCO labels",
         "Selecciona una carpeta con imágenes y etiquetas YOLO o COCO",
         "Sélectionnez un dossier avec des images et des annotations YOLO ou COCO",
     ) if labels else localized(
-        "Ordner mit neuen, noch nicht verwendeten Sportvideos auswählen" if expansion else "Ordner mit Sportvideos auswählen",
-        "Select a folder with new, not yet used sports videos" if expansion else "Select a folder with sports videos",
+        "Ordner mit neuen, noch nicht verwendeten Sportvideos auswählen" if expansion else "Arbeitsordner mit Videos, Bildern oder Datensätzen auswählen",
+        "Select a folder with new, not yet used sports videos" if expansion else "Select a working folder with videos, images or datasets",
         "Selecciona una carpeta con vídeos deportivos nuevos aún no usados" if expansion else "Selecciona una carpeta con vídeos deportivos",
         "Sélectionnez un dossier contenant de nouvelles vidéos sportives pas encore utilisées" if expansion else "Sélectionnez un dossier contenant des vidéos sportives",
     )
@@ -845,6 +848,7 @@ def select_folder() -> Path:
     project = load_project(root)
     STATE.update(
         selected_folder=selected,
+        folder_empty=folder_is_empty(selected),
         project_root=root,
         project=project,
         operation="selected",
@@ -857,10 +861,10 @@ def select_folder() -> Path:
                 f"Projet existant ouvert avec {len(project.get('frames', []))} images.",
             ) if project else
             localized(
-                "Ordner gewählt. Videos können jetzt lokal vorbereitet werden.",
-                "Folder selected. Videos can now be prepared locally.",
-                "Carpeta seleccionada. Ahora puedes preparar los vídeos localmente.",
-                "Dossier sélectionné. Les vidéos peuvent maintenant être préparées localement.",
+                "Arbeitsordner gewählt. Er kann jetzt lokal vorbereitet werden.",
+                "Working folder selected. It can now be prepared locally.",
+                "Carpeta de trabajo seleccionada. Ya puedes prepararla localmente.",
+                "Dossier de travail sélectionné. Il peut maintenant être préparé localement.",
             )
         ),
         error=None,
@@ -911,10 +915,10 @@ def select_model_package(suffix: str = ".recomodel") -> Path:
             if len(candidates) == 1:
                 return candidates[0]
             raise RuntimeError(localized(
-                "Für die Modellauswahl bitte genau ein .recomodel-Paket in den Videoordner oder .reco-training/inbox legen, Zenity/KDialog installieren oder RECO_MODEL_PACKAGE setzen.",
-                "For model selection, place exactly one .recomodel package in the video folder or .reco-training/inbox, install Zenity/KDialog, or set RECO_MODEL_PACKAGE.",
-                "Para seleccionar el modelo, coloca exactamente un paquete .recomodel en la carpeta de vídeos o en .reco-training/inbox, instala Zenity/KDialog, o configura RECO_MODEL_PACKAGE.",
-                "Pour la sélection du modèle, placez exactement un paquet .recomodel dans le dossier vidéo ou .reco-training/inbox, installez Zenity/KDialog, ou définissez RECO_MODEL_PACKAGE.",
+                "Für die Modellauswahl bitte genau ein .recomodel-Paket in den Arbeitsordner oder .reco-training/inbox legen, Zenity/KDialog installieren oder RECO_MODEL_PACKAGE setzen.",
+                "For model selection, place exactly one .recomodel package in the working folder or .reco-training/inbox, install Zenity/KDialog, or set RECO_MODEL_PACKAGE.",
+                "Para seleccionar el modelo, coloca exactamente un paquete .recomodel en la carpeta de trabajo o en .reco-training/inbox, instala Zenity/KDialog, o configura RECO_MODEL_PACKAGE.",
+                "Pour la sélection du modèle, placez exactement un paquet .recomodel dans le dossier de travail ou .reco-training/inbox, installez Zenity/KDialog, ou définissez RECO_MODEL_PACKAGE.",
             ))
         result = subprocess.run(command, capture_output=True, text=True, check=False)
         if result.returncode != 0 or not result.stdout.strip():
@@ -974,6 +978,57 @@ def discover_videos(folder: Path) -> list[Path]:
         (path for path in folder.rglob("*") if path.is_file() and path.suffix.lower() in VIDEO_EXTENSIONS and ".reco-training" not in path.parts),
         key=lambda path: str(path).casefold(),
     )
+
+
+def folder_has_images(folder: Path) -> bool:
+    return any(
+        path.is_file() and path.suffix.lower() in IMAGE_EXTENSIONS
+        and not any(part.startswith(".") or part == "Reco Training" for part in path.relative_to(folder).parts)
+        for path in folder.rglob("*")
+    )
+
+
+def folder_is_empty(folder: Path) -> bool:
+    return not discover_videos(folder) and not folder_has_images(folder)
+
+
+def empty_folder_message() -> str:
+    return localized(
+        "Der Arbeitsordner ist noch leer. Lege Videos, Bilder oder Datensätze hinein und wähle dann „Arbeitsordner vorbereiten“.",
+        "The working folder is still empty. Add videos, images or datasets to it, then choose “Prepare working folder”.",
+        "La carpeta de trabajo aún está vacía. Añade vídeos, imágenes o conjuntos de datos y elige «Preparar carpeta de trabajo».",
+        "Le dossier de travail est encore vide. Ajoutez-y des vidéos, des images ou des jeux de données, puis choisissez « Préparer le dossier de travail ».",
+    )
+
+
+def import_folder_images(folder: Path, root: Path) -> dict:
+    """Images in the working folder become frames; labels lying next to them (a YOLO or
+    COCO dataset) come along. Runs after project.json is written, so a cancel leaves a valid project."""
+    def report(done: int, total: int) -> None:
+        STATE.update(progress=min(done / max(total, 1), 0.99))
+
+    STATE.update(operation="extracting", progress=0.0, detail=None, message=localized("Übernehme Bilder aus dem Arbeitsordner …", "Adding images from the working folder …", "Añadiendo imágenes de la carpeta de trabajo …", "Ajout des images du dossier de travail …"))
+    # Standard library only - the system Python is enough, no ML environment needed.
+    return run_json([
+        system_python(), str(find_ml_worker()), "import-labels", "--project", str(root), "--source", str(folder),
+        "--format", "auto", "--include-unlabelled", "--language", STATE.language,
+    ], on_progress=report)
+
+
+def working_folder_images_message(summary: dict) -> str:
+    images, unlabelled = int(summary.get("imported", 0)), int(summary.get("unlabelled", 0))
+    labelled, boxes = images - unlabelled, int(summary.get("annotations", 0))
+    parts = [localized(
+        f"{images} Bilder übernommen: {labelled} mit Labels ({boxes} Boxen), {unlabelled} zum Beschriften.",
+        f"{images} images added: {labelled} with labels ({boxes} boxes), {unlabelled} to label.",
+        f"{images} imágenes añadidas: {labelled} con etiquetas ({boxes} cuadros), {unlabelled} por etiquetar.",
+        f"{images} images ajoutées : {labelled} avec annotations ({boxes} boîtes), {unlabelled} à annoter.",
+    )]
+    skipped = summary.get("skippedClasses") or {}
+    if skipped:
+        classes = ", ".join(f"{name} ({count})" for name, count in sorted(skipped.items()))
+        parts.append(localized(f"Nicht übernommene Klassen: {classes}.", f"Classes not imported: {classes}.", f"Clases no importadas: {classes}.", f"Classes non importées : {classes}."))
+    return " ".join(parts)
 
 
 def media_info(path: Path, apple_extractor: Path | None = None) -> tuple[float, int, int]:
@@ -1113,7 +1168,7 @@ def extract_project(sport: str, requested_frames_per_video: int = DEFAULT_FRAMES
         folder = STATE.selected_folder
         root = STATE.project_root
         if folder is None or root is None:
-            raise RuntimeError(localized("Zuerst einen Videoordner auswählen.", "Select a video folder first.", "Primero selecciona una carpeta de vídeos.", "Sélectionnez d’abord un dossier vidéo."))
+            raise RuntimeError(localized("Zuerst einen Arbeitsordner auswählen.", "Select a working folder first.", "Primero selecciona una carpeta de trabajo.", "Sélectionnez d’abord un dossier de travail."))
         if sport not in SPORT_CATEGORIES:
             raise RuntimeError(localized("Unbekannte Sportart.", "Unknown sport.", "Deporte desconocido.", "Sport inconnu."))
         count_per_video = frames_per_video(requested_frames_per_video)
@@ -1130,8 +1185,27 @@ def extract_project(sport: str, requested_frames_per_video: int = DEFAULT_FRAMES
         apple_extractor = native_frame_extractor(root) if not ffmpeg or not shutil.which("ffprobe") else None
         STATE.update(operation="scanning", busy=True, progress=0.01, detail=None, message=localized("Suche lokale Videos …", "Searching for local videos …", "Buscando vídeos locales …", "Recherche de vidéos locales …"), error=None, log=[])
         videos = discover_videos(folder)
+        has_images = folder_has_images(folder)
+        if not videos and not has_images:
+            STATE.update(folder_empty=True)
+            raise RuntimeError(empty_folder_message())
         if not videos:
-            raise RuntimeError(localized("Im gewählten Ordner wurden keine MP4-, MOV- oder M4V-Videos gefunden.", "No MP4, MOV, or M4V videos were found in the selected folder.", "No se encontraron vídeos MP4, MOV o M4V en la carpeta seleccionada.", "Aucune vidéo MP4, MOV ou M4V n’a été trouvée dans le dossier sélectionné."))
+            # Only images: frames of videos that were prepared earlier stay, nothing is rebuilt.
+            now = utc_now()
+            project = {
+                **(existing_project or {"schemaVersion": 2, "name": folder.name, "sourceFolder": str(folder), "createdAt": now, "framesPerVideo": count_per_video, "frames": []}),
+                "sport": sport, "updatedAt": now,
+            }
+            project["frames"] = [
+                {**frame, "annotations": [item for item in frame.get("annotations", []) if item.get("category") in SPORT_CATEGORIES[sport]]}
+                for frame in project["frames"]
+            ]
+            for directory in ("frames", "dataset", "runs", "exports"):
+                (root / directory).mkdir(parents=True, exist_ok=True)
+            atomic_json(root / "project.json", project)
+            summary = import_folder_images(folder, root)
+            STATE.update(project=load_project(root), operation="ready", busy=False, progress=1.0, detail=None, message=working_folder_images_message(summary))
+            return
         # Reading each video's metadata (ffprobe) is a separate subprocess call
         # per file, done before any extraction starts - with many files (e.g.
         # a GoPro game split into a dozen+ chapter files), this alone can take
@@ -1216,10 +1290,15 @@ def extract_project(sport: str, requested_frames_per_video: int = DEFAULT_FRAMES
             if existing_project and existing_project.get("trainingHistory"):
                 project["trainingHistory"] = existing_project["trainingHistory"]
             atomic_json(root / "project.json", project)
-            STATE.update(project=project, operation="ready", busy=False, progress=1.0, detail=None, message=localized(
-                f"{len(project['frames'])} echte Frames lokal erstellt.", f"{len(project['frames'])} real frames created locally.",
-                f"{len(project['frames'])} fotogramas reales creados localmente.", f"{len(project['frames'])} images réelles créées localement.",
-            ))
+            created = localized(
+                f"{len(frames)} echte Frames lokal erstellt.", f"{len(frames)} real frames created locally.",
+                f"{len(frames)} fotogramas reales creados localmente.", f"{len(frames)} images réelles créées localement.",
+            )
+            if has_images:
+                summary = import_folder_images(folder, root)
+                project = load_project(root)
+                created += " " + working_folder_images_message(summary)
+            STATE.update(project=project, operation="ready", busy=False, progress=1.0, detail=None, message=created)
         except BaseException:
             if temporary_frames.exists(): shutil.rmtree(temporary_frames)
             raise
@@ -2013,13 +2092,13 @@ def reveal_training_folder(export_name: str | None = None) -> None:
     (the web counterpart of the Mac app's "Show training folder"), or one dataset export."""
     root = STATE.project_root
     if root is None:
-        raise RuntimeError(localized("Zuerst einen Videoordner auswählen.", "Select a video folder first.", "Primero selecciona una carpeta de vídeos.", "Sélectionnez d’abord un dossier vidéo."))
+        raise RuntimeError(localized("Zuerst einen Arbeitsordner auswählen.", "Select a working folder first.", "Primero selecciona una carpeta de trabajo.", "Sélectionnez d’abord un dossier de travail."))
     if Path("/.dockerenv").exists():
         raise RuntimeError(localized(
-            "Im Docker-Container kann kein Ordner geöffnet werden. Der Ordner „Reco Training“ liegt im eingebundenen Videoordner.",
-            "A folder cannot be opened from inside the Docker container. The “Reco Training” folder is inside the mounted video folder.",
-            "No se puede abrir una carpeta desde el contenedor de Docker. La carpeta «Reco Training» está dentro de la carpeta de vídeos montada.",
-            "Impossible d’ouvrir un dossier depuis le conteneur Docker. Le dossier « Reco Training » se trouve dans le dossier vidéo monté.",
+            "Im Docker-Container kann kein Ordner geöffnet werden. Der Ordner „Reco Training“ liegt im eingebundenen Arbeitsordner.",
+            "A folder cannot be opened from inside the Docker container. The “Reco Training” folder is inside the mounted working folder.",
+            "No se puede abrir una carpeta desde el contenedor de Docker. La carpeta «Reco Training» está dentro de la carpeta de trabajo montada.",
+            "Impossible d’ouvrir un dossier depuis le conteneur Docker. Le dossier « Reco Training » se trouve dans le dossier de travail monté.",
         ))
     visible = root.parent / "Reco Training"
     target = visible if visible.exists() else root
@@ -2396,6 +2475,12 @@ class Handler(BaseHTTPRequestHandler):
                 self.json_response({"ok": True, "job": job})
             elif self.path == "/api/prepare":
                 count = frames_per_video(payload.get("framesPerVideo"))
+                if STATE.selected_folder:
+                    # Files may have been added since selecting; an empty folder is a hint, not a failed job.
+                    STATE.update(folder_empty=folder_is_empty(STATE.selected_folder))
+                    if STATE.folder_empty:
+                        self.json_response({"ok": True, "job": None, "status": STATE.snapshot()})
+                        return
                 job = JOBS.submit("prepare", extract_project, payload.get("sport", "basketball"), count)
                 self.json_response({"ok": True, "job": job})
             elif self.path == "/api/active-learning":

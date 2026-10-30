@@ -72,21 +72,21 @@ export function AdvancedOptions({ language, tierInfo, registry, settings, onChan
   return <details className="advanced-options">
     <summary>{t.title}</summary>
     <div className="advanced-grid">
-    <label title={t.tierHint}>{t.tier}
+    <label data-hint={t.tierHint}>{t.tier}
       <select value={settings.tier} onChange={(event) => onChange({ ...settings, tier: event.target.value as AdvancedSettings['tier'] })}>
         <option value="auto">{t.tierAuto(t.tiers[detected])}</option>
         {(['strong', 'medium', 'weak'] as Tier[]).map((tier) => <option key={tier} value={tier}>{t.tiers[tier]}</option>)}
       </select>
       <small>{t.tierHint}</small>
     </label>
-    <label title={t.teacherHint}>{t.teacher}
+    <label data-hint={t.teacherHint}>{t.teacher}
       <select value={settings.teacher} onChange={(event) => onChange({ ...settings, teacher: event.target.value as AdvancedSettings['teacher'] })}>
         <option value="auto">{t.teacherAuto(plan ? teacherSize(plan.teacher) : 'S')}</option>
         {(['nano', 'small', 'medium', 'large'] as const).map((size) => <option key={size} value={size}>RF-DETR {teacherSize(size)}</option>)}
       </select>
       <small>{t.teacherHint}</small>
     </label>
-    <label title={t.refineHint}>{t.refine}
+    <label data-hint={t.refineHint}>{t.refine}
       <select value={settings.refineMethod} onChange={(event) => onChange({ ...settings, refineMethod: event.target.value as AdvancedSettings['refineMethod'] })}>
         <option value="opencv">{t.opencv}</option>
         <option value="sam2">{t.sam2}</option>

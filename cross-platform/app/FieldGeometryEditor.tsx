@@ -1,5 +1,6 @@
 import { useRef, useState } from 'react';
 import { extraText, type ExtraLanguage } from './extraText';
+import { hintText } from './hints';
 
 /** Older projects may still carry realWidth/realLength; they are no longer used. */
 export type FieldGeometry = { corners: number[][]; realWidth?: number; realLength?: number };
@@ -97,8 +98,8 @@ export default function FieldGeometryEditor({ language, api, frame, existing, on
       <p className="field-editor-intro">{t.editorIntro}</p>
       <div className="field-editor-controls">
         <span className={count < 4 || crosses ? 'field-editor-status' : 'field-editor-status done'}>{statusText}</span>
-        <button type="button" className="secondary-button" onClick={() => setCorners((current) => current.slice(0, -1))} disabled={!count}>{t.removeLast}</button>
-        <button type="button" className="secondary-button" onClick={() => setCorners([])} disabled={!count}>{t.reset}</button>
+        <button data-hint={hintText[language].removePoint} type="button" className="secondary-button" onClick={() => setCorners((current) => current.slice(0, -1))} disabled={!count}>{t.removeLast}</button>
+        <button data-hint={hintText[language].resetPoints} type="button" className="secondary-button" onClick={() => setCorners([])} disabled={!count}>{t.reset}</button>
       </div>
       <p className="field-editor-hint">{t.moreHint}</p>
       <div className="field-editor-stage">
@@ -124,8 +125,8 @@ export default function FieldGeometryEditor({ language, api, frame, existing, on
       </div>
       {error && <div className="benchmark-error">{error}</div>}
       <div className="field-editor-actions">
-        <button type="button" className="secondary-button" onClick={onCancel}>{t.cancel}</button>
-        <button type="button" className="primary-button" onClick={() => void save()} disabled={!canSave}>{t.save}</button>
+        <button data-hint={hintText[language].cancel} type="button" className="secondary-button" onClick={onCancel}>{t.cancel}</button>
+        <button data-hint={hintText[language].saveField} type="button" className="primary-button" onClick={() => void save()} disabled={!canSave}>{t.save}</button>
       </div>
     </section>
   </div>;
