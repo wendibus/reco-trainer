@@ -1,5 +1,10 @@
 # Änderungen
 
+## Unveröffentlicht
+
+- Korrigiert: Ein Projekt nur aus importierten Bildern wird nicht mehr nach Dateireihenfolge geteilt, sondern gemischt und reproduzierbar. Beim Fußball-Datensatz bestand der Test-Split vorher nur aus v7-Ausschnitten. Der Hinweis nennt die Qualitätswerte jetzt ausdrücklich „nicht unabhängig“, weil gleiche Szenen in Training und Test liegen können.
+- Korrigiert: Neben echten Videos dienen importierte Bilder nur noch dem Training; Validierung und Test kommen aus den Videos. Bisher konnte der ganze Import in einem Split landen und ein Test mit Importbildern als unabhängig gelten. Die Splits solcher Projekte ändern sich dadurch, Qualitätswerte sind mit älteren Trainings nicht direkt vergleichbar.
+
 ## 0.23.0
 
 - Neu: „Konsistenz prüfen“ – ein zweiter Detektor vergleicht alle geprüften Bilder mit den Labels (Übereinstimmung ab einstellbarem IoU, Standard 0,5), und der zeitliche Verlauf meldet plötzlich fehlende Spieler und springende Boxen. Auffällige Bilder kommen in eine Prüfliste, die sich Bild für Bild öffnen lässt.

@@ -2230,6 +2230,10 @@ def consistency_check(args: argparse.Namespace) -> None:
     print(json.dumps(summary, ensure_ascii=False))
 
 
+def is_imported_frame(frame: dict[str, Any]) -> bool:
+    return str(frame.get("videoID", "")).startswith("import-")
+
+
 def stable_bucket(value: str) -> int:
     return int(hashlib.sha256(value.encode("utf-8")).hexdigest()[:8], 16)
 
@@ -2237,12 +2241,32 @@ def stable_bucket(value: str) -> int:
 def split_frames(
     frames: list[dict[str, Any]], language: str = "de"
 ) -> tuple[dict[str, list[dict[str, Any]]], str | None]:
+    # Imported images carry no scene information (file names and simple image signatures do not
+    # reveal it), so they only train next to real videos and never count as an independent test.
+    imported = [frame for frame in frames if is_imported_frame(frame)]
     by_video: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for frame in frames:
-        by_video[frame["videoID"]].append(frame)
+        if not is_imported_frame(frame):
+            by_video[frame["videoID"]].append(frame)
     video_ids = sorted(by_video, key=stable_bucket)
     output: dict[str, list[dict[str, Any]]] = {"train": [], "valid": [], "test": []}
     warning = None
+
+    if imported and not video_ids:
+        # File order would put whole dataset versions into one split: mix by a stable hash.
+        ordered = sorted(imported, key=lambda frame: stable_bucket(str(frame["id"])))
+        train_end = max(1, int(len(ordered) * 0.7))
+        valid_end = max(train_end + 1, int(len(ordered) * 0.9))
+        output["train"] = ordered[:train_end]
+        output["valid"] = ordered[train_end:valid_end]
+        output["test"] = ordered[valid_end:]
+        warning = localized(
+            language,
+            "Nur importierte Bilder: Der Split ist gemischt, gleiche Szenen können in Training und Test liegen; Qualitätswerte sind nicht unabhängig.",
+            "Imported images only: the split is mixed, the same scenes can be in training and test; quality metrics are not independent.",
+        )
+        return output, warning
+    output["train"].extend(imported)
 
     if len(video_ids) >= 3:
         test_ids = {video_ids[-1]}
@@ -2259,10 +2283,10 @@ def split_frames(
             "Only two videos: no independent test split is created yet.",
         )
     else:
-        ordered = sorted(frames, key=lambda frame: frame["timestamp"])
+        ordered = sorted((frame for frame in frames if not is_imported_frame(frame)), key=lambda frame: frame["timestamp"])
         train_end = max(1, int(len(ordered) * 0.7))
         valid_end = max(train_end + 1, int(len(ordered) * 0.9))
-        output["train"] = ordered[:train_end]
+        output["train"].extend(ordered[:train_end])
         output["valid"] = ordered[train_end:valid_end]
         output["test"] = ordered[valid_end:]
         warning = localized(
@@ -3346,7 +3370,7 @@ def train(args: argparse.Namespace) -> None:
         "annotationCount": len(all_annotations),
         "classes": sorted({annotation.get("category") for annotation in all_annotations}),
         "splits": {name: len(items) for name, items in refreshed_splits.items()},
-        "independentTest": len({frame.get("videoID") for frame in refreshed_frames}) >= 3,
+        "independentTest": len({frame.get("videoID") for frame in refreshed_frames if not is_imported_frame(frame)}) >= 3,
         "checkpoint": trained_checkpoint.name if trained_checkpoint else None,
         "continuedFrom": (
             resume_checkpoint.name if resume_checkpoint else
@@ -4504,7 +4528,7 @@ def import_labels(args: argparse.Namespace) -> None:
     """Import YOLO-txt or COCO labelled images from a folder into the project.
 
     Images are copied to frames/imported/ and added as frames of one pseudo-video per
-    import (the dataset split is made per video). A frame already in the project with the
+    import (split_frames treats these separately from real videos). A frame already in the project with the
     same file name only gets the labels. Re-importing the same image is skipped.
     """
     project_root = Path(args.project).resolve()
@@ -4564,7 +4588,7 @@ def import_labels(args: argparse.Namespace) -> None:
                 "source": "auto" if as_candidates else "manual",
             })
         existing = by_name.get(item["image"].name)
-        if existing is not None and not str(existing.get("videoID", "")).startswith("import-"):
+        if existing is not None and not is_imported_frame(existing):
             if existing.get("annotations") and not args.overwrite:
                 summary["duplicates"] += 1
                 continue

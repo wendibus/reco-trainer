@@ -195,6 +195,42 @@ if __name__ == "__main__":
     unittest.main()
 
 
+class ImportedFramesSplitTests(unittest.TestCase):
+    @staticmethod
+    def frames(video_id: str, count: int) -> list[dict]:
+        return [{"id": f"{video_id}-{index}", "videoID": video_id, "timestamp": float(index)} for index in range(count)]
+
+    def test_import_only_split_is_mixed_not_by_file_order_and_says_it_is_not_independent(self):
+        frames = self.frames("import-a", 1000)
+        splits, warning = ml_worker.split_frames(frames, "en")
+        self.assertEqual([len(splits[name]) for name in ("train", "valid", "test")], [700, 200, 100])
+        self.assertTrue(any(frame["timestamp"] >= 900 for frame in splits["train"]))
+        self.assertTrue(any(frame["timestamp"] < 700 for frame in splits["test"]))
+        self.assertIn("not independent", warning)
+        self.assertEqual(ml_worker.split_frames(list(reversed(frames)), "en")[0]["test"], splits["test"])
+
+    def test_very_small_import_still_has_training_and_validation_images(self):
+        splits, _ = ml_worker.split_frames(self.frames("import-a", 2), "en")
+        self.assertEqual(len(splits["train"]), 1)
+        self.assertEqual(len(splits["valid"]), 1)
+
+    def test_next_to_three_videos_imports_only_train_and_the_split_stays_independent(self):
+        imported = self.frames("import-a", 50)
+        videos = self.frames("a", 5) + self.frames("b", 5) + self.frames("c", 5)
+        splits, warning = ml_worker.split_frames(imported + videos, "en")
+        self.assertIsNone(warning)
+        self.assertEqual(sum(ml_worker.is_imported_frame(frame) for frame in splits["train"]), 50)
+        for name in ("valid", "test"):
+            self.assertEqual(len(splits[name]), 5)
+            self.assertFalse(any(ml_worker.is_imported_frame(frame) for frame in splits[name]))
+
+    def test_next_to_one_video_only_that_video_is_evaluated(self):
+        splits, warning = ml_worker.split_frames(self.frames("import-a", 50) + self.frames("a", 10), "en")
+        self.assertIn("Only one video", warning)
+        self.assertEqual(sum(ml_worker.is_imported_frame(frame) for frame in splits["train"]), 50)
+        self.assertFalse(any(ml_worker.is_imported_frame(frame) for frame in splits["valid"] + splits["test"]))
+
+
 class CarryOverImportedFramesTests(unittest.TestCase):
     def test_imported_frames_survive_preparing_videos_again(self):
         local_worker = load_module("label_import_local_worker", ROOT / "local_worker.py")
