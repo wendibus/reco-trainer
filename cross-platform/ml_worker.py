@@ -8,6 +8,7 @@ project directory selected by the user.
 from __future__ import annotations
 
 import argparse
+import atexit
 import csv
 import hashlib
 import importlib.metadata
@@ -22,6 +23,7 @@ import shutil
 import signal
 import stat
 import struct
+import subprocess
 import sys
 import tempfile
 import time
@@ -43,7 +45,12 @@ if str(Path(__file__).resolve().parent) not in sys.path:
 MODEL_CLASSES = {
     "nano": "RFDETRNano",
     "small": "RFDETRSmall",
+    "medium": "RFDETRMedium",
+    "large": "RFDETRLarge",
 }
+AUTO_EPOCH_LIMIT = 500
+BATCH_MIN_FREE_BYTES = 5_000_000_000
+SWEEP_THRESHOLDS = [round(0.05 * step, 2) for step in range(1, 19)]
 
 
 def emit(message: str) -> None:
@@ -149,6 +156,8 @@ def training_profile(
     memory_bytes = total_memory_bytes() if memory_bytes is None else memory_bytes
     cpu_count = (os.cpu_count() or 1) if cpu_count is None else max(cpu_count, 1)
     memory_gb = max(1, round(memory_bytes / (1024**3))) if memory_bytes else 16
+    # Medium and Large need clearly more memory than Small; a crash at night costs more than a slower run.
+    larger = model_size in {"medium", "large"}
 
     if device == "mps":
         if memory_gb <= 12:
@@ -161,18 +170,20 @@ def training_profile(
             batch_size = 8 if model_size == "nano" else 4
         else:
             batch_size = 16 if model_size == "nano" else 8
+        if larger:
+            batch_size = max(1, batch_size // 2)
         num_workers = min(8, max(2, cpu_count // 2))
         gradient_checkpointing = (
-            memory_gb <= 12 or (model_size == "small" and memory_gb < 32)
+            memory_gb <= 12 or (model_size == "small" and memory_gb < 32) or (larger and memory_gb < 64)
         )
     elif device == "cuda":
-        batch_size = 4 if model_size == "nano" else 2
+        batch_size = 4 if model_size == "nano" else 1 if larger else 2
         num_workers = min(8, max(2, cpu_count // 2))
-        gradient_checkpointing = model_size == "small"
+        gradient_checkpointing = model_size != "nano"
     else:
         batch_size = 1
         num_workers = min(4, max(1, cpu_count // 2))
-        gradient_checkpointing = model_size == "small"
+        gradient_checkpointing = model_size != "nano"
 
     return {
         "batch_size": batch_size,
@@ -192,8 +203,9 @@ class EpochProgressWatcher:
     writes into the run folder (its own progress bar uses carriage returns, which a piped
     log never sees). Only a file written after training started counts."""
 
-    def __init__(self, metrics_file: Path, target_epochs: int, language: str) -> None:
+    def __init__(self, metrics_file: Path, target_epochs: int, language: str, open_ended_patience: int | None = None) -> None:
         import threading
+        self.open_ended_patience = open_ended_patience
         self.metrics_file = metrics_file
         self.target = max(int(target_epochs), 1)
         self.language = language
@@ -230,6 +242,12 @@ class EpochProgressWatcher:
             if epoch is None or epoch == self.reported:
                 continue
             self.reported = epoch
+            if self.open_ended_patience is not None:
+                # No fixed end: the bar only says how far this run has come, never "almost done".
+                done = epoch + 1
+                emit(localized(self.language, f"Epoche {done} (automatisch)", f"Epoch {done} (automatic)", f"Época {done} (automático)", f"Époque {done} (automatique)"))
+                print(f"RECO_PROGRESS {done} {done + self.open_ended_patience}", file=sys.stderr, flush=True)
+                continue
             current = min(epoch + 1, self.target)
             emit(localized(self.language, f"Epoche {current} von {self.target}", f"Epoch {current} of {self.target}", f"Época {current} de {self.target}", f"Époque {current} sur {self.target}"))
             print(f"RECO_PROGRESS {min(epoch, self.target)} {self.target}", file=sys.stderr, flush=True)
@@ -805,6 +823,7 @@ def run_benchmark_pass(
     project_root: Path,
     progress_label: str,
     language: str,
+    frames_root: Path | None = None,
 ) -> tuple[list[dict[str, Any]], float]:
     """Run one model over every benchmark frame, returning (predictions,
     inference_seconds). Shared by benchmark()'s single-model candidates and
@@ -814,7 +833,7 @@ def run_benchmark_pass(
     """
     predictions: list[dict[str, Any]] = []
     inference_seconds = 0.0
-    frames_root = (project_root / "frames").resolve()
+    frames_root = (frames_root or project_root / "frames").resolve()
     for start in range(0, len(frames), batch_size):
         batch = frames[start : start + batch_size]
         paths: list[str] = []
@@ -3151,6 +3170,10 @@ def dataset_annotation_count(dataset_root: Path, split: str) -> int:
 def train(args: argparse.Namespace) -> None:
     project_root = Path(args.project).resolve()
     document = require_project(project_root, args.language)
+    keep_awake()
+    auto_epochs = bool(getattr(args, "auto_epochs", False))
+    if auto_epochs:
+        args.epochs = AUTO_EPOCH_LIMIT
     training_categories = list(dict.fromkeys(args.category)) if getattr(args, "category", None) else None
     stage(1, 3, localized(args.language, "Datensatz vorbereiten", "Prepare dataset", "Preparar el conjunto de datos", "Préparer le jeu de données"))
     dataset_root = build_dataset(project_root, args.language, categories=training_categories, anonymize_fraction=float(getattr(args, "anonymize_fraction", 0.0) or 0.0))
@@ -3313,8 +3336,10 @@ def train(args: argparse.Namespace) -> None:
             f"Die installierte RF-DETR-Version kennt diese Modell-Optionen noch nicht: {', '.join(ignored_model_kwargs)}.",
             f"The installed RF-DETR version does not yet support these model options: {', '.join(ignored_model_kwargs)}.",
         ))
+    hub_parent = active_hub_parent(project_root, args.model) if use_continuation_checkpoint is not None else None
+    hub_before = hub_score_on_own_images(project_root, args.model, use_continuation_checkpoint, args.language) if hub_parent else None
     target_epochs = max(args.epochs, (resume_completed_epochs or 0) + 1) if resume_checkpoint else args.epochs
-    patience = max(8, min(20, math.ceil(args.epochs * 0.5)))
+    patience = int(args.patience) if getattr(args, "patience", None) else max(8, min(20, math.ceil(args.epochs * 0.5)))
     train_kwargs = {
         "dataset_dir": str(dataset_root),
         "output_dir": str(output_dir),
@@ -3352,13 +3377,23 @@ def train(args: argparse.Namespace) -> None:
         })
         if use_continuation_checkpoint is not None:
             train_kwargs.update({"lr": 0.00005, "lr_encoder": 0.000075})
+    if auto_epochs:
+        # Cosine decay is tied to the epoch count: with a high limit the learning rate would barely
+        # drop before the run stops. Halving it when the score stalls needs no planned end.
+        train_kwargs.update({
+            "lr_scheduler": "torch.optim.lr_scheduler.ReduceLROnPlateau",
+            "lr_scheduler_kwargs": {"mode": "max", "factor": 0.5, "patience": max(2, patience // 3), "min_lr": 1e-6},
+            "lr_scheduler_interval": "epoch",
+            "lr_scheduler_monitor": "val/ema_mAP_50_95",
+        })
     stage(2, 3, localized(args.language, "Trainieren", "Train", "Entrenar", "Entraîner"))
-    watcher = EpochProgressWatcher(output_dir / "metrics.csv", target_epochs, args.language)
+    watcher = EpochProgressWatcher(output_dir / "metrics.csv", target_epochs, args.language, patience if auto_epochs else None)
     watcher.start()
     try:
         _, ignored = call_with_supported_kwargs(model.train, train_kwargs)
     finally:
         watcher.stop()
+    last_epoch = watcher.latest_epoch()
     if ignored:
         emit(localized(
             args.language,
@@ -3390,6 +3425,8 @@ def train(args: argparse.Namespace) -> None:
         "model": args.model,
         "device": device,
         "epochsRequested": args.epochs,
+        "epochsCompleted": last_epoch + 1 if last_epoch is not None else None,
+        "autoEpochs": auto_epochs,
         "frameCount": len(refreshed_frames),
         "annotatedFrames": sum(bool(frame.get("annotations")) for frame in refreshed_frames),
         "annotationCount": len(all_annotations),
@@ -3415,6 +3452,9 @@ def train(args: argparse.Namespace) -> None:
         manifest_path, manifest, _ = archive_local_checkpoint(
             project_root, refreshed, args.model, trained_checkpoint, training_result, "local-training"
         )
+        if hub_parent:
+            manifest["parent"] = hub_parent[1]["hub"]["lineage"]
+            atomic_json(manifest_path, manifest)
         active_path = project_root / "models" / "active.json"
         current_manifest: dict[str, Any] | None = None
         if active_path.is_file():
@@ -3461,11 +3501,333 @@ def train(args: argparse.Namespace) -> None:
                 f"Modellstand archiviert, aber nicht aktiviert (Qualität {new_score or 0:.4f}; bisher {current_score or 0:.4f}).",
                 f"Model revision archived but not activated (quality {new_score or 0:.4f}; current {current_score or 0:.4f}).",
             ))
+    if hub_parent and trained_checkpoint is not None:
+        compare_with_hub_parent(project_root, args.model, hub_parent, hub_before, trained_checkpoint, args.language)
     emit(localized(
         args.language,
         f"Training abgeschlossen. Modell liegt in {output_dir}",
         f"Training completed. The model is stored in {output_dir}",
     ))
+
+
+def active_hub_parent(project_root: Path, size: str) -> tuple[Path, dict[str, Any]] | None:
+    """(manifest path, manifest) when training is about to continue from a downloaded hub model."""
+    found = active_library_manifest(project_root)
+    if found is None:
+        return None
+    package_dir, manifest = found
+    if manifest.get("source") != "hub" or manifest.get("modelSize") != size:
+        return None
+    return package_dir / "manifest.json", manifest
+
+
+def hub_score_on_own_images(project_root: Path, size: str, checkpoint: Path, language: str) -> dict[str, Any] | None:
+    """mAP50 of a checkpoint on this project's validation images. Never ends a training run:
+    without a measurement there is just no before and after."""
+    try:
+        document = require_project(project_root, language)
+        valid, frames_root = sweep_validation_frames(project_root, document, language)
+        if not valid:
+            return None
+        classes = sorted({annotation["category"] for frame in valid for annotation in frame["annotations"]})
+        model = import_model_class(size, language)(pretrain_weights=str(checkpoint), device=detect_device())
+        label = localized(language, "Auf eigenen Bildern messen", "Measure on your own images", "Medir en tus imágenes", "Mesurer sur vos images")
+        predictions, _ = run_benchmark_pass(model, valid, set(classes), str(document["sport"]), SWEEP_THRESHOLDS[0], 1, project_root, label, language, frames_root)
+        del model
+        return {"mAP50": evaluate_predictions(valid, predictions, classes)["mAP50"], "validationImages": len(valid), "annotations": sum(len(frame["annotations"]) for frame in valid)}
+    except Exception as error:  # noqa: BLE001 - see above
+        emit(localized(language, f"Messung auf eigenen Bildern fehlgeschlagen: {error}", f"Measuring on your own images failed: {error}"))
+        return None
+
+
+def compare_with_hub_parent(project_root: Path, size: str, parent: tuple[Path, dict[str, Any]], before: dict[str, Any] | None, checkpoint: Path, language: str) -> None:
+    """Before and after on the same images. If the fine-tune made things worse, the hub model stays active."""
+    after = hub_score_on_own_images(project_root, size, checkpoint, language)
+    if not before or not after:
+        return
+    worse = after["mAP50"] < before["mAP50"]
+    if worse:
+        activate_library_model(project_root, parent[0], parent[1])
+    document = require_project(project_root, language)
+    document["hubComparison"] = {"parent": parent[1]["hub"]["lineage"], "before": before["mAP50"], "after": after["mAP50"], "validationImages": after["validationImages"], "annotations": after["annotations"], "keptParent": worse}
+    atomic_json(project_file(project_root), document)
+    emit(localized(
+        language,
+        f"Auf deinen {after['validationImages']} Validierungsbildern: vorher {before['mAP50']:.1%}, nachher {after['mAP50']:.1%}." + (" Das Hub-Modell bleibt aktiv." if worse else ""),
+        f"On your {after['validationImages']} validation images: before {before['mAP50']:.1%}, after {after['mAP50']:.1%}." + (" The hub model stays active." if worse else ""),
+        f"En tus {after['validationImages']} imágenes de validación: antes {before['mAP50']:.1%}, después {after['mAP50']:.1%}." + (" El modelo del hub sigue activo." if worse else ""),
+        f"Sur vos {after['validationImages']} images de validation : avant {before['mAP50']:.1%}, après {after['mAP50']:.1%}." + (" Le modèle du hub reste actif." if worse else ""),
+    ))
+
+
+def hub_synthetic_images(document: dict[str, Any]) -> int:
+    augmentation = document.get("augmentation") or {}
+    if augmentation.get("mode") != "mixed":
+        return 0
+    try:
+        return int(load_json(Path(str(augmentation["work"])) / "output" / "report.json")["images"])
+    except (OSError, ValueError, KeyError, TypeError):
+        return 0
+
+
+def hub_install(args: argparse.Namespace) -> None:
+    import model_hub
+    project_root = Path(args.project).resolve()
+    document = require_project(project_root, args.language)
+    try:
+        stage(1, 3, localized(args.language, "Modell suchen", "Find the model", "Buscar el modelo", "Rechercher le modèle"))
+        index = model_hub.fetch_index(project_root / "hub" / "index.json")
+        model = model_hub.find_model(index, str(document["sport"]), args.size, args.id)
+        entry = model_hub.weights_entry(model)
+        package_id = f"hub-{model['sport']}-{model['size']}-{model['id']}-{model['version']}".replace("_", "-")
+        if not re.fullmatch(r"[A-Za-z0-9._-]{1,120}", package_id) or set(model.get("classes") or []) - set(sport_categories(str(document["sport"]))):
+            raise model_hub.HubError("invalid model entry")
+        final = project_root / "models" / "library" / package_id
+        if not final.exists():
+            stage(2, 3, localized(args.language, "Herunterladen und prüfen", "Download and check", "Descargar y comprobar", "Télécharger et vérifier"))
+            staging = project_root / "models" / f".hub-{uuid.uuid4().hex}"
+            (staging / "weights").mkdir(parents=True)
+            try:
+                weights = staging / "model.safetensors"
+                model_hub.download(entry["url"], weights, entry["sha256"], lambda share: print(f"RECO_PROGRESS {int(share * 100)} 100", file=sys.stderr, flush=True))
+                found = model_hub.inspect_weights(weights)
+                if found["size"] != model["size"] or found["classCount"] != len(model["classes"]):
+                    raise model_hub.HubError("the weights do not match the description of the model")
+                checkpoint = staging / "weights" / "checkpoint_hub.pth"
+                model_hub.rebuild_checkpoint(weights, list(model["classes"]), checkpoint)
+                weights.unlink()
+                atomic_json(staging / "manifest.json", model_hub.library_manifest(model, "weights/checkpoint_hub.pth", sha256_file(checkpoint)))
+                final.parent.mkdir(parents=True, exist_ok=True)
+                staging.replace(final)
+            finally:
+                shutil.rmtree(staging, ignore_errors=True)
+    except model_hub.HubError as error:
+        raise SystemExit(localized(args.language, f"Model Hub: {error}", f"Model Hub: {error}")) from error
+    stage(3, 3, localized(args.language, "Modell aktivieren", "Activate the model", "Activar el modelo", "Activer le modèle"))
+    activate_library_model(project_root, final / "manifest.json", load_json(final / "manifest.json"))
+    emit(localized(
+        args.language,
+        f"{model['name']} {model['version']} ist aktiv. Die Werte im Hub sind Angaben des Autors; beim nächsten Training misst der Trainer vorher und nachher auf deinen eigenen Validierungsbildern.",
+        f"{model['name']} {model['version']} is active. The scores in the hub are the author's own; at the next training the trainer measures before and after on your own validation images.",
+        f"{model['name']} {model['version']} está activo. Los valores del hub son del autor; en el próximo entrenamiento se mide antes y después en tus propias imágenes de validación.",
+        f"{model['name']} {model['version']} est actif. Les scores du hub sont ceux de l’auteur ; au prochain entraînement, l’avant et l’après sont mesurés sur vos propres images de validation.",
+    ))
+
+
+def hub_share(args: argparse.Namespace) -> None:
+    import model_hub
+    import webbrowser
+    project_root = Path(args.project).resolve()
+    document = require_project(project_root, args.language)
+    # Cancelling sends SIGTERM: it has to run the clean-up in the fork like any other failure.
+    signal.signal(signal.SIGTERM, lambda *_: sys.exit(143))
+    manifest_path = (project_root / "models" / "library" / safe_package_id(args.package) / "manifest.json")
+    manifest = load_json(manifest_path)
+    size = str(manifest.get("modelSize"))
+    labels = {
+        "fork": localized(args.language, "Fork anlegen", "Create the fork", "Crear el fork", "Créer le fork"),
+        "upload": localized(args.language, "Gewichte hochladen", "Upload the weights", "Subir los pesos", "Téléverser les poids"),
+        "pull-request": localized(args.language, "Pull Request öffnen", "Open the pull request", "Abrir el pull request", "Ouvrir la pull request"),
+    }
+    try:
+        if not args.rights_confirmed:
+            raise model_hub.HubError("the rights confirmation is missing")
+        if manifest.get("source") == "hub" or manifest.get("ensemble") or is_onnx_manifest(manifest) or size not in model_hub.HUB_SIZES:
+            raise model_hub.HubError("only models you trained yourself, Nano, Small or Medium, can be shared")
+        model_hub.check_public_text(f"{args.name} {args.description} {args.camera}")
+        with tempfile.TemporaryDirectory(dir=project_root) as folder:
+            stage(1, 5, localized(args.language, "Gewichte bereinigen", "Clean the weights", "Limpiar los pesos", "Nettoyer les poids"))
+            checkpoint = manifest_path.parent / str(manifest["weights"]["file"])
+            verify_weights_pickle_safety(checkpoint, args.language, checkpoint.name)
+            name_slug = model_hub.slug(args.name)
+            weights = Path(folder) / f"{document['sport']}-{size}-{name_slug}.safetensors"
+            classes = model_hub.sanitize_checkpoint(checkpoint, weights)
+            found = model_hub.inspect_weights(weights)
+            if found["size"] != size or found["classCount"] != len(classes):
+                raise model_hub.HubError("the weights do not match the library entry")
+            stage(2, 5, localized(args.language, "Bei GitHub anmelden", "Sign in to GitHub", "Iniciar sesión en GitHub", "Se connecter à GitHub"))
+
+            def show_code(code: str, url: str) -> None:
+                stage(2, 5, localized(args.language, f"Code {code} auf {url} bestätigen", f"Confirm the code {code} at {url}", f"Confirma el código {code} en {url}", f"Confirmez le code {code} sur {url}"))
+                webbrowser.open(url)
+
+            github = model_hub.GitHub(model_hub.device_login(show_code))
+            author = github.call("GET", "/user")["login"]
+            summary = manifest.get("trainingSummary") or {}
+            metrics = manifest.get("validationMetrics") or {}
+            model = model_hub.build_model_json(
+                name=args.name, description=args.description, version=args.version, sport=str(document["sport"]), size=size, classes=classes,
+                parent=manifest.get("parent"), author=author, trainer_version=args.trainer_version, sha256=sha256_file(weights), size_bytes=weights.stat().st_size, source_url="",
+                training={"images": int(summary.get("frameCount") or manifest.get("statistics", {}).get("frameCount") or 0), "games": args.games, "synthetic_images": hub_synthetic_images(document), "camera": args.camera, "venue": args.venue, "epochs": summary.get("epochsCompleted") or summary.get("epochs")},
+                self_reported={"mAP50": metrics.get("val/mAP_50"), "mAP50_95": metrics.get("val/mAP_50_95"), "validation_images": (summary.get("splits") or {}).get("valid")},
+            )
+            step = {"fork": 3, "upload": 4, "pull-request": 5}
+            url = model_hub.share(github, weights, model, lambda name: stage(step[name], 5, labels[name]))
+    except model_hub.HubError as error:
+        raise SystemExit(localized(args.language, f"Model Hub: {error}", f"Model Hub: {error}")) from error
+    atomic_json(project_root / "hub" / "last-share.json", {"url": url, "name": args.name, "version": args.version, "at": datetime.now(timezone.utc).isoformat()})
+    emit(localized(args.language, f"Pull Request geöffnet: {url}", f"Pull request opened: {url}", f"Pull request abierto: {url}", f"Pull request ouverte : {url}"))
+
+
+def keep_awake() -> None:
+    """A computer that falls asleep ends a night of training. Holds until this process ends."""
+    try:
+        if sys.platform == "darwin":
+            subprocess.Popen(["caffeinate", "-i", "-w", str(os.getpid())])
+        elif sys.platform == "win32":
+            import ctypes
+            ctypes.windll.kernel32.SetThreadExecutionState(0x80000000 | 0x00000001)  # ES_CONTINUOUS | ES_SYSTEM_REQUIRED
+        elif shutil.which("systemd-inhibit"):
+            holder = subprocess.Popen(["systemd-inhibit", "--what=sleep", "--who=Reco Trainer", "--why=Training", "sleep", "604800"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            atexit.register(holder.terminate)
+    except (OSError, AttributeError):
+        pass  # Training also works without it, the computer just may go to sleep.
+
+
+def sweep_thresholds(frames: list[dict[str, Any]], predictions: list[dict[str, Any]], classes: list[str]) -> dict[str, Any]:
+    """Which confidence is best: the F1 of every threshold, overall and per class, on the same predictions.
+
+    The threshold decides nothing during training, so this needs no further training run."""
+    rows = []
+    for threshold in SWEEP_THRESHOLDS:
+        kept = [item for item in predictions if float(item.get("confidence", 0.0)) >= threshold]
+        result = evaluate_predictions(frames, kept, classes)
+        rows.append({"threshold": threshold, "f1": result["f1"], "precision": result["precision"], "recall": result["recall"],
+                     "perClass": {name: result["perClass"][name] for name in classes}})
+    best = max(rows, key=lambda row: (row["f1"], row["threshold"]))
+    per_class = {}
+    for name in classes:
+        top = max(rows, key=lambda row: (row["perClass"][name]["f1"], row["threshold"]))
+        entry = top["perClass"][name]
+        per_class[name] = {"threshold": top["threshold"], "f1": entry["f1"], "precision": entry["precision"], "recall": entry["recall"], "groundTruth": entry["groundTruth"]}
+    return {
+        "bestThreshold": best["threshold"], "f1": best["f1"], "precision": best["precision"], "recall": best["recall"],
+        "perClass": per_class, "curve": [{key: row[key] for key in ("threshold", "f1", "precision", "recall")} for row in rows],
+    }
+
+
+def sweep_validation_frames(project_root: Path, document: dict[str, Any], language: str) -> tuple[list[dict[str, Any]], Path | None]:
+    """The validation images the model did not train on. With the Augmentation Studio these are
+    the studio's split in dataset/valid: the project's own split can hold its training images."""
+    if (document.get("augmentation") or {}).get("mode") not in {"mixed", "real-only"}:
+        frames = [frame for frame in document.get("frames", []) if frame.get("reviewStatus") != "candidate"]
+        splits, _ = split_frames(frames, language)
+        return [frame for frame in splits.get("valid", []) if frame.get("annotations")], None
+    folder = project_root / "dataset" / "valid"
+    dataset = load_json(folder / "_annotations.coco.json")
+    names = {category["id"]: category["name"] for category in dataset["categories"]}
+    frames = {image["id"]: {"id": str(image["id"]), "relativePath": f"dataset/valid/{image['file_name']}", "annotations": []} for image in dataset["images"]}
+    for annotation in dataset["annotations"]:
+        x, y, width, height = annotation["bbox"]
+        frames[annotation["image_id"]]["annotations"].append({"category": names[annotation["category_id"]], "x": x, "y": y, "width": width, "height": height})
+    return [frame for frame in frames.values() if frame["annotations"]], folder
+
+
+def confidence_sweep(args: argparse.Namespace) -> None:
+    project_root = Path(args.project).resolve()
+    document = require_project(project_root, args.language)
+    valid, frames_root = sweep_validation_frames(project_root, document, args.language)
+    checkpoint = preferred_run_checkpoint(project_root / "runs" / args.model)
+    if not valid or checkpoint is None:
+        raise SystemExit(localized(args.language, "Keine Validierungsbilder oder kein Modell für den Vergleich.", "No validation images or no model to compare.", "No hay imágenes de validación ni modelo para comparar.", "Pas d’images de validation ni de modèle à comparer."))
+    classes = sorted({annotation["category"] for frame in valid for annotation in frame["annotations"]})
+    verify_weights_pickle_safety(checkpoint, args.language, checkpoint.name)
+    model = import_model_class(args.model, args.language)(pretrain_weights=str(checkpoint), device=detect_device())
+    label = localized(args.language, "Confidence prüfen", "Check confidence", "Comprobar la confianza", "Vérifier la confiance")
+    predictions, seconds = run_benchmark_pass(model, valid, set(classes), str(document["sport"]), SWEEP_THRESHOLDS[0], 1, project_root, label, args.language, frames_root)
+    print(json.dumps({
+        "mAP50": evaluate_predictions(valid, predictions, classes)["mAP50"], "validationImages": len(valid),
+        "imagesPerSecond": len(valid) / max(seconds, 1e-6), **sweep_thresholds(valid, predictions, classes),
+    }, ensure_ascii=False), flush=True)
+
+
+def recommended_model(results: list[dict[str, Any]]) -> str | None:
+    """The best score on validation data; a smaller model wins when it is within one point of it,
+    since it runs faster and the difference is within what a validation set can tell apart."""
+    scored = [item for item in results if item.get("status") == "done" and item.get("mAP50") is not None]
+    if not scored:
+        return None
+    best = max(item["mAP50"] for item in scored)
+    close = [item for item in scored if item["mAP50"] >= best - 0.01]
+    return min(close, key=lambda item: list(MODEL_CLASSES).index(item["model"]))["model"]
+
+
+def run_batch_step(command: list[str], prefix: str, index: int, count: int) -> tuple[int, str | None, list[str]]:
+    """One model in its own process, so running out of memory ends this step and not the night."""
+    # stderr comes along: the last line of a crash is what the report has to show.
+    process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding="utf-8", errors="replace", bufsize=1, env={**os.environ, "PYTHONUNBUFFERED": "1"})
+    last_json, tail = None, []
+    for line in process.stdout:
+        line = line.rstrip("\n")
+        match = re.match(r"^RECO_STAGE \d+ \d+ (.*)$", line)
+        if match:
+            stage(index, count, f"{prefix}: {match.group(1)}")
+        elif line.startswith("{") and line.endswith("}"):
+            last_json = line
+        elif line.startswith("RECO_PROGRESS "):
+            print(line, file=sys.stderr, flush=True)
+        else:
+            emit(line)
+            if line.strip():
+                tail = [*tail, line][-5:]
+    return process.wait(), last_json, tail
+
+
+def train_batch(args: argparse.Namespace) -> None:
+    project_root = Path(args.project).resolve()
+    require_project(project_root, args.language)
+    keep_awake()
+    wanted = [item for item in str(args.models).split(",") if item in MODEL_CLASSES]
+    # Smallest first: if the night ends early, the quick models are finished.
+    models = sorted(dict.fromkeys(wanted), key=list(MODEL_CLASSES).index)
+    if not models:
+        raise SystemExit(localized(args.language, "Kein Modell ausgewählt.", "No model selected.", "Ningún modelo seleccionado.", "Aucun modèle sélectionné."))
+    report_path = project_root / "batch-training" / "latest.json"
+    results: list[dict[str, Any]] = [{"model": name, "status": "waiting"} for name in models]
+    report = {"startedAt": datetime.now(timezone.utc).isoformat(), "finishedAt": None, "autoEpochs": bool(args.auto_epochs), "patience": args.patience, "epochs": args.epochs, "freshStart": bool(args.fresh_start), "models": results, "recommended": None}
+    atomic_json(report_path, report)
+    worker = str(Path(__file__).resolve())
+    for number, entry in enumerate(results, start=1):
+        name = entry["model"]
+        title = name.capitalize()
+        if shutil.disk_usage(project_root).free < BATCH_MIN_FREE_BYTES:
+            entry.update(status="skipped", error=localized(args.language, "Zu wenig Speicherplatz (unter 5 GB frei).", "Not enough disk space (under 5 GB free).", "Espacio insuficiente (menos de 5 GB libres).", "Espace disque insuffisant (moins de 5 Go libres)."))
+            atomic_json(report_path, report)
+            continue
+        started = time.time()
+        entry["status"] = "running"
+        atomic_json(report_path, report)
+        command = [sys.executable, worker, "train", "--project", str(project_root), "--model", name, "--language", args.language]
+        command += ["--auto-epochs", "--patience", str(args.patience)] if args.auto_epochs else ["--epochs", str(args.epochs)]
+        if args.fresh_start:
+            command.append("--fresh-start")
+        if args.anonymize_fraction:
+            command += ["--anonymize-fraction", f"{float(args.anonymize_fraction):.2f}"]
+        code, _, tail = run_batch_step(command, title, number, len(results))
+        entry["minutes"] = round((time.time() - started) / 60.0, 1)
+        if code != 0:
+            entry.update(status="failed", error=tail[-1] if tail else f"exit code {code}")
+            emit(localized(args.language, f"{title} fehlgeschlagen, weiter mit dem nächsten Modell.", f"{title} failed, continuing with the next model.", f"{title} falló, se continúa con el siguiente modelo.", f"{title} a échoué, passage au modèle suivant."))
+            atomic_json(report_path, report)
+            continue
+        training = load_json(project_file(project_root)).get("lastTraining") or {}
+        validation = training.get("validationMetrics") or {}
+        # Without a sweep the training's own evaluation still allows a comparison.
+        entry.update(status="done", epochs=training.get("epochsCompleted"), device=training.get("device"), testMetrics=training.get("testMetrics") or {}, splits=training.get("splits"), mAP50=validation.get("val/mAP_50"))
+        if args.sweep:
+            code, line, tail = run_batch_step([sys.executable, worker, "confidence-sweep", "--project", str(project_root), "--model", name, "--language", args.language], title, number, len(results))
+            if code == 0 and line:
+                entry.update(json.loads(line))
+            else:
+                entry["sweepError"] = tail[-1] if tail else f"exit code {code}"
+        report["recommended"] = recommended_model(results)
+        atomic_json(report_path, report)
+    report["finishedAt"] = datetime.now(timezone.utc).isoformat()
+    report["recommended"] = recommended_model(results)
+    atomic_json(report_path, report)
+    if not any(item["status"] == "done" for item in results):
+        raise SystemExit(localized(args.language, "Kein Modell des Batch-Trainings wurde fertig: ", "No model of the batch training finished: ", "Ningún modelo del entrenamiento por lotes terminó: ", "Aucun modèle de l’entraînement par lots n’a abouti : ") + str(results[0].get("error", "")))
+    print(json.dumps({"recommended": report["recommended"], "done": sum(item["status"] == "done" for item in results), "total": len(results)}), flush=True)
 
 
 def combine_models(args: argparse.Namespace) -> None:
@@ -3910,6 +4272,13 @@ def package_file_slug(name: str) -> str:
     return slug[:60] or "reco-model"
 
 
+def write_clean_checkpoint(checkpoint: Path, output: Path) -> None:
+    import torch
+    import model_hub
+    payload = torch.load(checkpoint, map_location="cpu", weights_only=True)
+    model_hub.write_minimal_checkpoint(payload["model"], list(payload["args"]["class_names"]), output)
+
+
 def package_model(args: argparse.Namespace) -> None:
     """Create a shareable weights package that contains no media or file names."""
     project_root = Path(args.project).resolve()
@@ -3965,9 +4334,14 @@ def package_model(args: argparse.Namespace) -> None:
         "privacy": "This package contains model weights and aggregate metadata only. It contains no videos, frames, source paths, or video file names.",
         "license": "Apache-2.0 RF-DETR base; the publisher must confirm rights to redistribute fine-tuned weights.",
     }
-    with zipfile.ZipFile(output, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=6) as archive:
-        archive.writestr("manifest.json", json.dumps(manifest, ensure_ascii=False, indent=2, sort_keys=True) + "\n")
-        archive.write(checkpoint, f"weights/{checkpoint.name}")
+    # The weights only: a checkpoint's training arguments hold local paths with the user name.
+    with tempfile.TemporaryDirectory() as folder:
+        cleaned = Path(folder) / checkpoint.name
+        write_clean_checkpoint(checkpoint, cleaned)
+        manifest["weights"]["sha256"] = sha256_file(cleaned)
+        with zipfile.ZipFile(output, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=6) as archive:
+            archive.writestr("manifest.json", json.dumps(manifest, ensure_ascii=False, indent=2, sort_keys=True) + "\n")
+            archive.write(cleaned, f"weights/{checkpoint.name}")
     emit(localized(
         args.language,
         f"Datenschutzsicheres Austauschpaket erstellt: {output}",
@@ -4801,8 +5175,49 @@ def build_parser() -> argparse.ArgumentParser:
     train_parser.add_argument("--category", nargs="+")
     train_parser.add_argument("--language", choices=["de", "en", "es", "fr"], default="de")
     train_parser.add_argument("--fresh-start", action="store_true")
+    train_parser.add_argument("--auto-epochs", action="store_true", help="train until the score stops improving")
+    train_parser.add_argument("--patience", type=int, help="epochs without improvement before stopping")
     train_parser.add_argument("--anonymize-fraction", type=float, default=0.0, help="share of training images whose heads are blurred (0-0.5)")
     train_parser.set_defaults(func=train)
+
+    batch_parser = commands.add_parser("train-batch")
+    batch_parser.add_argument("--project", required=True)
+    batch_parser.add_argument("--models", required=True, help="comma-separated model sizes")
+    batch_parser.add_argument("--epochs", type=int, default=100)
+    batch_parser.add_argument("--auto-epochs", action="store_true")
+    batch_parser.add_argument("--patience", type=int, default=10)
+    batch_parser.add_argument("--fresh-start", action="store_true")
+    batch_parser.add_argument("--sweep", action="store_true", help="find the best confidence of every model afterwards")
+    batch_parser.add_argument("--anonymize-fraction", type=float, default=0.0)
+    batch_parser.add_argument("--language", choices=["de", "en", "es", "fr"], default="de")
+    batch_parser.set_defaults(func=train_batch)
+
+    sweep_parser = commands.add_parser("confidence-sweep")
+    sweep_parser.add_argument("--project", required=True)
+    sweep_parser.add_argument("--model", choices=MODEL_CLASSES, required=True)
+    sweep_parser.add_argument("--language", choices=["de", "en", "es", "fr"], default="de")
+    sweep_parser.set_defaults(func=confidence_sweep)
+
+    hub_install_parser = commands.add_parser("hub-install")
+    hub_install_parser.add_argument("--project", required=True)
+    hub_install_parser.add_argument("--size", required=True)
+    hub_install_parser.add_argument("--id", required=True)
+    hub_install_parser.add_argument("--language", choices=["de", "en", "es", "fr"], default="de")
+    hub_install_parser.set_defaults(func=hub_install)
+
+    hub_share_parser = commands.add_parser("hub-share")
+    hub_share_parser.add_argument("--project", required=True)
+    hub_share_parser.add_argument("--package", required=True)
+    hub_share_parser.add_argument("--name", required=True)
+    hub_share_parser.add_argument("--description", default="")
+    hub_share_parser.add_argument("--version", default="1.0.0")
+    hub_share_parser.add_argument("--camera", required=True)
+    hub_share_parser.add_argument("--venue", choices=["indoor", "outdoor"], required=True)
+    hub_share_parser.add_argument("--games", type=int, required=True)
+    hub_share_parser.add_argument("--trainer-version", required=True)
+    hub_share_parser.add_argument("--rights-confirmed", action="store_true")
+    hub_share_parser.add_argument("--language", choices=["de", "en", "es", "fr"], default="de")
+    hub_share_parser.set_defaults(func=hub_share)
 
     export_parser = commands.add_parser("export")
     export_parser.add_argument("--project", required=True)

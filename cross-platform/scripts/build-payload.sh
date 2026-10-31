@@ -31,7 +31,7 @@ mkdir -p "$PAYLOAD_DIR"
 
 cp -R "$UI_SOURCE" "$PAYLOAD_DIR/ui"
 # Python modules and data next to the workers; keep in sync with the Dockerfile COPY line.
-cp "$PROJECT_DIR/local_worker.py" "$PROJECT_DIR/ml_worker.py" "$PROJECT_DIR/anonymize.py" "$PROJECT_DIR/teachers.py" "$PROJECT_DIR/augment_studio.py" "$PROJECT_DIR/vlm.py" "$PROJECT_DIR/model_registry.json" "$PROJECT_DIR/frame_extractor.swift" "$PAYLOAD_DIR/"
+cp "$PROJECT_DIR/local_worker.py" "$PROJECT_DIR/ml_worker.py" "$PROJECT_DIR/anonymize.py" "$PROJECT_DIR/teachers.py" "$PROJECT_DIR/augment_studio.py" "$PROJECT_DIR/model_hub.py" "$PROJECT_DIR/vlm.py" "$PROJECT_DIR/model_registry.json" "$PROJECT_DIR/frame_extractor.swift" "$PAYLOAD_DIR/"
 printf '{\n  "version": "%s",\n  "minLauncher": "%s"\n}\n' "$VERSION" "$MIN_LAUNCHER" > "$PAYLOAD_DIR/payload.json"
 find "$PAYLOAD_DIR" -name '.DS_Store' -delete
 

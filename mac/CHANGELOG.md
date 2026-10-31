@@ -1,5 +1,17 @@
 # Änderungen
 
+## 0.25.0
+
+- Neu: „Lokal trainieren“ fragt jetzt, welche Modelle trainiert werden: das aktuelle oder zusätzlich Nano, Small, Medium und Large. Sie laufen nacheinander, das kleinste zuerst. Scheitert eines, zum Beispiel an zu wenig Speicher, geht es mit dem nächsten weiter.
+- Neu: Automatische Epochenzahl: Das Training läuft, bis sich der Wert über eine einstellbare Zahl von Epochen nicht mehr verbessert (Standard 10). Die Lernrate halbiert sich dabei, sobald der Wert stagniert.
+- Neu: Nach dem Training wird die beste Confidence je Modell und Klasse auf den Validierungsbildern ermittelt, ohne erneutes Training. Eine Tabelle zeigt alle Modelle mit Empfehlung; die Confidence lässt sich übernehmen.
+- Neu: RF-DETR Medium und Large sind trainierbar.
+- Der Computer bleibt während des Trainings wach (macOS, Windows, Linux mit systemd).
+- Neu: Model Hub – fertige Modelle anderer Nutzer laden und eigene über einen Pull Request teilen. Es werden nur bereinigte Gewichte hochgeladen, nie Bilder. Beim Weitertrainieren misst der Trainer vorher und nachher auf den eigenen Validierungsbildern. Der Hub startet ohne Modelle; „Im Hub teilen“ erscheint erst, wenn der GitHub-Login eingerichtet ist.
+- Datenschutz: `.recomodel`-Pakete enthielten die Trainingsargumente des Checkpoints mit lokalen Pfaden, also auch dem Benutzernamen. Neue Pakete enthalten nur noch Gewichte und Klassennamen. Bereits weitergegebene Pakete bleiben davon unberührt.
+- Korrektur: Die Confidence-Messung nutzt mit Augmentation Studio dessen Validierungsbilder.
+- Studio: Die Aufteilung des Quellordners in train, valid und test wird übernommen; Torhüter verfälschen die Teamerkennung nicht mehr und bleiben auf ihrer Position; Tore behalten ihr Label aus der Box; beim Entfernen von Personen werden auch die Füße unter zu kurzen Boxen erfasst.
+
 ## 0.24.0
 
 - Neu: Augmentation Studio – erzeugt aus einem Ordner mit Bildern und COCO-Labels einen synthetischen Trainingsdatensatz: Masken mit SAM 2 (Zwischenspeicher), leere Hallenplatte per Pixel-Median ab 15 Bildern, sonst Inpainting (LaMa, ersatzweise OpenCV), Personen werden mit passender Größe und Neigung neu platziert, Labels kommen aus der sichtbaren Maske. Feste Regeln: höchstens zwei Teams, 5 Spieler je Team, 3 Schiedsrichter, 1 Ball, keine Klone. Ein Prüfer erzeugt verletzende Bilder automatisch neu. Validierung und Test bleiben echt und nach Sessions getrennt. Gleicher Seed ergibt bitgleiche Bilder, ein abgebrochener Lauf lässt sich fortsetzen.

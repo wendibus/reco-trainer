@@ -131,6 +131,20 @@ The VLM runs **inside Reco Trainer on every platform** - no Ollama or other sepa
 - Intel Macs are not supported for the VLM; the check without the VLM still works everywhere.
 - Docker and other CPU-only systems count as the weak tier, so the VLM is not offered by default. Choose **medium** under **Advanced options** to use it anyway; on the CPU expect roughly 20 seconds per image.
 
+## Batch training
+
+**Train locally** asks which models to train: the current one, or also Nano, Small, Medium and Large. They run one after the other, smallest first, each in its own process, so a model that runs out of memory does not end the run. The computer stays awake meanwhile; on a Mac keep the lid open and the power supply connected.
+
+- **Automatic epochs:** training continues until the score has not improved for an adjustable number of epochs (default 10). The learning rate halves whenever the score stalls.
+- **Confidence:** the threshold plays no part in training, so it is not trained in several variants. Afterwards every model is run once over the validation images and the best confidence is computed per model and per class.
+- **Result:** a table with score, confidence, speed, epochs and duration, plus a recommendation. Between models within one point of each other, the smaller one is recommended.
+
+## Model Hub
+
+**Model Hub** in the model library lists fine-tuned models from other users for the project's sport, as a starting point for your own training. The app only goes online when you open it. Scores in the hub are the authors' own and not comparable. When you continue training from a hub model, the trainer measures it before and after on your own validation images, and keeps the hub model active if the result got worse.
+
+The hub starts empty, and **Share in hub** appears once the GitHub login is set up. It uploads a model you trained yourself, Nano, Small or Medium. Only the cleaned weights (safetensors, without training arguments and local paths) and the details you enter go out, publicly and permanently, through a fork and a pull request. You sign in to GitHub with a code in the browser; the login is not stored. No picture ever leaves the computer.
+
 ## Augmentation Studio
 
 **✦ Augmentation Studio** generates a labelled synthetic training set from a folder with images and COCO annotations.

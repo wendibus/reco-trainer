@@ -312,6 +312,30 @@ class SessionAndTeamTests(unittest.TestCase):
         self.assertEqual(teams[20], -1)
         self.assertTrue(uncertain[20])
 
+    @staticmethod
+    def jersey(bin_index: int, count: int) -> "np.ndarray":
+        rng = np.random.default_rng(bin_index)
+        features = np.zeros((count, 19))
+        features[:, bin_index] = 1.0
+        return np.clip(features + rng.normal(0, 0.02, features.shape), 0, None)
+
+    def test_a_goalkeeper_does_not_become_a_team_and_merge_the_real_ones(self):
+        features = np.vstack((self.jersey(10, 10), self.jersey(18, 10), self.jersey(5, 1), self.jersey(0, 1)))
+        teams, _, _ = studio.cluster_teams(features)
+        self.assertEqual(len(set(teams[:10])), 1)
+        self.assertEqual(len(set(teams[10:20])), 1)
+        self.assertNotEqual(teams[0], teams[10])
+        self.assertTrue((teams[20:] == -1).all())
+
+    def test_an_existing_split_is_kept(self):
+        sessions = {"a": ["train/1.png"], "b": ["valid/2.png"], "c": ["test/3.png"]}
+        self.assertEqual(studio.splits_from_folders(sessions), {"a": "train", "b": "valid", "c": "test"})
+        self.assertEqual(studio.choose_split(sessions, studio.splits_from_folders(sessions))[0], {"a": "train", "b": "valid", "c": "test"})
+
+    def test_folders_without_a_held_out_part_are_no_split(self):
+        self.assertEqual(studio.splits_from_folders({"a": ["train/1.png"], "b": ["train/2.png"]}), {})
+        self.assertEqual(studio.splits_from_folders({"a": ["game/1.png"], "b": ["valid/2.png"]}), {})
+
     def test_session_split_never_cuts_a_session_and_keeps_one_for_training(self):
         sessions = {f"s{number}": [f"s{number}/{index}.jpg" for index in range(10)] for number in range(6)}
         split, warning = studio.choose_split(sessions, {})

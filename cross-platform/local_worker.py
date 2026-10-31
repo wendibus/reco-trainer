@@ -29,6 +29,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlparse
 
+import model_hub  # standard library only at module level
 import teachers  # standard library only at module level: hardware tiers
 import vlm  # standard library only: the app-managed VLM (llama-server + Qwen3.5)
 
@@ -372,6 +373,7 @@ class LocalState:
         data = self._snapshot()
         jobs = JOBS.snapshot()
         data["jobs"] = jobs
+        data["hubUploadReady"] = bool(model_hub.HUB_CLIENT_ID)
         current = jobs["current"]
         data["cancellable"] = bool(current and current["cancellable"] and current["status"] == "running")
         return data
@@ -1883,6 +1885,20 @@ def export_message(summary: dict) -> str:
 
 
 def cancelled_message(action: str) -> str:
+    if action == "hub-share":
+        return localized(
+            "Hochladen abgebrochen. Release und Branch wurden aus deinem Fork entfernt.",
+            "Upload cancelled. The release and the branch were removed from your fork.",
+            "Subida cancelada. La versión y la rama se eliminaron de tu fork.",
+            "Téléversement annulé. La version et la branche ont été retirées de votre fork.",
+        )
+    if action == "train-batch":
+        return localized(
+            "Batch-Training abgebrochen. Fertige Modelle und ihre Ergebnisse bleiben erhalten.",
+            "Batch training cancelled. Finished models and their results are kept.",
+            "Entrenamiento por lotes cancelado. Los modelos terminados y sus resultados se conservan.",
+            "Entraînement par lots annulé. Les modèles terminés et leurs résultats sont conservés.",
+        )
     if action == "train":
         return localized(
             "Training abgebrochen. Der zuletzt gespeicherte Checkpoint bleibt erhalten; „Lokal trainieren“ setzt dort fort.",
@@ -2047,6 +2063,14 @@ def ml_action(action: str, payload: dict) -> None:
                 args = ["import-labels", "--project", str(root), "--source", str(source), "--format", "auto", "--language", language]
                 if payload.get("candidates"):
                     args.append("--candidates")
+            elif action == "hub-install":
+                executable = venv_python if venv_python.is_file() else system_python()
+                args = ["hub-install", "--project", str(root), "--size", str(payload.get("size", "")), "--id", str(payload.get("id", "")), "--language", language]
+            elif action == "hub-share":
+                executable = venv_python if venv_python.is_file() else system_python()
+                args = ["hub-share", "--project", str(root), "--package", str(payload.get("packageID", "")), "--name", str(payload.get("name", "")), "--description", str(payload.get("description", "")), "--version", str(payload.get("version", "1.0.0")), "--camera", str(payload.get("camera", "")), "--venue", str(payload.get("venue", "")), "--games", str(int(payload.get("games", 0))), "--trainer-version", str(payload.get("trainerVersion", "")), "--language", language]
+                if payload.get("rightsConfirmed") is True:
+                    args.append("--rights-confirmed")
             elif action == "package-model":
                 executable = venv_python if venv_python.is_file() else system_python()
                 args = ["package", "--project", str(root), "--model", model, "--name", str(payload.get("name", "")), "--language", language]
@@ -2095,6 +2119,21 @@ def ml_action(action: str, payload: dict) -> None:
                 args = ["train", "--project", str(root), "--model", model, "--epochs", str(int(payload.get("epochs", 20))), "--language", language]
                 if payload.get("freshStart"):
                     args.append("--fresh-start")
+                fraction = payload.get("anonymizeFraction")
+                if isinstance(fraction, (int, float)) and 0 < fraction <= 0.5:
+                    args += ["--anonymize-fraction", f"{float(fraction):.2f}"]
+            elif action == "train-batch":
+                backup_project(root, "training")
+                models = [item for item in payload.get("models") or [] if item in {"nano", "small", "medium", "large"}]
+                if not models:
+                    raise RuntimeError(localized("Mindestens ein Modell auswählen.", "Select at least one model.", "Selecciona al menos un modelo.", "Sélectionnez au moins un modèle."))
+                args = ["train-batch", "--project", str(root), "--models", ",".join(models), "--epochs", str(max(1, min(500, int(payload.get("epochs", 100))))), "--patience", str(max(3, min(50, int(payload.get("patience", 10))))), "--language", language]
+                if payload.get("autoEpochs"):
+                    args.append("--auto-epochs")
+                if payload.get("freshStart"):
+                    args.append("--fresh-start")
+                if payload.get("sweep"):
+                    args.append("--sweep")
                 fraction = payload.get("anonymizeFraction")
                 if isinstance(fraction, (int, float)) and 0 < fraction <= 0.5:
                     args += ["--anonymize-fraction", f"{float(fraction):.2f}"]
@@ -2427,6 +2466,28 @@ class Handler(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(data)
             return
+        if route.path == "/api/hub/models":
+            # Only ever on request: the hub is the one place where the app goes online by itself.
+            root = STATE.project_root
+            document = load_project(root) if root else None
+            if document is None:
+                self.json_response({"models": []})
+                return
+            query = parse_qs(route.query)
+            sport = str(document.get("sport", ""))
+            classes = sorted({annotation.get("category") for frame in document.get("frames", []) for annotation in frame.get("annotations", []) if annotation.get("category")})
+            index = model_hub.fetch_index(root / "hub" / "index.json")
+            self.json_response({
+                "models": model_hub.filter_models(index, sport, classes, query.get("version", ["0"])[0]),
+                "offline": bool(index.get("offline")), "notYetPublished": bool(index.get("notYetPublished")), "sport": sport,
+                "comparison": document.get("hubComparison"),
+            })
+            return
+        if route.path == "/api/batch-report":
+            root = STATE.project_root
+            path = root / "batch-training" / "latest.json" if root else None
+            self.json_response(json.loads(path.read_text(encoding="utf-8")) if path and path.is_file() else {})
+            return
         if route.path == "/api/augment/state":
             root = STATE.project_root
             self.json_response(augment_state(root) if root else {"source": None})
@@ -2677,7 +2738,7 @@ class Handler(BaseHTTPRequestHandler):
                 label_folder = choose_video_folder(labels=True)
                 job = JOBS.submit("import-labels", ml_action, "import-labels", {**payload, "source": str(label_folder)})
                 self.json_response({"ok": True, "folder": str(label_folder), "job": job})
-            elif self.path in {"/api/setup", "/api/autolabel", "/api/train", "/api/export-coreml", "/api/export-onnx", "/api/refine-boxes", "/api/package-model", "/api/combine-models", "/api/benchmark", "/api/activate-model", "/api/rename-model", "/api/delete-model", "/api/download-models", "/api/export-dataset", "/api/consistency-check"}:
+            elif self.path in {"/api/setup", "/api/autolabel", "/api/train", "/api/train-batch", "/api/hub-install", "/api/hub-share", "/api/export-coreml", "/api/export-onnx", "/api/refine-boxes", "/api/package-model", "/api/combine-models", "/api/benchmark", "/api/activate-model", "/api/rename-model", "/api/delete-model", "/api/download-models", "/api/export-dataset", "/api/consistency-check"}:
                 action = self.path.removeprefix("/api/")
                 job = JOBS.submit(action, ml_action, action, payload, cancellable=action not in QUICK_ACTIONS)
                 self.json_response({"ok": True, "job": job})

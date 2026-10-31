@@ -436,3 +436,31 @@ button:disabled[data-hint] { pointer-events:none; }
 .studio-previews { display:grid; grid-template-columns:repeat(auto-fill,minmax(180px,1fr)); gap:6px; width:100%; }
 .studio-previews img { width:100%; height:auto; border-radius:5px; display:block; }
 
+.train-backdrop { z-index: 60; }
+.train-dialog { background: var(--panel, #fff); color: inherit; border-radius: 12px; padding: 20px 24px; width: min(560px, calc(100vw - 32px)); max-height: calc(100vh - 48px); overflow-y: auto; box-shadow: 0 16px 48px rgba(0, 0, 0, .3); }
+.train-dialog h2 { margin: 0 0 12px; font-size: 18px; }
+.train-dialog fieldset { border: 0; margin: 0 0 12px; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.train-dialog legend { font-weight: 600; margin-bottom: 6px; padding: 0; }
+.train-dialog label { display: flex; align-items: center; gap: 8px; }
+.train-dialog input[type="number"] { width: 72px; padding: 2px 6px; border: 1px solid var(--line); border-radius: 6px; }
+.train-indented { margin-left: 24px; }
+.train-note { font-size: 12px; opacity: .75; margin: 4px 0 0; }
+.train-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
+.batch-report { margin-top: 12px; }
+.batch-report-scroll { overflow-x: auto; }
+.batch-report table { border-collapse: collapse; width: 100%; font-size: 12px; margin-top: 6px; }
+.batch-report th, .batch-report td { text-align: left; padding: 4px 8px; border-bottom: 1px solid rgba(127, 127, 127, .3); white-space: nowrap; }
+.batch-report tr.recommended td { font-weight: 600; }
+
+.hub-open { margin: 6px 0; }
+.hub-dialog { width: min(720px, calc(100vw - 32px)); max-height: calc(100vh - 48px); overflow-y: auto; }
+.hub-tabs { display: flex; gap: 6px; margin-bottom: 10px; }
+.hub-tabs button[aria-pressed="true"] { font-weight: 600; text-decoration: underline; }
+.hub-model { border-top: 1px solid rgba(127, 127, 127, .3); padding: 10px 0; display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; }
+.hub-model p { margin: 4px 0; }
+.hub-model small { display: block; opacity: .8; }
+.train-dialog .hub-form label { display: grid; grid-template-columns: 1fr; gap: 3px; }
+.train-dialog .hub-form input[type="text"], .train-dialog .hub-form textarea, .train-dialog .hub-form select { width: 100%; padding: 4px 6px; border: 1px solid var(--line); border-radius: 6px; box-sizing: border-box; font: inherit; }
+.train-dialog .hub-form label.hub-rights { display: flex; align-items: flex-start; font-size: 13px; }
+.train-dialog .hub-form label.hub-rights input { flex: none; margin-top: 3px; }
+@media (max-width: 520px) { .hub-model { flex-direction: column; } }

@@ -7,6 +7,7 @@ import sys
 import tempfile
 import types
 import unittest
+from unittest import mock
 import zipfile
 from pathlib import Path
 
@@ -850,7 +851,7 @@ class ModelLibraryTests(unittest.TestCase):
 
     def test_exchange_package_uses_requested_name(self):
         args = argparse.Namespace(project=str(self.root), model="small", name="Hall Model #4", language="en")
-        with contextlib.redirect_stdout(io.StringIO()):
+        with contextlib.redirect_stdout(io.StringIO()), mock.patch.object(ml_worker, "write_clean_checkpoint", lambda source, output: output.write_bytes(b"clean")):
             ml_worker.package_model(args)
         packages = list((self.root / "exports" / "share").glob("*.recomodel"))
         self.assertEqual(len(packages), 1)

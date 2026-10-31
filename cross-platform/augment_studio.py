@@ -40,7 +40,11 @@ MIN_FOOT_DISTANCE_M = 0.5
 MAX_TILT_CHANGE_DEG = 10.0
 MAX_BALL_TO_PERSON = 0.5
 MIN_COMPLETE_FILL = 0.35
+MIN_TEAM_SHARE = 0.2
+KEEPER_NAMES = {"goalkeeper", "goalie", "keeper", "torwart", "torhüter"}
 PLATE_BOX_MARGIN = 0.12
+PLATE_BOX_BELOW = 0.3
+MASK_PROMPT_BELOW = 0.2
 BYTES_PER_IMAGE = 400_000
 MIN_SCALE, MAX_SCALE = 0.7, 1.35
 MIN_JERSEY_DELTA_E = 25.0
@@ -283,6 +287,18 @@ def group_sessions(images: list[dict[str, Any]], signatures: dict[str, tuple[np.
             leaders.append((chosen, signature))
         groups[chosen].append(relative)
     return dict(sorted(groups.items()))
+
+
+def splits_from_folders(sessions: dict[str, list[str]]) -> dict[str, str]:
+    """A dataset that is already split keeps its split: its test images must not feed synthetic ones."""
+    names = {"train": "train", "valid": "valid", "val": "valid", "test": "test"}
+    result = {}
+    for name, items in sessions.items():
+        found = {names.get(item.split("/")[0]) for item in items}
+        if len(found) == 1 and None not in found:
+            result[name] = found.pop()
+    held_out = {"valid", "test"} & set(result.values())
+    return result if len(result) == len(sessions) and held_out and "train" in result.values() else {}
 
 
 def choose_split(sessions: dict[str, list[str]], overrides: dict[str, str]) -> tuple[dict[str, str], str | None]:
@@ -613,10 +629,28 @@ def jersey_feature(patch: np.ndarray, alpha: np.ndarray) -> np.ndarray:
 
 def cluster_teams(features: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """k=2 plus an outlier class (-1). Returns team per instance, uncertain flags and centroids.
-    Deterministic: starts from the two instances farthest apart."""
+
+    A goalkeeper's jersey is the farthest from everything else and would become a "team" of its own,
+    with both real teams merged into the other. So a tiny cluster counts as outliers and the rest is clustered again."""
     count = len(features)
     if count == 0:
         return np.zeros(0, dtype=int), np.zeros(0, dtype=bool), np.zeros((2, 19))
+    active = np.arange(count)
+    for _ in range(4):
+        teams, uncertain, centroids = cluster_two(features[active])
+        sizes = [(teams == team).sum() for team in (0, 1)]
+        small = int(np.argmin(sizes))
+        if len(active) < 6 or sizes[small] >= MIN_TEAM_SHARE * len(active):
+            break
+        active = active[teams != small]
+    result, flags = np.full(count, -1, dtype=int), np.ones(count, dtype=bool)
+    result[active], flags[active] = teams, uncertain
+    return result, flags, centroids
+
+
+def cluster_two(features: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Plain k=2. Deterministic: starts from the two instances farthest apart."""
+    count = len(features)
     first = int(np.argmax(np.linalg.norm(features - features.mean(axis=0), axis=1)))
     second = int(np.argmax(np.linalg.norm(features - features[first], axis=1)))
     centroids = np.stack([features[first], features[second]])
@@ -698,7 +732,7 @@ def analyze(
         signatures[image["rel"]] = background_signature(picture, [item["bbox"] for item in image["instances"] if roles.get(item["class"]) != "static"])
         progress(index + 1, len(images))
     sessions = group_sessions(images, signatures, config.get("sessionOverrides") or {})
-    split, split_warning = choose_split(sessions, config.get("splitOverrides") or {})
+    split, split_warning = choose_split(sessions, {**splits_from_folders(sessions), **(config.get("splitOverrides") or {})})
     by_rel = {image["rel"]: image for image in images}
     session_of = {relative: name for name, items in sessions.items() for relative in items}
 
@@ -725,19 +759,28 @@ def analyze(
                     log.append(f"{image['rel']}: {item['class']} ignored (larger than half a person)")
                     continue
                 entry = known.get(item["id"])
-                if entry is None:
+                if entry is None or (role == "static" and entry.get("origin") == "sam2"):
                     if picture is None:
                         picture = read_image(source / image["rel"])
                     existing = segmentation_to_mask(item.get("segmentation"), image["height"], image["width"])
                     if existing is not None:
                         ys, xs = np.nonzero(existing)
                         offset, mask, score, origin = (int(xs.min()), int(ys.min())), existing[ys.min():ys.max() + 1, xs.min():xs.max() + 1], 1.0, "coco"
+                    elif role == "static":
+                        # A goal net or a hoop has no closed outline, and it does not move: the box is the label.
+                        x0, y0 = max(int(item["bbox"][0]), 0), max(int(item["bbox"][1]), 0)
+                        x1, y1 = min(int(math.ceil(item["bbox"][0] + item["bbox"][2])), image["width"]), min(int(math.ceil(item["bbox"][1] + item["bbox"][3])), image["height"])
+                        offset, mask, score, origin = (x0, y0), np.ones((max(y1 - y0, 1), max(x1 - x0, 1)), dtype=bool), 1.0, "box"
                     else:
                         if provider is None:
                             if make_masks is None:
                                 raise StudioError(text(language, "SAM 2 ist nicht verfügbar. Zuerst „ML einrichten“ ausführen.", "SAM 2 is not available. Run “Set up ML” first.", "SAM 2 no está disponible. Ejecuta primero «Configurar ML».", "SAM 2 n’est pas disponible. Lancez d’abord « Configurer le ML »."))
                             provider = make_masks()
-                        mask, offset, score = provider(picture, item["bbox"])
+                        # Boxes often end above the shoes, and SAM stays inside its prompt: give it room to find the feet.
+                        prompt = item["bbox"]
+                        if role in {"player", "referee"}:
+                            prompt = [prompt[0], prompt[1], prompt[2], min(prompt[3] * (1.0 + MASK_PROMPT_BELOW), image["height"] - prompt[1])]
+                        mask, offset, score = provider(picture, prompt)
                         mask, origin = clean_mask(mask), "sam2"
                     problem = mask_quality_problem(mask, offset, item["bbox"], score)
                     entry = {"id": item["id"], "score": round(score, 4), "origin": origin, "problem": problem}
@@ -777,7 +820,8 @@ def analyze(
             # Labelled boxes are often tight: heads, arms and shoes stick out and must go with the person.
             bx, by, bw, bh = box
             margin = PLATE_BOX_MARGIN * bh
-            mask[max(int(by - margin), 0):int(math.ceil(by + bh + margin)) + 1, max(int(bx - margin), 0):int(math.ceil(bx + bw + margin)) + 1] = 1
+            below = PLATE_BOX_BELOW * bh  # most often the feet are what a box cuts off
+            mask[max(int(by - margin), 0):int(math.ceil(by + bh + below)) + 1, max(int(bx - margin), 0):int(math.ceil(bx + bw + margin)) + 1] = 1
 
         for instance in by_image.get(relative, []):
             if instance["role"] == "static":
@@ -809,7 +853,7 @@ def analyze(
             plates[name] = {"mode": "none", "files": {}}
             continue
         height, width = by_rel[members[0]]["height"], by_rel[members[0]]["width"]
-        key = stable_hash("plate-4", *members, *[instance["id"] for relative in members for instance in by_image.get(relative, [])], *[box for relative in members for box in unmasked.get(relative, [])])[:16]
+        key = stable_hash("plate-5", *members, *[instance["id"] for relative in members for instance in by_image.get(relative, [])], *[box for relative in members for box in unmasked.get(relative, [])])[:16]
         if len(members) >= MIN_FRAMES_FOR_MEDIAN:
             target = cache / "plates" / f"{slug}-{key}.png"
             if not target.is_file():
@@ -895,7 +939,10 @@ def analyze(
         polygon_source = "clicked" if config["polygons"].get(name) else "calibration" if info.get("polygon") else "estimated"
         if not polygon:
             polygon = polygon_of_feet(feet_array, width, height, float(np.median(heights)) if heights else 0.0)
-        players = [item for item in people if item["role"] == "player"]
+        for item in people:
+            item["keeper"] = str(item["class"]).casefold() in KEEPER_NAMES
+        # Goalkeepers stay on their line and wear neither team's colours.
+        players = [item for item in people if item["role"] == "player" and not item["keeper"]]
         features = np.array([jersey_feature(patches[item["id"]][:, :, :3], patches[item["id"]][:, :, 3] > 127) for item in players]).reshape(-1, 19)
         teams, uncertain, centroids = cluster_teams(features)
         group = link_of.get(name, name)
@@ -1164,7 +1211,7 @@ def plan_image(context: Context, index: int, attempt: int) -> dict[str, Any]:
             used.add(chosen)
     # People beside the court keep their place and do not count towards the limits.
     for item in context.analysis["instances"]:
-        if item["image"] == anchor and item["role"] in {"player", "referee"} and item["id"] not in used and not geometry.on_field(*item["foot"]) and item.get("team") in (0, 1, None):
+        if item["image"] == anchor and item["role"] in {"player", "referee"} and item["id"] not in used and (not geometry.on_field(*item["foot"]) or item.get("keeper")) and item.get("team") in (0, 1, None):
             placements.append({"id": item["id"], "old": item["foot"], "new": item["foot"], "scale": 1.0, "rotate": 0.0, "flip": False, "fixed": True})
     statics = [item["id"] for item in context.analysis["instances"] if item["image"] == anchor and item["role"] == "static"]
     if not statics:
