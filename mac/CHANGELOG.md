@@ -1,5 +1,9 @@
 # Änderungen
 
+## 0.25.1
+
+- Model Hub: Das Repository ist online und „Im Hub teilen“ freigeschaltet. Der Hub enthält noch keine Modelle, und über das echte GitHub wurde noch kein Modell geteilt.
+
 ## 0.25.0
 
 - Neu: „Lokal trainieren“ fragt jetzt, welche Modelle trainiert werden: das aktuelle oder zusätzlich Nano, Small, Medium und Large. Sie laufen nacheinander, das kleinste zuerst. Scheitert eines, zum Beispiel an zu wenig Speicher, geht es mit dem nächsten weiter.

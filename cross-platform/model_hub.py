@@ -24,7 +24,7 @@ HUB_INDEX_URL = os.environ.get("RECO_HUB_INDEX_URL", f"https://github.com/{HUB_R
 HUB_API = os.environ.get("RECO_HUB_API", "https://api.github.com")
 HUB_LOGIN = os.environ.get("RECO_HUB_LOGIN", "https://github.com")
 # The public id of the OAuth app. Device flow needs no secret.
-HUB_CLIENT_ID = os.environ.get("RECO_HUB_CLIENT_ID", "")
+HUB_CLIENT_ID = os.environ.get("RECO_HUB_CLIENT_ID", "Ov23li21PjXNuonHJEYK")
 HUB_ASSET_PREFIX = os.environ.get("RECO_HUB_ASSET_PREFIX", f"https://github.com/{HUB_REPO}/releases/download/")
 
 HUB_SIZES = {"nano": 384, "small": 512, "medium": 576}

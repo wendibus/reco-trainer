@@ -143,7 +143,7 @@ The VLM runs **inside Reco Trainer on every platform** - no Ollama or other sepa
 
 **Model Hub** in the model library lists fine-tuned models from other users for the project's sport, as a starting point for your own training. The app only goes online when you open it. Scores in the hub are the authors' own and not comparable. When you continue training from a hub model, the trainer measures it before and after on your own validation images, and keeps the hub model active if the result got worse.
 
-The hub starts empty, and **Share in hub** appears once the GitHub login is set up. It uploads a model you trained yourself, Nano, Small or Medium. Only the cleaned weights (safetensors, without training arguments and local paths) and the details you enter go out, publicly and permanently, through a fork and a pull request. You sign in to GitHub with a code in the browser; the login is not stored. No picture ever leaves the computer.
+The hub starts empty. **Share in hub** uploads a model you trained yourself, Nano, Small or Medium. Only the cleaned weights (safetensors, without training arguments and local paths) and the details you enter go out, publicly and permanently, through a fork and a pull request. You sign in to GitHub with a code in the browser; the login is not stored. No picture ever leaves the computer.
 
 ## Augmentation Studio
 
