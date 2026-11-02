@@ -1,5 +1,10 @@
 # Änderungen
 
+## 0.25.2
+
+- Behoben: „ML einrichten“ prüft jetzt, ob sich PyTorch wirklich laden lässt. Unter Windows mit NVIDIA-Karte konnte die CUDA-Version sauber installiert werden und trotzdem nicht laden (`WinError 127` bei `c10_cuda.dll`, zum Beispiel durch einen zu alten NVIDIA-Treiber oder fehlende Visual-C++-Laufzeit); das Training brach dann mit einem unverständlichen Fehler ab. Jetzt wechselt „ML einrichten“ in diesem Fall automatisch zur CPU-Version von PyTorch. Wer betroffen ist, klickt erneut auf „ML einrichten“; die Umgebung wird repariert, Videos, Labels und Modelle bleiben unberührt. Meldungen beim Training erklären den Fehler jetzt.
+- Behoben: Der nach dem Training gespeicherte Qualitätswert wird jetzt auf dem besten Checkpoint gemessen, nicht auf der letzten Epoche. Ein früh optimales Modell wurde zuvor zu schlecht bewertet, auch bei der automatischen Wahl des besten Modells.
+
 ## 0.25.1
 
 - Model Hub: Das Repository ist online und „Im Hub teilen“ freigeschaltet. Der Hub enthält noch keine Modelle, und über das echte GitHub wurde noch kein Modell geteilt.
