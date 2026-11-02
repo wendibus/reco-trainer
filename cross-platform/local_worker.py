@@ -1921,6 +1921,75 @@ def cancelled_message(action: str) -> str:
     )
 
 
+CPU_TORCH_INDEX_URL = "https://download.pytorch.org/whl/cpu"
+
+
+def torch_import_error(venv_python: Path) -> str | None:
+    """None when `import torch` works inside the ML environment, else the last line of the error.
+
+    A CUDA build of PyTorch can install cleanly and still fail to load (WinError 127 on
+    c10_cuda.dll: NVIDIA driver too old for the CUDA version, missing Visual C++ runtime,
+    a clashing DLL). Only importing it shows that.
+    """
+    try:
+        result = subprocess.run(
+            [str(venv_python), "-c", "import torch"],
+            capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=600, check=False,
+        )
+    except (OSError, subprocess.SubprocessError) as error:
+        return str(error)
+    if result.returncode == 0:
+        return None
+    lines = [line.strip() for line in (result.stderr or result.stdout or "").splitlines() if line.strip()]
+    return lines[-1] if lines else f"exit code {result.returncode}"
+
+
+def ensure_torch_importable(venv_python: Path) -> None:
+    """After installing the ML packages: make sure PyTorch actually loads, else switch to the CPU build.
+
+    The CPU build always works, just slower. If even that does not load, raise a clear error
+    instead of leaving an environment that only fails later, in the middle of training.
+    """
+    error = torch_import_error(venv_python)
+    if error is None:
+        return
+    STATE.append_log(localized(
+        f"PyTorch lässt sich nicht laden ({error}). Wechsle zur CPU-Version von PyTorch …",
+        f"PyTorch cannot be loaded ({error}). Switching to the CPU build of PyTorch …",
+        f"No se puede cargar PyTorch ({error}). Cambiando a la versión de CPU de PyTorch …",
+        f"PyTorch ne peut pas être chargé ({error}). Passage à la version CPU de PyTorch …",
+    ))
+    STATE.update(message=localized(
+        "PyTorch mit CUDA lässt sich nicht laden - richte die CPU-Version ein …",
+        "PyTorch with CUDA cannot be loaded - setting up the CPU build …",
+        "No se puede cargar PyTorch con CUDA - configurando la versión de CPU …",
+        "PyTorch avec CUDA ne peut pas être chargé - configuration de la version CPU …",
+    ))
+    run_logged([str(venv_python), "-m", "pip", "uninstall", "-y", "torch", "torchvision", "torchaudio"])
+    install = [str(venv_python), "-m", "pip", "install", "torch", "torchvision"]
+    if sys.platform != "darwin":
+        install += ["--index-url", CPU_TORCH_INDEX_URL]
+    run_logged(install)
+    error = torch_import_error(venv_python)
+    if error is not None:
+        raise RuntimeError(localized(
+            f"PyTorch lässt sich auch in der CPU-Version nicht laden: {error}\n"
+            "Unter Windows hilft meist das „Microsoft Visual C++ Redistributable (x64)“ von Microsoft und ein Neustart.",
+            f"PyTorch cannot be loaded even as the CPU build: {error}\n"
+            "On Windows, installing the \u201cMicrosoft Visual C++ Redistributable (x64)\u201d from Microsoft and restarting usually helps.",
+            f"PyTorch no se puede cargar ni siquiera en la versión de CPU: {error}\n"
+            "En Windows suele ayudar instalar el \u201cMicrosoft Visual C++ Redistributable (x64)\u201d y reiniciar.",
+            f"PyTorch ne peut pas être chargé même en version CPU : {error}\n"
+            "Sous Windows, l’installation de « Microsoft Visual C++ Redistributable (x64) » puis un redémarrage aident généralement.",
+        ))
+    STATE.append_log(localized(
+        "PyTorch (CPU) wurde eingerichtet. Das Training läuft damit, aber langsamer als mit einer funktionierenden GPU.",
+        "PyTorch (CPU) is set up. Training works, but more slowly than with a working GPU.",
+        "PyTorch (CPU) está configurado. El entrenamiento funciona, pero más lento que con una GPU operativa.",
+        "PyTorch (CPU) est configuré. L’entraînement fonctionne, mais plus lentement qu’avec un GPU opérationnel.",
+    ))
+
+
 def ml_action(action: str, payload: dict) -> None:
     output_dirs: list[Path] = []
     before: dict[Path, float] = {}
@@ -1983,6 +2052,7 @@ def ml_action(action: str, payload: dict) -> None:
                 "rfdetr[train,onnx,coreml]>=1.9.0", "onnxruntime",
                 *(["--extra-index-url", cuda_index_url] if gpu_name else []),
             ])
+            ensure_torch_importable(venv_python)
             # The accelerator label (see non_apple_accelerator()) is cached
             # per venv path - a re-run of setup (e.g. retrying with CUDA
             # switched off, or after fixing a failed CUDA install) just

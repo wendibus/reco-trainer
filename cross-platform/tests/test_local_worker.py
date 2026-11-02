@@ -221,11 +221,14 @@ class OutdatedVenvTests(unittest.TestCase):
         local_worker.run_logged = lambda command: self.commands.append(command)
         local_worker.system_python = lambda: Path("/opt/homebrew/bin/python3.12")
         local_worker.detect_nvidia_gpu_name = lambda: None
+        self.original_torch_import_error = local_worker.torch_import_error
+        local_worker.torch_import_error = lambda path: None
 
     def tearDown(self):
         local_worker.run_logged = self.original_run_logged
         local_worker.python_version_of = self.original_version_of
         local_worker.system_python = self.original_system_python
+        local_worker.torch_import_error = self.original_torch_import_error
 
     def _project_with_venv(self, root: Path) -> Path:
         local_worker.atomic_json(root / "project.json", {"sport": "basketball", "frames": []})
@@ -256,6 +259,54 @@ class OutdatedVenvTests(unittest.TestCase):
             local_worker.ml_action("setup", {"useCuda": False})
 
             self.assertFalse(any(command[1:3] == ["-m", "venv"] for command in self.commands))
+
+
+class TorchFallbackTests(unittest.TestCase):
+    """A CUDA PyTorch that installs but cannot load (WinError 127 on c10_cuda.dll, reported on
+    Windows) must not leave a broken ML environment: Set up ML switches to the CPU build."""
+
+    def setUp(self):
+        local_worker.STATE.update(log=[])
+        self.original_run_logged = local_worker.run_logged
+        self.original_error = local_worker.torch_import_error
+        self.commands: list[list[str]] = []
+        local_worker.run_logged = lambda command: self.commands.append(command)
+
+    def tearDown(self):
+        local_worker.run_logged = self.original_run_logged
+        local_worker.torch_import_error = self.original_error
+
+    def test_working_torch_is_left_alone(self):
+        local_worker.torch_import_error = lambda path: None
+        local_worker.ensure_torch_importable(Path("/venv/python"))
+        self.assertEqual(self.commands, [])
+
+    def test_unloadable_torch_is_replaced_by_the_cpu_build(self):
+        results = iter(["OSError: [WinError 127] c10_cuda.dll", None])
+        local_worker.torch_import_error = lambda path: next(results)
+        with mock.patch.object(local_worker.sys, "platform", "win32"):
+            local_worker.ensure_torch_importable(Path("/venv/python"))
+        self.assertIn("uninstall", self.commands[0])
+        self.assertIn(local_worker.CPU_TORCH_INDEX_URL, self.commands[1])
+        self.assertEqual(len(self.commands), 2)
+
+    def test_error_when_even_the_cpu_build_fails(self):
+        local_worker.torch_import_error = lambda path: "OSError: still broken"
+        with self.assertRaises(RuntimeError) as raised:
+            local_worker.ensure_torch_importable(Path("/venv/python"))
+        self.assertIn("still broken", str(raised.exception))
+        self.assertIn("Visual C++", str(raised.exception))
+
+    def test_import_check_reports_the_last_error_line(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            broken = Path(temporary) / "python"
+            broken.write_text("#!/bin/sh\necho 'Traceback' >&2\necho 'OSError: [WinError 127] boom' >&2\nexit 1\n")
+            broken.chmod(0o755)
+            self.assertEqual(local_worker.torch_import_error(broken), "OSError: [WinError 127] boom")
+            working = Path(temporary) / "ok"
+            working.write_text("#!/bin/sh\nexit 0\n")
+            working.chmod(0o755)
+            self.assertIsNone(local_worker.torch_import_error(working))
 
 
 class VenvPythonPathTests(unittest.TestCase):
@@ -725,6 +776,8 @@ class CudaSetupTests(unittest.TestCase):
         self.original_os_name = local_worker.os.name
         self.original_run_logged = local_worker.run_logged
         self.original_detect_gpu = local_worker.detect_nvidia_gpu_name
+        self.original_torch_import_error = local_worker.torch_import_error
+        local_worker.torch_import_error = lambda path: None
         self.commands: list[list[str]] = []
         local_worker.run_logged = lambda command: self.commands.append(command)
 
@@ -732,6 +785,7 @@ class CudaSetupTests(unittest.TestCase):
         local_worker.os.name = self.original_os_name
         local_worker.run_logged = self.original_run_logged
         local_worker.detect_nvidia_gpu_name = self.original_detect_gpu
+        local_worker.torch_import_error = self.original_torch_import_error
 
     def _prepare_project_with_existing_venv(self, root: Path, *, os_name: str) -> None:
         # os.name must be set before computing venv_python_path, which

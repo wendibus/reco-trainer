@@ -107,6 +107,17 @@ def import_model_class(size: str, language: str = "de"):
             "RF-DETR ist nicht installiert. In der App zuerst „ML einrichten“ wählen.",
             "RF-DETR is not installed. Select “Set up ML” in the app first.",
         )) from error
+    except OSError as error:
+        # E.g. WinError 127 on torch's c10_cuda.dll: PyTorch is installed but cannot load
+        # (NVIDIA driver too old, Visual C++ runtime missing). "Set up ML" detects this and
+        # switches to the CPU build of PyTorch.
+        raise SystemExit(localized(
+            language,
+            f"PyTorch lässt sich nicht laden: {error}\nBitte in der App erneut „ML einrichten“ wählen; das stellt bei Bedarf auf die CPU-Version um. "
+            "Alternativ den NVIDIA-Treiber und das „Microsoft Visual C++ Redistributable (x64)“ aktualisieren.",
+            f"PyTorch cannot be loaded: {error}\nPlease select “Set up ML” in the app again; it switches to the CPU build if needed. "
+            "Alternatively update the NVIDIA driver and the “Microsoft Visual C++ Redistributable (x64)”.",
+        )) from error
     try:
         return getattr(rfdetr, {**MODEL_CLASSES, **BASE_DETECTOR_CLASSES}[size])
     except AttributeError as error:
