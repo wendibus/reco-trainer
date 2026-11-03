@@ -2,8 +2,8 @@
 
 ## 0.25.2
 
-- Lokale Ergänzung: Training und Modellverwaltung unter dem Labelbild lassen sich einklappen. Der frei werdende Platz vergrößert die Vorschau; die Einstellung bleibt gespeichert. Der aufgeklappte Bereich ist bei wenig Platz scrollbar.
-- Lokale Ergänzung: Eine vorhandene Box anklicken und oben ihre Klasse ändern, zum Beispiel Spieler zu Schiedsrichter. Die Änderung wird als manuelle Korrektur gespeichert, entfernt den alten Confidence-Wert und unterstützt Rückgängig/Wiederholen. Reines Auswählen erzeugt keinen Speichervorgang und keinen Undo-Schritt.
+- Neu: Training und Modellverwaltung unter dem Labelbild lassen sich einklappen. Der frei werdende Platz vergrößert die Vorschau; die Einstellung bleibt gespeichert. Der aufgeklappte Bereich ist bei wenig Platz scrollbar.
+- Neu: Eine vorhandene Box anklicken und oben ihre Klasse ändern, zum Beispiel Spieler zu Schiedsrichter. Die Änderung wird als manuelle Korrektur gespeichert, entfernt den alten Confidence-Wert und unterstützt Rückgängig/Wiederholen. Reines Auswählen erzeugt keinen Speichervorgang und keinen Undo-Schritt.
 
 - Behoben: „ML einrichten“ prüft jetzt, ob sich PyTorch wirklich laden lässt. Unter Windows mit NVIDIA-Karte konnte die CUDA-Version sauber installiert werden und trotzdem nicht laden (`WinError 127` bei `c10_cuda.dll`, zum Beispiel durch einen zu alten NVIDIA-Treiber oder fehlende Visual-C++-Laufzeit); das Training brach dann mit einem unverständlichen Fehler ab. Jetzt wechselt „ML einrichten“ in diesem Fall automatisch zur CPU-Version von PyTorch. Wer betroffen ist, klickt erneut auf „ML einrichten“; die Umgebung wird repariert, Videos, Labels und Modelle bleiben unberührt. Meldungen beim Training erklären den Fehler jetzt.
 - Behoben: Der nach dem Training gespeicherte Qualitätswert wird jetzt auf dem besten Checkpoint gemessen, nicht auf der letzten Epoche. Ein früh optimales Modell wurde zuvor zu schlecht bewertet, auch bei der automatischen Wahl des besten Modells.
