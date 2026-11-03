@@ -117,6 +117,12 @@ Reco Trainer flags certain candidate frames as worth reviewing first, using two 
 
 Flagged frames appear first in the queue with a warning icon and a short reason. This only ever changes review *order* — it never changes what gets trained on.
 
+### More room for labeling and changing an existing class
+
+Use the collapse button above the training controls to hide training and model management below the image. The preview grows into the available space; click again to restore the controls. This preference stays saved on the computer. Training settings and models are preserved while collapsed.
+
+Click an existing box (or focus it and press Enter or Space). The class selector above the image now shows that box's class. Choose another class to save the correction, for example player to referee. The box keeps its position and size, becomes a manual label, and no longer shows the old model confidence. Undo and redo also apply to class changes. Use **New box** to return to drawing without changing the selected label. In **Pan** mode, dragging over a box still pans the view.
+
 ### Training locally
 
 Once you've reviewed enough frames, start a training run. You'll set:
