@@ -19,8 +19,10 @@ Thanks to everyone who posts logs in the forum: this fix exists because of such 
 
 ## Downloads
 
-- **macOS Apple Silicon:** `Reco-Trainer-Mac-0.25.2.dmg` (signed and notarized)
+- **macOS Apple Silicon:** existing installations receive 0.25.2 through the in-app updater. For a fresh installation, use the [signed and notarized 0.25.1 launcher](https://github.com/wendibus/reco-trainer/releases/download/v0.25.1/Reco-Trainer-Mac-0.25.1.dmg), then accept the 0.25.2 update. This release updates the interface and workers; the launcher is unchanged.
 - **Mac update package:** `Reco.Trainer.Payload.0.25.2.zip` + `.sig` (installed automatically by the app)
 - **Windows:** `Reco.Trainer.Windows.0.25.2.zip`
 - **Linux:** `Reco.Trainer.Linux.0.25.2.zip`
 - **Docker:** `Reco.Trainer.Docker.0.25.2.zip`
+
+All attached ZIP archives were checked, and the Mac update signature was verified against the public key built into the launcher. `SHA256SUMS.txt` contains checksums for all attached update and platform packages.
