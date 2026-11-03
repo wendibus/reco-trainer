@@ -13,6 +13,8 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+      - name: Frame extraction test dependencies
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
       - name: ONNX and anonymization test dependencies
         run: python3 -m pip install onnx onnxruntime pillow numpy opencv-python-headless
       - name: Cross-platform local worker tests
