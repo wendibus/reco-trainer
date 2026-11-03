@@ -10,6 +10,7 @@ import sys
 import tempfile
 import types
 import unittest
+from unittest import mock
 import uuid
 import zipfile
 from pathlib import Path
@@ -932,7 +933,10 @@ class DatasetTests(unittest.TestCase):
             {"coreml_precision": "float16", "notes": {"privacy": "local"}},
         )
 
-    def test_exchange_package_contains_no_media_or_source_names(self):
+    # These archive-contract fixtures are synthetic bytes, not PyTorch checkpoints.
+    # Checkpoint sanitization is covered separately by the model hub tests.
+    @mock.patch.object(ml_worker, "write_clean_checkpoint", side_effect=lambda source, output: output.write_bytes(source.read_bytes()))
+    def test_exchange_package_contains_no_media_or_source_names(self, _clean_checkpoint):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             checkpoint = root / "runs" / "nano" / "checkpoint_best_total.pth"
@@ -960,7 +964,10 @@ class DatasetTests(unittest.TestCase):
                 self.assertNotIn("private-video", manifest)
                 self.assertNotIn("sourcefolder", manifest)
 
-    def test_exchange_package_can_be_verified_installed_and_activated_locally(self):
+    # These archive-contract fixtures are synthetic bytes, not PyTorch checkpoints.
+    # Checkpoint sanitization is covered separately by the model hub tests.
+    @mock.patch.object(ml_worker, "write_clean_checkpoint", side_effect=lambda source, output: output.write_bytes(source.read_bytes()))
+    def test_exchange_package_can_be_verified_installed_and_activated_locally(self, _clean_checkpoint):
         with tempfile.TemporaryDirectory() as temporary:
             source = Path(temporary) / "source"
             target = Path(temporary) / "target"
@@ -991,7 +998,10 @@ class DatasetTests(unittest.TestCase):
             self.assertEqual(installed.read_bytes(), b"synthetic-exchange-weights")
             self.assertFalse(any((target / "models").rglob("*.jpg")))
 
-    def test_exchange_package_for_another_sport_is_rejected(self):
+    # These archive-contract fixtures are synthetic bytes, not PyTorch checkpoints.
+    # Checkpoint sanitization is covered separately by the model hub tests.
+    @mock.patch.object(ml_worker, "write_clean_checkpoint", side_effect=lambda source, output: output.write_bytes(source.read_bytes()))
+    def test_exchange_package_for_another_sport_is_rejected(self, _clean_checkpoint):
         with tempfile.TemporaryDirectory() as temporary:
             source = Path(temporary) / "source"
             target = Path(temporary) / "target"
