@@ -1,0 +1,46 @@
+// Run after npm run build: PLAYWRIGHT_MODULE=/path/to/playwright/index.mjs node tests/editor-ui.mjs ui
+const { chromium } = await import(process.env.PLAYWRIGHT_MODULE || 'playwright');
+import { createServer } from 'node:http';
+import { readFile } from 'node:fs/promises';
+import { resolve, extname } from 'node:path';
+import assert from 'node:assert/strict';
+const root=resolve(process.argv[2] || 'ui');
+const server=createServer(async(req,res)=>{try {const path=resolve(root,'.'+(req.url==='/'?'/index.html':req.url.split('?')[0]));assert(path.startsWith(root+'/'));res.setHeader('Content-Type', {'.html':'text/html','.js':'text/javascript','.css':'text/css'}[extname(path)]||'text/plain');res.end(await readFile(path));}catch{res.statusCode=404;res.end();}});
+await new Promise(r=>server.listen(0,'127.0.0.1',r));
+const url=`http://127.0.0.1:${server.address().port}/`;
+const browser=await chromium.launch({...(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : {}),headless:true});
+try {
+ const page=await browser.newPage({viewport:{width:1440,height:1000}});
+ page.setDefaultTimeout(8000);page.setDefaultNavigationTimeout(10000);
+ const errors=[];page.on('pageerror',e=>errors.push(String(e)));
+ await page.addInitScript(()=>{localStorage.setItem('reco-language-v1','de');localStorage.setItem('reco-walkthrough-complete-v2','yes');localStorage.setItem('reco-field-nudge-dismissed-v1','yes');});
+ let saves=[];let fail=false;
+ const original={id:'player1',category:'player',x:400,y:250,width:100,height:240,source:'auto',confidence:0.81};
+ const state={connected:true,selectedFolder:'/synthetic',folderName:'Synthetischer UI-Test',sport:'football',operation:'ready',progress:0,message:'Bereit',busy:false,error:null,log:'',mlReady:false,frames:[{id:'one',relativePath:'one.svg',videoName:'Synthetisches Testbild',timestamp:0,width:1600,height:900,reviewStatus:'reviewed',annotations:[structuredClone(original),{id:'ball1',category:'ball',x:900,y:500,width:25,height:25,source:'manual'}]}],modelLibrary:{packages:[],activePackageID:null}};
+ await page.route('**/api/**',async route=>{const req=route.request();const path=new URL(req.url()).pathname;
+ if(path==='/api/frame')return route.fulfill({contentType:'image/svg+xml',body:'<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900"><rect width="1600" height="900" fill="#448557"/><path d="M70 60H1530V840H70Z M800 60V840" fill="none" stroke="white" stroke-width="5"/><circle cx="800" cy="450" r="100" fill="none" stroke="white" stroke-width="5"/><rect x="400" y="250" width="100" height="240" fill="#307cde"/><circle cx="912" cy="512" r="12" fill="white"/></svg>'});
+ if(path==='/api/events')return route.fulfill({contentType:'text/event-stream',body:''});
+ if(path==='/api/status')return route.fulfill({json:state});
+ if(path==='/api/annotations'){const data=req.postDataJSON();saves.push(data);if(fail){fail=false;return route.fulfill({status:500,json:{error:'Synthetic save failure'}});}state.frames[0].annotations=data.annotations;return route.fulfill({json:{status:state}});}
+ return route.fulfill({json:{}});
+ });
+ await page.route('https://api.github.com/**',r=>r.fulfill({json:{}}));
+ console.log('start');await page.goto(url,{waitUntil:'domcontentloaded'});await page.locator('.annotation-box').first().waitFor();
+ await page.screenshot({path:process.env.EDITOR_SCREENSHOT_DIR ? resolve(process.env.EDITOR_SCREENSHOT_DIR,'expanded.png') : undefined});
+ const before=await page.locator('.editor-shell').boundingBox();
+ await page.locator('.training-toggle').click();assert.equal(await page.locator('.training-toggle').getAttribute('aria-expanded'),'false');assert.equal(await page.locator('#training-panel').isVisible(),false);
+ const after=await page.locator('.editor-shell').boundingBox();assert(after.height>before.height+100,JSON.stringify({before,after}));
+ await page.getByRole('button',{name:'Spieler',exact:true}).click();
+ assert.equal(saves.length,0,'Selecting must not save unchanged boxes');
+ assert.equal(await page.locator('#category').inputValue(),'player');
+ await page.locator('#category').selectOption('referee');await page.waitForFunction(()=>document.querySelector('.annotation-box text')?.textContent==='Schiedsrichter');
+ assert.equal(saves.length,1);assert.deepEqual(saves[0].annotations[0],{...original,category:'referee',source:'manual',confidence:null});assert.equal(saves[0].annotations[1].category,'ball');
+ await page.getByRole('button',{name:'Rückgängig',exact:true}).click();await page.waitForFunction(()=>document.querySelector('#category')?.value==='player');
+ await page.getByRole('button',{name:'Wiederholen',exact:true}).click();await page.waitForFunction(()=>document.querySelector('#category')?.value==='referee');
+ await page.screenshot({path:process.env.EDITOR_SCREENSHOT_DIR ? resolve(process.env.EDITOR_SCREENSHOT_DIR,'collapsed.png') : undefined});
+ console.log("reload");await page.reload({waitUntil:"domcontentloaded"});await page.locator('.annotation-box').first().waitFor();assert.equal(await page.locator('#training-panel').isVisible(),false);assert.equal(state.frames[0].annotations[0].category,'referee');
+ console.log('failure rollback');await page.getByRole('button',{name:'Schiedsrichter',exact:true}).click();fail=true;await page.locator('#category').selectOption('player');await page.waitForFunction(()=>document.querySelector('#category')?.value==='referee');
+ await page.locator('.training-toggle').click();assert(await page.locator('#training-panel').isVisible());
+ assert.equal(errors.length,0,errors.join('\n'));
+ console.log(JSON.stringify({result:'PASS',expandedPreviewHeight:before.height,collapsedPreviewHeight:after.height,checks:['collapse grows preview','click without mutation','class mapping and unchanged geometry','undo/redo','persistence after reload','save failure rollback','expand','no browser errors']},null,2));
+}finally{await browser.close();server.close();}
