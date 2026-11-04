@@ -1,6 +1,8 @@
 """Job management: queue, cooperative cancel with process-tree kill and cleanup, stages, SSE."""
 from __future__ import annotations
 
+import os as _os
+import tempfile as _tempfile
 import importlib.util
 import json
 import os
@@ -18,6 +20,8 @@ WORKER_PATH = Path(__file__).parents[1] / "local_worker.py"
 SPEC = importlib.util.spec_from_file_location("local_worker_jobs", WORKER_PATH)
 assert SPEC and SPEC.loader
 local_worker = importlib.util.module_from_spec(SPEC)
+# Never touch the real per-computer ML environment from a test.
+_os.environ.setdefault("RECO_ML_ENV", str(Path(_tempfile.mkdtemp(prefix="reco-ml-env-")) / "ml-env"))
 SPEC.loader.exec_module(local_worker)
 
 # Stands in for ml_worker.py: writes a partial export, starts a grandchild, reports a stage and

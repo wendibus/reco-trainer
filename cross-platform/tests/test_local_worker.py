@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os as _os
+import tempfile as _tempfile
 import importlib.util
 import json
 import re
@@ -17,6 +19,8 @@ WORKER_PATH = Path(__file__).parents[1] / "local_worker.py"
 SPEC = importlib.util.spec_from_file_location("local_worker", WORKER_PATH)
 assert SPEC and SPEC.loader
 local_worker = importlib.util.module_from_spec(SPEC)
+# Never touch the real per-computer ML environment from a test.
+_os.environ.setdefault("RECO_ML_ENV", str(Path(_tempfile.mkdtemp(prefix="reco-ml-env-")) / "ml-env"))
 SPEC.loader.exec_module(local_worker)
 
 
@@ -307,6 +311,78 @@ class TorchFallbackTests(unittest.TestCase):
             working.write_text("#!/bin/sh\nexit 0\n")
             working.chmod(0o755)
             self.assertIsNone(local_worker.torch_import_error(working))
+
+
+class SharedMlEnvTests(unittest.TestCase):
+    """The ML environment is set up once per computer and found again in every project."""
+
+    def setUp(self):
+        self.temporary = tempfile.TemporaryDirectory()
+        self.base = Path(self.temporary.name)
+        self.shared = self.base / "ml-env"
+        self.original_env = _os.environ.get("RECO_ML_ENV")
+        _os.environ["RECO_ML_ENV"] = str(self.shared)
+        self.original_version_of = local_worker.python_version_of
+
+    def tearDown(self):
+        if self.original_env is None:
+            _os.environ.pop("RECO_ML_ENV", None)
+        else:
+            _os.environ["RECO_ML_ENV"] = self.original_env
+        local_worker.python_version_of = self.original_version_of
+        self.temporary.cleanup()
+
+    def _venv(self, venv: Path) -> Path:
+        python = local_worker.venv_python_path(venv)
+        python.parent.mkdir(parents=True, exist_ok=True)
+        python.write_text("")
+        return venv
+
+    def test_a_new_project_without_any_environment_points_to_the_shared_one(self):
+        self.assertEqual(local_worker.ml_venv(self.base / "a"), self.shared / "venv")
+
+    def test_the_shared_environment_wins_in_every_project(self):
+        self._venv(self.shared / "venv")
+        self._venv(self.base / "a" / ".runtime" / "venv")
+        self.assertEqual(local_worker.ml_venv(self.base / "a"), self.shared / "venv")
+        self.assertEqual(local_worker.ml_venv(self.base / "b"), self.shared / "venv")
+
+    def test_an_older_project_environment_is_remembered_for_other_projects(self):
+        old = self._venv(self.base / "a" / ".runtime" / "venv")
+        self.assertEqual(local_worker.ml_venv(self.base / "a"), old)
+        self.assertEqual(local_worker.ml_venv(self.base / "b"), old)
+
+    def test_a_remembered_environment_that_is_gone_falls_back_to_the_shared_one(self):
+        old = self._venv(self.base / "a" / ".runtime" / "venv")
+        local_worker.ml_venv(self.base / "a")
+        local_worker.venv_python_path(old).unlink()
+        self.assertEqual(local_worker.ml_venv(self.base / "b"), self.shared / "venv")
+
+    def test_setup_never_replaces_a_too_old_environment_of_another_project(self):
+        old = self._venv(self.base / "a" / ".runtime" / "venv")
+        local_worker.ml_venv(self.base / "a")
+        local_worker.python_version_of = lambda path: (3, 9)
+        self.assertEqual(local_worker.ml_setup_target(self.base / "b", old), self.shared / "venv")
+        local_worker.python_version_of = lambda path: (3, 12)
+        self.assertEqual(local_worker.ml_setup_target(self.base / "b", old), old)
+
+
+class EmptyProjectTests(unittest.TestCase):
+    """A dataset can be imported into a working folder that was never prepared."""
+
+    def test_starts_a_project_without_frames_for_the_chosen_sport(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            folder = Path(temporary)
+            root = folder / ".reco-training"
+            local_worker.start_empty_project(folder, root, "basketball")
+            project = json.loads((root / "project.json").read_text(encoding="utf-8"))
+            self.assertEqual((project["sport"], project["frames"], project["name"]), ("basketball", [], folder.name))
+            self.assertTrue((root / "frames").is_dir())
+
+    def test_rejects_an_unknown_sport(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            with self.assertRaises(RuntimeError):
+                local_worker.start_empty_project(Path(temporary), Path(temporary) / ".reco-training", "chess")
 
 
 class VenvPythonPathTests(unittest.TestCase):

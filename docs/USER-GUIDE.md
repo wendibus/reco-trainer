@@ -94,6 +94,10 @@ The very first time you open Reco Trainer, after picking a language, you can cho
 
 Point Reco Trainer at a folder of video files. It extracts individual frames locally (by default, spread evenly through each video) that become the raw material for labeling. You don't need to extract *every* frame — the default of 60 well-spread frames per video is a good start (you can lower or raise it before extracting), since consecutive video frames tend to look almost identical anyway and don't each teach the model something new.
 
+### Importing an existing dataset
+
+Already have labelled images, for example a COCO or YOLO export? Select a working folder, then click **Import dataset** below the folder button and choose the dataset folder. This works even in a folder that has never been prepared: the project is started with the dataset. The images are copied into the project, the original folder is not changed, and the labels count as reviewed. Next to frames from real videos, imported images are used for training only; in a project of imported images alone they are split at random, so the quality numbers are not independent of the training data.
+
 ### Auto-labeling and reviewing candidates
 
 Once you have at least a base model to work with, "Analyze videos locally" runs it over your extracted frames and proposes boxes. These proposals land in a review queue as **candidates** — nothing is added to your actual training set until you've looked at it.
@@ -124,6 +128,8 @@ Use the collapse button above the training controls to hide training and model m
 Click an existing box (or focus it and press Enter or Space). The class selector above the image now shows that box's class. Choose another class to save the correction, for example player to referee. The box keeps its position and size, becomes a manual label, and no longer shows the old model confidence. Undo and redo also apply to class changes. Use **New box** to return to drawing without changing the selected label. In **Pan** mode, dragging over a box still pans the view.
 
 ### Training locally
+
+**The ML environment is set up once per computer.** Since 0.26, **Set up ML** installs it into Reco Trainer's own folder (macOS: `~/Library/Application Support/Reco Trainer/ml-env`, Windows: `%LOCALAPPDATA%\Reco Trainer\ml-env`, Linux: `~/.local/share/reco-trainer/ml-env`), and every working folder uses it. A project that already has its own environment from an earlier version keeps using it, and Reco Trainer remembers it for new working folders, so you don't have to set up ML again. In Docker the environment stays in the project folder.
 
 Once you've reviewed enough frames, start a training run. You'll set:
 

@@ -8,7 +8,7 @@ export type ExtraText = {
   exportDataset: string;
   anonTrain: string; anonTrainHint: string; anonTrainOff: string;
   consistency: string; flagDetector: string; flagVanished: string; flagVlm: string;
-  importLabels: string; importLabelsCandidates: string;
+  importLabels: string; importLabelsCandidates: string; importDataset: string;
   importOnnx: string; importOnnxHelp: string; onnxName: string; onnxClasses: string; onnxClassesHint: (allowed: string) => string; onnxInputSize: string; onnxInputSizeHint: string; onnxLicense: string; onnxChooseFile: string;
   editorIntro: string;
   pointPrompt: (index: number) => string; crossing: string;
@@ -25,7 +25,7 @@ export const extraText: Record<ExtraLanguage, ExtraText> = {
     exportDataset: 'Datensatz exportieren',
     anonTrain: 'Anonymisierte Trainingsbilder', anonTrainHint: 'Dieser Anteil der Trainingsbilder wird mit weichgezeichneten Köpfen trainiert, wie im anonymisierten Export. So erkennt das Modell Personen auch auf solchen Bildern.', anonTrainOff: 'aus',
     consistency: 'Konsistenz prüfen', flagDetector: 'Zweiter Detektor uneinig', flagVanished: 'Spieler fehlen plötzlich', flagVlm: 'VLM: Boxen prüfen',
-    importLabels: 'Labels importieren', importLabelsCandidates: 'Als Vorschläge',
+    importLabels: 'Labels importieren', importDataset: 'Datensatz importieren', importLabelsCandidates: 'Als Vorschläge',
     importOnnx: 'ONNX-Modell importieren', onnxName: 'Name', onnxClasses: 'Klassen (Reihenfolge der Klassen-IDs)',
     importOnnxHelp: 'Für YOLO-Modelle, die mit eingebautem NMS exportiert wurden (Ausgabe 1 × N × 6, z. B. Ultralytics „end2end“). Das Modell dient zum automatischen Markieren und zum Modellvergleich; trainieren lässt es sich nicht.',
     onnxClassesHint: (allowed) => `Erlaubt: ${allowed}. Übliche Namen wie „person“ oder „sports ball“ werden zugeordnet.`,
@@ -43,7 +43,7 @@ export const extraText: Record<ExtraLanguage, ExtraText> = {
     exportDataset: 'Export dataset',
     anonTrain: 'Anonymized training images', anonTrainHint: 'This share of the training images is trained with blurred heads, as in the anonymized export, so the model also recognizes people on such images.', anonTrainOff: 'off',
     consistency: 'Check consistency', flagDetector: 'Second detector disagrees', flagVanished: 'Players suddenly missing', flagVlm: 'VLM: check boxes',
-    importLabels: 'Import labels', importLabelsCandidates: 'As suggestions',
+    importLabels: 'Import labels', importDataset: 'Import dataset', importLabelsCandidates: 'As suggestions',
     importOnnx: 'Import ONNX model', onnxName: 'Name', onnxClasses: 'Classes (class-id order)',
     importOnnxHelp: 'For YOLO models exported with NMS built in (output 1 × N × 6, e.g. Ultralytics “end2end”). The model is used for auto-labeling and the model comparison; it cannot be trained.',
     onnxClassesHint: (allowed) => `Allowed: ${allowed}. Common names such as “person” or “sports ball” are mapped.`,
@@ -61,7 +61,7 @@ export const extraText: Record<ExtraLanguage, ExtraText> = {
     exportDataset: 'Exportar conjunto de datos',
     anonTrain: 'Imágenes de entrenamiento anonimizadas', anonTrainHint: 'Esta parte de las imágenes de entrenamiento se entrena con cabezas difuminadas, como en la exportación anonimizada, para que el modelo también reconozca personas en esas imágenes.', anonTrainOff: 'no',
     consistency: 'Comprobar coherencia', flagDetector: 'El segundo detector discrepa', flagVanished: 'Faltan jugadores de repente', flagVlm: 'VLM: revisar cuadros',
-    importLabels: 'Importar etiquetas', importLabelsCandidates: 'Como sugerencias',
+    importLabels: 'Importar etiquetas', importDataset: 'Importar conjunto de datos', importLabelsCandidates: 'Como sugerencias',
     importOnnx: 'Importar modelo ONNX', onnxName: 'Nombre', onnxClasses: 'Clases (orden de ID)',
     importOnnxHelp: 'Para modelos YOLO exportados con NMS integrado (salida 1 × N × 6, p. ej. Ultralytics «end2end»). El modelo sirve para el marcado automático y la comparación; no se puede entrenar.',
     onnxClassesHint: (allowed) => `Permitidas: ${allowed}. Se asignan nombres habituales como «person» o «sports ball».`,
@@ -79,7 +79,7 @@ export const extraText: Record<ExtraLanguage, ExtraText> = {
     exportDataset: 'Exporter le jeu de données',
     anonTrain: 'Images d’entraînement anonymisées', anonTrainHint: 'Cette part des images d’entraînement est entraînée avec des têtes floutées, comme dans l’export anonymisé, pour que le modèle reconnaisse aussi les personnes sur de telles images.', anonTrainOff: 'non',
     consistency: 'Vérifier la cohérence', flagDetector: 'Second détecteur en désaccord', flagVanished: 'Joueurs soudainement absents', flagVlm: 'VLM : vérifier les boîtes',
-    importLabels: 'Importer des annotations', importLabelsCandidates: 'Comme suggestions',
+    importLabels: 'Importer des annotations', importDataset: 'Importer un jeu de données', importLabelsCandidates: 'Comme suggestions',
     importOnnx: 'Importer un modèle ONNX', onnxName: 'Nom', onnxClasses: 'Classes (ordre des ID)',
     importOnnxHelp: 'Pour les modèles YOLO exportés avec NMS intégré (sortie 1 × N × 6, p. ex. Ultralytics « end2end »). Le modèle sert au marquage automatique et à la comparaison ; il ne peut pas être entraîné.',
     onnxClassesHint: (allowed) => `Autorisées : ${allowed}. Les noms courants comme « person » ou « sports ball » sont convertis.`,

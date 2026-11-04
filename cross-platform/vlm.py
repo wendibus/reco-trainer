@@ -31,14 +31,21 @@ def shared_models_dir() -> Path | None:
     configured = os.environ.get("RECO_SHARED_MODELS")
     if configured:
         return Path(configured).expanduser()
+    base = app_data_dir()
+    return base / "models" if base is not None else None
+
+
+def app_data_dir() -> Path | None:
+    """Reco Trainer's folder per computer. None inside Docker, where the container file system
+    is thrown away."""
     if Path("/.dockerenv").exists():
         return None
     system = platform.system()
     if system == "Darwin":
-        return Path.home() / "Library" / "Application Support" / "Reco Trainer" / "models"
+        return Path.home() / "Library" / "Application Support" / "Reco Trainer"
     if system == "Windows":
-        return Path(os.environ.get("LOCALAPPDATA") or (Path.home() / "AppData" / "Local")) / "Reco Trainer" / "models"
-    return Path(os.environ.get("XDG_DATA_HOME") or (Path.home() / ".local" / "share")) / "reco-trainer" / "models"
+        return Path(os.environ.get("LOCALAPPDATA") or (Path.home() / "AppData" / "Local")) / "Reco Trainer"
+    return Path(os.environ.get("XDG_DATA_HOME") or (Path.home() / ".local" / "share")) / "reco-trainer"
 
 
 # --- which llama-server build ------------------------------------------------------------------

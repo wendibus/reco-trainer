@@ -1,6 +1,8 @@
 """Contract tests for what the Mac launcher (Swift) relies on in the Python part."""
 from __future__ import annotations
 
+import os as _os
+import tempfile as _tempfile
 import json
 import os
 import subprocess
@@ -50,6 +52,8 @@ class LauncherContractTests(unittest.TestCase):
         import importlib.util
         spec = importlib.util.spec_from_file_location("local_worker_contract", spec_path)
         module = importlib.util.module_from_spec(spec)
+        # Never touch the real per-computer ML environment from a test.
+        _os.environ.setdefault("RECO_ML_ENV", str(Path(_tempfile.mkdtemp(prefix="reco-ml-env-")) / "ml-env"))
         spec.loader.exec_module(module)
         with tempfile.TemporaryDirectory() as temporary:
             binary = Path(temporary) / "reco-frame-extractor"

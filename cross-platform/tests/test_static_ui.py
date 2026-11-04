@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os as _os
+import tempfile as _tempfile
 import http.client
 import importlib.util
 import tempfile
@@ -12,6 +14,8 @@ WORKER_PATH = Path(__file__).parents[1] / "local_worker.py"
 SPEC = importlib.util.spec_from_file_location("local_worker_static", WORKER_PATH)
 assert SPEC and SPEC.loader
 local_worker = importlib.util.module_from_spec(SPEC)
+# Never touch the real per-computer ML environment from a test.
+_os.environ.setdefault("RECO_ML_ENV", str(Path(_tempfile.mkdtemp(prefix="reco-ml-env-")) / "ml-env"))
 SPEC.loader.exec_module(local_worker)
 
 

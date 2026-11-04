@@ -1,3 +1,5 @@
+import os as _os
+import tempfile as _tempfile
 import argparse
 import contextlib
 import importlib.util
@@ -18,6 +20,8 @@ def load_module(name: str, path: Path):
     spec = importlib.util.spec_from_file_location(name, path)
     assert spec and spec.loader
     module = importlib.util.module_from_spec(spec)
+    # Never touch the real per-computer ML environment from a test.
+    _os.environ.setdefault("RECO_ML_ENV", str(Path(_tempfile.mkdtemp(prefix="reco-ml-env-")) / "ml-env"))
     spec.loader.exec_module(module)
     return module
 

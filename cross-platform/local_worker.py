@@ -204,7 +204,7 @@ def non_apple_accelerator() -> dict:
     """
     root = STATE.project_root
     if root is not None:
-        venv_python = venv_python_path(root / ".runtime" / "venv")
+        venv_python = venv_python_path(ml_venv(root))
         if venv_python.is_file():
             cache_key = str(venv_python)
             cached = _ACCELERATOR_CACHE.get(cache_key)
@@ -360,7 +360,7 @@ class LocalState:
                 "modelLibrary": model_library_snapshot(self.project_root),
                 "modelRegistry": model_registry_snapshot(self.project_root),
                 "hardwareTier": {"detected": detected_tier(), "plans": teachers.TIER_PLANS},
-                "mlReady": bool(self.project_root and venv_python_path(self.project_root / ".runtime" / "venv").is_file()),
+                "mlReady": bool(self.project_root and venv_python_path(ml_venv(self.project_root)).is_file()),
                 "benchmark": benchmark_snapshot(self.project_root),
                 "frames": frames,
                 "log": "\n".join(self.log[-80:]),
@@ -627,6 +627,20 @@ def project_root_for(folder: Path) -> Path:
             except OSError:
                 pass
     return root
+
+
+def start_empty_project(folder: Path, root: Path, sport: str) -> None:
+    """A project without frames, as "Prepare working folder" creates it for a folder of images."""
+    if sport not in SPORT_CATEGORIES:
+        raise RuntimeError(localized("Unbekannte Sportart.", "Unknown sport.", "Deporte desconocido.", "Sport inconnu."))
+    now = utc_now()
+    for directory in ("frames", "dataset", "runs", "exports"):
+        (root / directory).mkdir(parents=True, exist_ok=True)
+    atomic_json(root / "project.json", {
+        "schemaVersion": 2, "name": folder.name, "sourceFolder": str(folder), "createdAt": now, "updatedAt": now,
+        "framesPerVideo": DEFAULT_FRAMES_PER_VIDEO, "frames": [], "sport": sport,
+    })
+    STATE.update(project=load_project(root))
 
 
 def load_project(root: Path) -> dict | None:
@@ -1458,7 +1472,7 @@ def simulate_ball_tracking(video: Path, payload: dict) -> None:
         if language not in {"de", "en", "es", "fr"}:
             language = "de"
         threshold = min(0.95, max(0.01, float(payload.get("threshold", 0.25))))
-        venv_python = venv_python_path(root / ".runtime" / "venv")
+        venv_python = venv_python_path(ml_venv(root))
         if not venv_python.is_file():
             raise RuntimeError(localized("ML-Umgebung fehlt. Zuerst „ML einrichten“ anklicken.", "The ML environment is missing. Click “Set up ML” first.", "Falta el entorno de ML. Primero haz clic en “Configurar ML”.", "L’environnement ML est manquant. Cliquez d’abord sur « Configurer le ML »."))
 
@@ -1532,6 +1546,70 @@ def find_ml_worker() -> Path:
         if candidate.is_file():
             return candidate
     raise RuntimeError(localized("Der lokale RF-DETR-Worker wurde nicht gefunden.", "The local RF-DETR worker was not found.", "No se encontró el proceso local de RF-DETR.", "Le processus RF-DETR local est introuvable."))
+
+
+# The concrete path class of this system, fixed at import (tests fake os.name for Windows).
+SYSTEM_PATH = type(Path(__file__))
+
+
+def shared_ml_env_dir() -> Path | None:
+    """The ML environment is set up once per computer, not once per project. None inside
+    Docker: there it stays in the project's .runtime folder on the mounted volume."""
+    configured = os.environ.get("RECO_ML_ENV")
+    if configured:
+        return SYSTEM_PATH(configured).expanduser()
+    base = vlm.app_data_dir()
+    return base / "ml-env" if base is not None else None
+
+
+def remembered_ml_venv(shared: Path) -> Path | None:
+    try:
+        value = json.loads((shared / "remembered.json").read_text(encoding="utf-8")).get("venv")
+    except (OSError, ValueError, AttributeError):
+        return None
+    return SYSTEM_PATH(value) if isinstance(value, str) and value else None
+
+
+def remember_ml_venv(shared: Path, venv: Path) -> None:
+    if remembered_ml_venv(shared) == venv:
+        return
+    try:
+        shared.mkdir(parents=True, exist_ok=True)
+        atomic_json(shared / "remembered.json", {"venv": str(venv)})
+    except OSError:
+        pass  # Remembering is a convenience: the project's own environment still works.
+
+
+def ml_venv(root: Path | None) -> Path:
+    """Which ML environment to use: the computer's shared one, else one set up in this project
+    before 0.26 (remembered for other projects), else the last remembered one. Without any of
+    them this is where "Set up ML" creates the shared one."""
+    shared = shared_ml_env_dir()
+    own = root / ".runtime" / "venv" if root is not None else None
+    if shared is None:
+        return own if own is not None else Path(".runtime") / "venv"
+    shared_venv = shared / "venv"
+    if venv_python_path(shared_venv).is_file():
+        return shared_venv
+    if own is not None and venv_python_path(own).is_file():
+        remember_ml_venv(shared, own)
+        return own
+    remembered = remembered_ml_venv(shared)
+    if remembered is not None and venv_python_path(remembered).is_file():
+        return remembered
+    return shared_venv
+
+
+def ml_setup_target(root: Path, venv: Path) -> Path:
+    """"Set up ML" repairs the environment in use. One remembered from another project is
+    only reused while it works; a too old one is replaced by the shared one and never
+    deleted from the other project."""
+    shared = shared_ml_env_dir()
+    own = root / ".runtime" / "venv"
+    if shared is None or venv in {shared / "venv", own}:
+        return venv
+    existing = python_version_of(venv_python_path(venv))
+    return venv if existing is not None and existing >= MIN_PYTHON else shared / "venv"
 
 
 def venv_python_path(venv: Path) -> Path:
@@ -1753,7 +1831,7 @@ def augment_read_json(path: Path) -> dict | None:
 
 
 def augment_select_source(root: Path, language: str) -> dict:
-    venv_python = venv_python_path(root / ".runtime" / "venv")
+    venv_python = venv_python_path(ml_venv(root))
     if not venv_python.is_file():
         raise RuntimeError(localized("Für das Augmentation Studio zuerst „ML einrichten“ anklicken.", "For the Augmentation Studio, click “Set up ML” first.", "Para Augmentation Studio, pulsa primero «Configurar ML».", "Pour Augmentation Studio, cliquez d’abord sur « Configurer le ML »."))
     source = choose_video_folder(labels=True).resolve()
@@ -2004,9 +2082,11 @@ def ml_action(action: str, payload: dict) -> None:
             language = "de"
         model = payload.get("model", "nano")
         STATE.update(operation=action, busy=True, progress=0.0, error=None, log=[], message=localized("Lokaler ML-Vorgang startet …", "Local ML operation starting …", "Iniciando la operación local de ML …", "Démarrage de l’opération ML locale …"))
-        venv = root / ".runtime" / "venv"
+        venv = ml_venv(root)
         venv_python = venv_python_path(venv)
         if action == "setup":
+            venv = ml_setup_target(root, venv)
+            venv_python = venv_python_path(venv)
             # A venv built earlier with a too-old Python (e.g. macOS's 3.9) can never
             # install rfdetr>=1.9 ("No matching distribution found"): rebuild it.
             if venv_python.is_file():
@@ -2228,7 +2308,7 @@ def ml_action(action: str, payload: dict) -> None:
                 summary = run_json([str(executable), str(worker), *args])
                 message = label_import_message(summary, bool(payload.get("candidates")))
                 STATE.append_log(message)
-                STATE.update(project=load_project(root), operation="ready", busy=False, progress=1.0, message=message)
+                STATE.update(project=load_project(root), folder_empty=False, operation="ready", busy=False, progress=1.0, message=message)
                 return
             result = run_logged([str(executable), str(worker), *args])
             if action == "consistency-check" and result:
@@ -2803,9 +2883,12 @@ class Handler(BaseHTTPRequestHandler):
                 job = JOBS.submit("import-onnx", ml_action, "import-onnx", {**payload, "file": str(onnx_file)})
                 self.json_response({"ok": True, "fileName": onnx_file.name, "job": job})
             elif self.path == "/api/import-labels":
-                if STATE.project_root is None or not (STATE.project_root / "project.json").is_file():
-                    raise RuntimeError(localized("Zuerst Videos lokal vorbereiten.", "Prepare videos locally first.", "Primero prepara los vídeos localmente.", "Préparez d’abord les vidéos localement."))
+                if STATE.selected_folder is None or STATE.project_root is None:
+                    raise RuntimeError(localized("Zuerst einen Arbeitsordner auswählen.", "Select a working folder first.", "Primero selecciona una carpeta de trabajo.", "Sélectionnez d’abord un dossier de travail."))
                 label_folder = choose_video_folder(labels=True)
+                # A dataset can be the first thing in a working folder: the project starts with it.
+                if not (STATE.project_root / "project.json").is_file():
+                    start_empty_project(STATE.selected_folder, STATE.project_root, str(payload.get("sport", "")))
                 job = JOBS.submit("import-labels", ml_action, "import-labels", {**payload, "source": str(label_folder)})
                 self.json_response({"ok": True, "folder": str(label_folder), "job": job})
             elif self.path in {"/api/setup", "/api/autolabel", "/api/train", "/api/train-batch", "/api/hub-install", "/api/hub-share", "/api/export-coreml", "/api/export-onnx", "/api/refine-boxes", "/api/package-model", "/api/combine-models", "/api/benchmark", "/api/activate-model", "/api/rename-model", "/api/delete-model", "/api/download-models", "/api/export-dataset", "/api/consistency-check"}:

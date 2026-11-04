@@ -1,5 +1,11 @@
 # Änderungen
 
+## 0.26.0
+
+- Neu: „Datensatz importieren“ direkt unter „Arbeitsordner auswählen“. Ein Ordner mit Bildern und COCO- oder YOLO-Labels lässt sich übernehmen, sobald ein Arbeitsordner gewählt ist, auch wenn dort noch nichts vorbereitet wurde. Das Projekt wird dann mit dem Datensatz angelegt; die Bilder werden kopiert, das Original bleibt unverändert.
+- Neu: Die ML-Umgebung wird einmal pro Rechner eingerichtet und in jedem Arbeitsordner wiederverwendet. Eine ML-Umgebung, die ein Projekt aus einer früheren Version schon hat, wird weiter genutzt und für neue Arbeitsordner gemerkt; „ML einrichten“ ist dafür nicht noch einmal nötig. In Docker bleibt die Umgebung im Projektordner.
+- Behoben: Der Hinweis „Dieser Arbeitsordner ist noch leer“ verschwindet, sobald Bilder im Projekt sind.
+
 ## 0.25.2
 
 - Neu: Training und Modellverwaltung unter dem Labelbild lassen sich einklappen. Der frei werdende Platz vergrößert die Vorschau; die Einstellung bleibt gespeichert. Der aufgeklappte Bereich ist bei wenig Platz scrollbar.
