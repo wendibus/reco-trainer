@@ -459,7 +459,7 @@ def ensemble_member_model(package_dir: Path, member: dict[str, Any], language: s
     # importable here already (model_class itself required it), so this never
     # silently degrades at this call site the way it can at install time.
     verify_weights_pickle_safety(weight_path, language, str(member.get("packageID") or weight_path.name))
-    return model_class(pretrain_weights=str(weight_path), device=detect_device())
+    return accelerated_model(model_class(pretrain_weights=str(weight_path), device=detect_device()), weight_path, str(member["modelSize"]), language)
 
 
 ONNX_FORMAT = "onnx-yolo"
@@ -550,6 +550,182 @@ class OnnxYoloModel:
         return results
 
 
+# ONNX Runtime providers that put RF-DETR on a GPU PyTorch cannot use: DirectML runs on any
+# DirectX 12 GPU under Windows (AMD, Intel, also NVIDIA without CUDA). PyPI's onnxruntime-directml
+# was at 1.24.4 in November 2026; PyTorch itself only offers CUDA, ROCm (Linux) and Intel XPU.
+ONNX_GPU_PROVIDERS = ("DmlExecutionProvider",)
+
+
+def onnx_inference_providers() -> list[str] | None:
+    """Providers for running RF-DETR through ONNX Runtime, or None to keep PyTorch.
+
+    Automatic only where PyTorch is left with the CPU but ONNX Runtime has a GPU provider (an AMD
+    or Intel GPU on Windows). RECO_ONNX_INFERENCE=off never uses it, =on always does (also on the
+    CPU provider - that is how the path is checked against PyTorch on any computer)."""
+    choice = os.environ.get("RECO_ONNX_INFERENCE", "auto").strip().lower()
+    if choice in {"0", "off", "no", "false"}:
+        return None
+    forced = choice in {"1", "on", "yes", "true"}
+    if not forced and detect_device() != "cpu":
+        return None
+    try:
+        import onnxruntime
+        available = onnxruntime.get_available_providers()
+    except Exception:  # noqa: BLE001 - a broken onnxruntime simply means "keep PyTorch"
+        return None
+    gpu = [name for name in ONNX_GPU_PROVIDERS if name in available]
+    if not gpu and not forced:
+        return None
+    return [*gpu, "CPUExecutionProvider"]
+
+
+def rfdetr_class_names(model: Any) -> dict[int, str]:
+    """Class id -> name exactly as RFDETR.predict() maps them: COCO base models use the sparse COCO
+    category ids (1-90), fine-tuned models a 0-based index into class_names."""
+    names = list(getattr(model, "class_names", []) or [])
+    slots = getattr(getattr(model.model, "args", None), "num_classes", len(names))
+    try:
+        from rfdetr.assets.coco_classes import COCO_CLASS_NAMES, COCO_CLASSES
+    except ImportError:
+        COCO_CLASS_NAMES, COCO_CLASSES = [], {}
+    if slots > len(names) and names == list(COCO_CLASS_NAMES):
+        return {coco_id: names[index] for index, coco_id in enumerate(COCO_CLASSES) if index < len(names)}
+    return dict(enumerate(names))
+
+
+def decode_rfdetr_outputs(np: Any, boxes_cwh: Any, logits: Any, width: int, height: int, threshold: float, num_select: int) -> tuple[Any, Any, Any]:
+    """One image's raw RF-DETR outputs -> (xyxy pixels, scores, class ids), mirroring RF-DETR's
+    PostProcess: per-class sigmoid, global top-k over query/class pairs (stable order), boxes
+    clamped to the image, then the predict() filter score > threshold."""
+    scores_all = 1.0 / (1.0 + np.exp(-np.clip(logits.astype(np.float32), -88, 88)))
+    classes = scores_all.shape[1]
+    flat = scores_all.reshape(-1)
+    order = np.argsort(-flat, kind="stable")[: min(int(num_select), flat.shape[0])]
+    scores = flat[order]
+    queries, labels = order // classes, order % classes
+    cx, cy, w, h = boxes_cwh[queries].astype(np.float32).T
+    scale = np.array([width, height, width, height], dtype=np.float32)
+    xyxy = np.clip(np.stack([cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2], axis=1) * scale, 0.0, scale)
+    keep = scores > threshold
+    return xyxy[keep], scores[keep], labels[keep]
+
+
+class OnnxRfdetrModel:
+    """An RF-DETR model run through ONNX Runtime - same predict() as RF-DETR, so every pass that
+    detects (pre-labelling, consistency check, benchmark, simulation) works unchanged.
+
+    Preprocessing stays in PyTorch (CPU) so it is identical to RFDETR.predict(); only the network
+    runs on the ONNX provider. If the provider fails on an image, the PyTorch model takes over.
+    Everything else (training, export, attributes) is passed through to the PyTorch model."""
+
+    def __init__(self, torch_model: Any, onnx_path: Path, providers: list[str]) -> None:
+        import numpy
+        import onnxruntime
+        self.torch_model = torch_model
+        self.np = numpy
+        self.session = onnxruntime.InferenceSession(str(onnx_path), providers=providers)
+        self.providers = self.session.get_providers()
+        model_input = self.session.get_inputs()[0]
+        self.input_name = model_input.name
+        self.height, self.width = int(model_input.shape[2]), int(model_input.shape[3])
+        names = [output.name for output in self.session.get_outputs()]
+        self.boxes_index = next((index for index, name in enumerate(names) if "dets" in name), 0)
+        self.logits_index = next((index for index, name in enumerate(names) if "labels" in name), 1)
+        self.means, self.stds = list(torch_model.means), list(torch_model.stds)
+        self.num_select = int(getattr(getattr(torch_model.model, "postprocess", None), "num_select", 300) or 300)
+        self.class_map = rfdetr_class_names(torch_model)
+        self.fallback_reason: str | None = None
+
+    def __getattr__(self, name: str) -> Any:
+        torch_model = self.__dict__.get("torch_model")
+        if torch_model is None:
+            raise AttributeError(name)
+        return getattr(torch_model, name)
+
+    def _tensor(self, image: Any) -> tuple[Any, int, int]:
+        import torchvision.transforms.functional as F
+        from PIL import Image
+        if isinstance(image, (str, Path)):
+            with Image.open(image) as source:
+                image = source.convert("RGB")
+        tensor = F.to_tensor(image)
+        height, width = int(tensor.shape[1]), int(tensor.shape[2])
+        tensor = F.resize(tensor, [self.height, self.width], antialias=False)
+        tensor = F.normalize(tensor, self.means, self.stds)
+        return self.np.ascontiguousarray(tensor.unsqueeze(0).numpy()), width, height
+
+    def predict(self, images: Any, threshold: float = 0.5, **kwargs: Any) -> Any:
+        if self.fallback_reason is not None or kwargs:
+            return self.torch_model.predict(images, threshold=threshold, **kwargs)
+        single = not isinstance(images, (list, tuple))
+        np = self.np
+        results: list[OnnxDetections] = []
+        try:
+            for image in ([images] if single else images):
+                tensor, width, height = self._tensor(image)
+                outputs = self.session.run(None, {self.input_name: tensor})
+                xyxy, scores, labels = decode_rfdetr_outputs(
+                    np, outputs[self.boxes_index][0], outputs[self.logits_index][0], width, height, threshold, self.num_select,
+                )
+                names = [self.class_map.get(int(label), "") for label in labels]
+                results.append(OnnxDetections(xyxy.astype(np.float64), scores.astype(np.float64), labels.astype(int), names))
+        except Exception as error:  # noqa: BLE001 - a provider that cannot run the graph falls back to PyTorch
+            self.fallback_reason = str(error).strip().splitlines()[0][:200] if str(error).strip() else type(error).__name__
+            emit(f"ONNX Runtime ({self.providers[0]}) failed, continuing with PyTorch on the CPU: {self.fallback_reason}")
+            return self.torch_model.predict(images, threshold=threshold)
+        return results[0] if single else results
+
+
+def onnx_cache_dir() -> Path:
+    import tempfile
+    import vlm
+    shared = vlm.shared_models_dir()
+    folder = (shared / "rfdetr-onnx") if shared is not None else Path(tempfile.gettempdir()) / "reco-rfdetr-onnx"
+    folder.mkdir(parents=True, exist_ok=True)
+    return folder
+
+
+def accelerated_model(model: Any, weights: Path | None, size: str, language: str = "de") -> Any:
+    """The RF-DETR model, or the same model run through ONNX Runtime when that reaches a GPU
+    PyTorch cannot (see onnx_inference_providers). The ONNX file is exported once per set of
+    weights and RF-DETR version and kept with the shared models. Any failure keeps PyTorch."""
+    providers = onnx_inference_providers()
+    if providers is None or not hasattr(model, "export") or getattr(model, "model", None) is None:
+        return model
+    try:
+        import tempfile
+        import rfdetr
+        source = sha256_file(weights)[:20] if weights is not None else f"base-{size}"
+        version = re.sub(r"[^0-9A-Za-z.]+", "-", str(getattr(rfdetr, "__version__", "0")))
+        target = onnx_cache_dir() / f"rfdetr-{source}-{version}.onnx"
+        if not target.is_file():
+            emit(localized(
+                language,
+                "Bereite das Modell einmalig für die Grafikkarte vor (ONNX-Export) …",
+                "Preparing the model for the graphics card once (ONNX export) …",
+            ))
+            with tempfile.TemporaryDirectory(dir=target.parent) as folder:
+                exported = Path(model.export(output_dir=folder, format="onnx", verbose=False))
+                if exported.is_dir():
+                    exported = next(iter(sorted(exported.rglob("*.onnx"))))
+                os.replace(exported, target)
+        wrapped = OnnxRfdetrModel(model, target, providers)
+        emit(localized(
+            language,
+            f"Erkennung läuft über ONNX Runtime ({wrapped.providers[0]}).",
+            f"Detection runs through ONNX Runtime ({wrapped.providers[0]}).",
+        ))
+        return wrapped
+    except Exception as error:  # noqa: BLE001 - PyTorch on the CPU always works
+        reason = str(error).strip().splitlines()[0][:200] if str(error).strip() else type(error).__name__
+        emit(localized(
+            language,
+            f"Grafikkarte über ONNX Runtime nicht nutzbar ({reason}) - Erkennung läuft mit PyTorch auf der CPU.",
+            f"Graphics card not usable through ONNX Runtime ({reason}) - detection runs with PyTorch on the CPU.",
+        ))
+        return model
+
+
 def load_onnx_package_model(package_dir: Path, manifest: dict[str, Any], language: str = "de") -> OnnxYoloModel:
     weight_name = Path(str(manifest.get("weights", {}).get("file", ""))).name
     weight_path = (package_dir / "weights" / weight_name).resolve()
@@ -595,7 +771,7 @@ def base_detector(size: str, language: str = "de"):
     """Apache-2.0 RF-DETR COCO model of any size N/S/M/L (XL/2XL are PML and not used)."""
     model_class = import_model_class(size, language)
     emit(localized(language, f"Lade Apache-2.0-Basismodell RF-DETR {size} (Teacher) …", f"Loading Apache-2.0 RF-DETR {size} base model (teacher) …"))
-    return model_class(device=detect_device())
+    return accelerated_model(model_class(device=detect_device()), None, size, language)
 
 
 def teacher_size(choice: str | None, tier: str) -> str:
@@ -630,7 +806,7 @@ def model_instance(project_root: Path, size: str, trained: bool, language: str =
             f"Lade Apache-2.0-Basismodell RF-DETR {size} …",
             f"Loading Apache-2.0 RF-DETR {size} base model …",
         ))
-    return model_class(**kwargs)
+    return accelerated_model(model_class(**kwargs), checkpoint, size, language)
 
 
 def detection_category_map(target_categories: list[str]) -> dict[str, str]:
@@ -947,7 +1123,7 @@ def benchmark(args: argparse.Namespace) -> None:
             else:
                 model_class = import_model_class(str(manifest["modelSize"]), args.language)
                 verify_weights_pickle_safety(weight_path, args.language, package_id)
-                model = model_class(pretrain_weights=str(weight_path), device=device)
+                model = accelerated_model(model_class(pretrain_weights=str(weight_path), device=device), weight_path, str(manifest["modelSize"]), args.language)
                 loaded_models.append(model)
                 profile = training_profile(str(manifest["modelSize"]), device)
                 batch_size = profile["batch_size"] if device != "cpu" else 1
@@ -1118,7 +1294,7 @@ def simulation_package_model(project_root: Path, package_id: str, ball_category:
         raise SystemExit(localized(language, f"Gewichtsdatei fehlt: {label}", f"Weights file is missing: {label}"))
     model_class = import_model_class(size, language)
     verify_weights_pickle_safety(weight_path, language, package_id)
-    return model_class(pretrain_weights=str(weight_path), device=detect_device()), size, classes, label
+    return accelerated_model(model_class(pretrain_weights=str(weight_path), device=detect_device()), weight_path, size, language), size, classes, label
 
 
 def frame_has_category(frame: dict[str, Any], target_category: str) -> bool:
@@ -1735,7 +1911,7 @@ def flag_ensemble_disagreement(
             model_class = import_model_class(str(manifest["modelSize"]), language)
             weight_path = (package_dir / "weights" / Path(str(manifest.get("weights", {}).get("file", ""))).name).resolve()
             verify_weights_pickle_safety(weight_path, language, str(manifest.get("packageID") or weight_path.name))
-            model = model_class(pretrain_weights=str(weight_path), device=device)
+            model = accelerated_model(model_class(pretrain_weights=str(weight_path), device=device), weight_path, str(manifest["modelSize"]), language)
             secondary_boxes = predict_boxes(model, project_root, frames, package_classes, category_map, threshold, batch_size)
             del model
     except Exception:
@@ -2668,7 +2844,7 @@ def people_detector(project_root: Path, size: str, language: str):
         raise SystemExit(localized(language, "RF-DETR ist nicht installiert. Zuerst „ML einrichten“ wählen.", "RF-DETR is not installed. Select “Set up ML” first.")) from error
     model_class = getattr(rfdetr, {"nano": "RFDETRNano", "small": "RFDETRSmall", "medium": "RFDETRMedium", "large": "RFDETRLarge"}[size])
     emit(localized(language, f"Lade Personendetektor RF-DETR {size} (COCO, Apache-2.0) …", f"Loading people detector RF-DETR {size} (COCO, Apache-2.0) …"))
-    model = model_class(device=detect_device())
+    model = accelerated_model(model_class(device=detect_device()), None, size, language)
 
     def detect(image_bgr) -> list[tuple[float, float, float, float]]:
         prediction = normalize_detection_batch(model.predict(image_bgr[:, :, ::-1].copy(), threshold=0.35), 1)[0]

@@ -192,7 +192,9 @@ def tier_argument(payload: dict) -> str:
 def non_apple_accelerator() -> dict:
     """Best-effort accelerator info for Windows/Linux, as {"kind": ..., "gpuName": ...}
     rather than a rendered label (see hardware_summary()) - "kind" is one of
-    "cuda", "cpu-no-cuda", "cuda-pending", "cpu".
+    "cuda", "cpu-no-cuda", "cpu-directml", "cuda-pending", "cpu".
+    "cpu-directml": PyTorch trains on the CPU, detection runs on the GPU through ONNX Runtime
+    with DirectML (AMD or Intel graphics on Windows, see accelerated_model in ml_worker).
 
     Previously this branch was hardcoded to "CPU" unconditionally, so Windows
     users with a working NVIDIA GPU had no way to tell from the app whether
@@ -214,7 +216,12 @@ def non_apple_accelerator() -> dict:
                 probe = (
                     "import json, torch\n"
                     "available = torch.cuda.is_available()\n"
-                    "print(json.dumps({'cuda': available, 'name': torch.cuda.get_device_name(0) if available else None}))"
+                    "try:\n"
+                    "    import onnxruntime\n"
+                    "    directml = 'DmlExecutionProvider' in onnxruntime.get_available_providers()\n"
+                    "except Exception:\n"
+                    "    directml = False\n"
+                    "print(json.dumps({'cuda': available, 'name': torch.cuda.get_device_name(0) if available else None, 'directml': directml}))"
                 )
                 result = subprocess.run(
                     [str(venv_python), "-c", probe],
@@ -225,6 +232,7 @@ def non_apple_accelerator() -> dict:
                     info = (
                         {"kind": "cuda", "gpuName": payload["name"]} if payload.get("cuda") and payload.get("name")
                         else {"kind": "cuda"} if payload.get("cuda")
+                        else {"kind": "cpu-directml"} if payload.get("directml")
                         else {"kind": "cpu-no-cuda"}
                     )
                     _ACCELERATOR_CACHE[cache_key] = info
@@ -2111,6 +2119,36 @@ def ensure_torch_importable(venv_python: Path) -> None:
     ))
 
 
+def wants_directml(nvidia_gpu: str | None) -> bool:
+    """Windows x64 without a usable NVIDIA GPU: PyTorch only has the CPU there, but ONNX Runtime
+    with DirectML reaches any DirectX 12 GPU (AMD, Intel), see accelerated_model in ml_worker."""
+    return os.name == "nt" and not nvidia_gpu and platform.machine().lower() in {"amd64", "x86_64"}
+
+
+def install_directml_runtime(venv_python: Path) -> None:
+    """Swap onnxruntime for onnxruntime-directml (same module name, so only one may be installed).
+
+    --force-reinstall: after an earlier setup both packages can share the files, and uninstalling
+    one removes them for the other. Failure is not fatal - detection then simply stays on the CPU."""
+    STATE.update(message=localized(
+        "Richte ONNX Runtime mit DirectML ein (AMD- oder Intel-Grafikkarte) …",
+        "Setting up ONNX Runtime with DirectML (AMD or Intel graphics) …",
+        "Configurando ONNX Runtime con DirectML (gráfica AMD o Intel) …",
+        "Configuration d’ONNX Runtime avec DirectML (carte graphique AMD ou Intel) …",
+    ))
+    try:
+        run_logged([str(venv_python), "-m", "pip", "uninstall", "-y", "onnxruntime"])
+        run_logged([str(venv_python), "-m", "pip", "install", "--force-reinstall", "--no-deps", "onnxruntime-directml"])
+    except RuntimeError as error:
+        STATE.append_log(localized(
+            f"DirectML ließ sich nicht einrichten, die Erkennung läuft auf der CPU: {error}",
+            f"DirectML could not be set up, detection runs on the CPU: {error}",
+            f"No se pudo configurar DirectML, la detección se ejecuta en la CPU: {error}",
+            f"DirectML n’a pas pu être configuré, la détection s’exécute sur le CPU : {error}",
+        ))
+        run_logged([str(venv_python), "-m", "pip", "install", "--force-reinstall", "--no-deps", "onnxruntime"])
+
+
 def ml_action(action: str, payload: dict) -> None:
     output_dirs: list[Path] = []
     before: dict[Path, float] = {}
@@ -2175,6 +2213,8 @@ def ml_action(action: str, payload: dict) -> None:
                 "rfdetr[train,onnx,coreml]>=1.9.0", "onnxruntime",
                 *(["--extra-index-url", cuda_index_url] if gpu_name else []),
             ])
+            if wants_directml(gpu_name):
+                install_directml_runtime(venv_python)
             ensure_torch_importable(venv_python)
             # The accelerator label (see non_apple_accelerator()) is cached
             # per venv path - a re-run of setup (e.g. retrying with CUDA

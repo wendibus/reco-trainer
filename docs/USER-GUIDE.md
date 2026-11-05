@@ -149,6 +149,11 @@ Once you've reviewed enough frames, start a training run. You'll set:
 
 Training runs entirely on your machine, using your GPU if you have one and your CPU otherwise (slower, but it works). Progress and per-category metrics are shown as it goes.
 
+**Which graphics cards are used.** On a Mac with Apple silicon, everything runs on the built-in GPU. On Windows and Linux, training uses an NVIDIA GPU through CUDA; without one it runs on the CPU. AMD and Intel graphics help with the other jobs:
+
+- **Detection on Windows** (auto-labeling, the consistency check's second detector, benchmarks, the ball-tracking simulation) runs on any DirectX 12 graphics card through ONNX Runtime with DirectML. **Set up ML** installs it automatically when there is no NVIDIA GPU; the hardware line then reads "Training on the CPU · detection on the graphics card (DirectML)". The first detection with each model converts it once (a few seconds). If the graphics card fails, detection simply continues on the CPU. Set `RECO_ONNX_INFERENCE=off` to switch this off.
+- **The VLM of the consistency check** uses the Vulkan build of llama.cpp on every Windows or Linux x64 computer without an NVIDIA GPU. It runs on AMD and Intel graphics with a Vulkan driver, otherwise on the CPU, and if the graphics card cannot load the model it retries on the CPU by itself. `RECO_VLM_RUNTIME=cpu` forces the CPU build.
+
 ### What actually stays local
 
 Every video frame, every label, every trained checkpoint, and every metric lives in your project folder on your own disk. Reco Trainer's own servers only ever see a version-check request (to tell you a new release exists) — never your footage, your labels, or your models.

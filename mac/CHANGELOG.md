@@ -1,5 +1,10 @@
 # Änderungen
 
+## Unveröffentlicht
+
+- Neu: AMD- und Intel-Grafikkarten unter Windows beschleunigen die Erkennung (Vorlabeln, zweiter Detektor der Konsistenzprüfung, Benchmark, Balltracking-Simulation). RF-DETR läuft dort über ONNX Runtime mit DirectML; „ML einrichten“ installiert `onnxruntime-directml`, wenn keine NVIDIA-GPU vorhanden ist. Das Modell wird je Gewichtsdatei einmal nach ONNX exportiert und bei den gemeinsamen Modellen abgelegt. Ergebnisse sind mit PyTorch identisch (gleiche Boxen, Klassen und Scores, Abweichung unter 0,05 px). Fällt die Grafikkarte aus, läuft die Erkennung mit PyTorch auf der CPU weiter. Die Hardwarezeile zeigt dann „Training auf der CPU · Erkennung auf der Grafikkarte (DirectML)“. Abschaltbar mit `RECO_ONNX_INFERENCE=off`.
+- Neu: Die VLM der Konsistenzprüfung nutzt unter Windows und Linux (x64) ohne NVIDIA-GPU den Vulkan-Build von llama.cpp (b11985, MIT) und damit AMD- und Intel-Grafik. Ohne Vulkan-Treiber läuft er wie bisher auf der CPU; scheitert der Start auf der Grafikkarte, startet der Server einmal neu auf der CPU. `RECO_VLM_RUNTIME=cpu|vulkan|cuda` legt den Build fest.
+
 ## 0.27.0
 
 - Neu: Ergebnisse der Konsistenzprüfung Bild für Bild durchgehen. Über der Bildliste startet „markierte Bilder prüfen“ (dazu „Nur markierte zeigen“), im Ergebnisfenster „Der Reihe nach prüfen“. Unter dem Bild stehen Grund, VLM-Kommentar und ein konkreter Vorschlag; im Bild sind messbar doppelte Boxen rot und vom zweiten Detektor gefundene, noch fehlende Boxen grün gestrichelt. Pro Bild: Vorschlag übernehmen, nachbessern, ablehnen oder Bild löschen. Meldet die VLM doppelte Boxen, die sich nicht messen lassen, weist die App auf einen vermutlichen Fehlalarm hin.

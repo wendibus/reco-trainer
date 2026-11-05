@@ -30,13 +30,14 @@ class PlatformTests(unittest.TestCase):
         cases = {
             ("Darwin", "arm64", False): ["llama-server-macos-arm64"],
             ("Windows", "AMD64", True): ["llama-server-windows-cuda", "llama-server-windows-cudart"],
-            ("Windows", "AMD64", False): ["llama-server-windows-cpu"],
+            ("Windows", "AMD64", False): ["llama-server-windows-vulkan"],  # AMD, Intel or CPU
+            ("Windows", "ARM64", False): ["llama-server-windows-cpu"],
             ("Linux", "x86_64", True): ["llama-server-linux-cuda", "llama-server-linux-cudart"],
-            ("Linux", "x86_64", False): ["llama-server-linux-cpu"],
+            ("Linux", "x86_64", False): ["llama-server-linux-vulkan"],
             ("Linux", "aarch64", False): ["llama-server-linux-arm64"],  # Docker on Apple silicon
         }
         for (system, machine, nvidia), expected in cases.items():
-            ids = vlm.runtime_ids(system, machine, nvidia, glibc=(2, 41))
+            ids = vlm.runtime_ids(system, machine, nvidia, glibc=(2, 41), choice="")
             self.assertEqual(ids, expected)
             for model_id in ids:
                 self.assertEqual(REGISTRY[model_id]["license"], "MIT")
@@ -44,13 +45,61 @@ class PlatformTests(unittest.TestCase):
             vlm.runtime_ids("Darwin", "x86_64")
 
     def test_linux_build_follows_the_c_library(self):
-        # Ubuntu 22.04 (glibc 2.35) with NVIDIA: the CUDA build needs 2.38, so the CPU build is used.
-        self.assertEqual(vlm.runtime_ids("Linux", "x86_64", True, glibc=(2, 35)), ["llama-server-linux-cpu"])
-        self.assertEqual(vlm.runtime_ids("Linux", "x86_64", True, glibc=(2, 39)), ["llama-server-linux-cuda", "llama-server-linux-cudart"])
+        # Ubuntu 22.04 (glibc 2.35) with NVIDIA: the CUDA build needs 2.38, so the Vulkan build is used.
+        self.assertEqual(vlm.runtime_ids("Linux", "x86_64", True, glibc=(2, 35), choice=""), ["llama-server-linux-vulkan"])
+        self.assertEqual(vlm.runtime_ids("Linux", "x86_64", True, glibc=(2, 39), choice=""), ["llama-server-linux-cuda", "llama-server-linux-cudart"])
         with self.assertRaises(RuntimeError):
-            vlm.runtime_ids("Linux", "aarch64", False, glibc=(2, 36))  # Debian 12 on arm64
+            vlm.runtime_ids("Linux", "aarch64", False, glibc=(2, 36), choice="")  # Debian 12 on arm64
         with self.assertRaises(RuntimeError):
-            vlm.runtime_ids("Linux", "x86_64", False, glibc=(2, 31))
+            vlm.runtime_ids("Linux", "x86_64", False, glibc=(2, 31), choice="")
+
+    def test_runtime_can_be_chosen_by_hand(self):
+        self.assertEqual(vlm.runtime_ids("Windows", "AMD64", False, choice="cpu"), ["llama-server-windows-cpu"])
+        self.assertEqual(vlm.runtime_ids("Windows", "AMD64", True, choice="vulkan"), ["llama-server-windows-vulkan"])
+        self.assertEqual(vlm.runtime_ids("Linux", "x86_64", False, glibc=(2, 41), choice="cpu"), ["llama-server-linux-cpu"])
+        self.assertEqual(vlm.runtime_ids("Linux", "x86_64", False, glibc=(2, 41), choice="nonsense"), ["llama-server-linux-vulkan"])
+        with mock.patch.dict(os.environ, {"RECO_VLM_RUNTIME": "cpu"}):
+            self.assertEqual(vlm.runtime_ids("Windows", "AMD64", False), ["llama-server-windows-cpu"])
+
+    def test_vulkan_builds_are_pinned_like_the_others(self):
+        for model_id in ("llama-server-windows-vulkan", "llama-server-linux-vulkan"):
+            entry = REGISTRY[model_id]
+            self.assertEqual((entry["license"], entry["accelerator"], entry["purpose"]), ("MIT", "vulkan", "vlm-runtime"))
+            self.assertIn("/b11985/", entry["url"])
+            self.assertRegex(entry["sha256"], r"^[0-9a-f]{64}$")
+
+    def test_vulkan_server_retries_on_the_cpu(self):
+        with tempfile.TemporaryDirectory() as folder:
+            binary = Path(folder) / "llama-server"
+            binary.write_text("")
+            plain = vlm.LlamaServer(binary, Path("m.gguf"), Path("p.gguf"))
+            self.assertFalse(plain.cpu_fallback)
+            (Path(folder) / "libggml-vulkan.so").write_text("")
+            server = vlm.LlamaServer(binary, Path("m.gguf"), Path("p.gguf"))
+            self.assertTrue(server.cpu_fallback)
+            self.assertIn("99", server.command())
+            commands: list[list[str]] = []
+
+            def fake_start(timeout):
+                commands.append(server.command())
+                if len(commands) == 1:
+                    raise RuntimeError("llama-server stopped while starting: vk::DeviceLostError")
+                return server
+            with mock.patch.object(server, "_start", side_effect=fake_start):
+                self.assertIs(server.start(), server)
+            self.assertTrue(server.on_cpu)
+            self.assertNotIn("--device", commands[0])
+            self.assertEqual(commands[1][-4:], ["--device", "none", "-ngl", "0"])
+
+            failing = vlm.LlamaServer(binary, Path("m.gguf"), Path("p.gguf"))
+            with mock.patch.object(failing, "_start", side_effect=RuntimeError("out of memory")):
+                with self.assertRaisesRegex(RuntimeError, "graphics card before that: out of memory"):
+                    failing.start()
+            plain = vlm.LlamaServer(binary, Path("m.gguf"), Path("p.gguf"), cpu_fallback=False)
+            with mock.patch.object(plain, "_start", side_effect=RuntimeError("boom")) as started:
+                with self.assertRaises(RuntimeError):
+                    plain.start()
+            self.assertEqual(started.call_count, 1)
 
     def test_cuda_runtime_installs_next_to_its_server(self):
         self.assertEqual(REGISTRY["llama-server-windows-cudart"]["installInto"], "llama-server-windows-cuda")

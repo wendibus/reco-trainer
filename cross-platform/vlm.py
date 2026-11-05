@@ -50,8 +50,14 @@ def app_data_dir() -> Path | None:
 
 # --- which llama-server build ------------------------------------------------------------------
 
-# The Linux CUDA and arm64 builds need glibc 2.38 (Ubuntu 24.04, Debian 13); the x64 CPU build 2.34.
-LINUX_GLIBC = {"llama-server-linux-cuda": (2, 38), "llama-server-linux-arm64": (2, 38), "llama-server-linux-cpu": (2, 34)}
+# The Linux CUDA and arm64 builds need glibc 2.38 (Ubuntu 24.04, Debian 13); the x64 CPU and
+# Vulkan builds 2.34.
+LINUX_GLIBC = {
+    "llama-server-linux-cuda": (2, 38), "llama-server-linux-arm64": (2, 38),
+    "llama-server-linux-cpu": (2, 34), "llama-server-linux-vulkan": (2, 34),
+}
+# RECO_VLM_RUNTIME=cpu|vulkan|cuda overrides the automatic choice (x64 Windows and Linux only).
+RUNTIME_CHOICES = {"cpu", "vulkan", "cuda"}
 
 
 def glibc_version() -> tuple[int, int] | None:
@@ -65,18 +71,30 @@ def glibc_version() -> tuple[int, int] | None:
         return None
 
 
-def runtime_ids(system: str | None = None, machine: str | None = None, nvidia: bool = False, glibc: tuple[int, int] | None = None) -> list[str]:
+def runtime_ids(system: str | None = None, machine: str | None = None, nvidia: bool = False, glibc: tuple[int, int] | None = None, choice: str | None = None) -> list[str]:
     """Registry ids of the llama-server build (plus its CUDA runtime) for this platform.
-    On Linux the C library decides: a system too old for the CUDA build uses the CPU build."""
+
+    NVIDIA GPUs get the CUDA build. Every other x64 Windows or Linux computer gets the Vulkan
+    build: it uses an AMD or Intel GPU when a Vulkan driver is there and otherwise runs on the CPU
+    with the same CPU backends as the CPU build (they are loaded at run time, see LlamaServer).
+    On Linux the C library decides as well: a system too old for the CUDA build uses Vulkan."""
     system = (system or platform.system()).lower()
     machine = (machine or platform.machine()).lower()
     arm = machine in {"arm64", "aarch64"}
+    if choice is None:
+        choice = os.environ.get("RECO_VLM_RUNTIME", "").strip().lower()
+    choice = choice if choice in RUNTIME_CHOICES else ""
     if system == "darwin":
         if not arm:
             raise RuntimeError("The VLM needs a Mac with Apple silicon.")
         return ["llama-server-macos-arm64"]
     if system == "windows":
-        return ["llama-server-windows-cuda", "llama-server-windows-cudart"] if nvidia and not arm else ["llama-server-windows-cpu"]
+        if arm:
+            return ["llama-server-windows-cpu"]
+        accelerator = choice or ("cuda" if nvidia else "vulkan")
+        if accelerator == "cuda":
+            return ["llama-server-windows-cuda", "llama-server-windows-cudart"]
+        return [f"llama-server-windows-{accelerator}"]
     if glibc is None:
         glibc = glibc_version()
     def fits(model_id: str) -> bool:
@@ -85,11 +103,17 @@ def runtime_ids(system: str | None = None, machine: str | None = None, nvidia: b
         if not fits("llama-server-linux-arm64"):
             raise RuntimeError("The VLM on Linux arm64 needs glibc 2.38 or newer (for example Ubuntu 24.04 or Debian 13).")
         return ["llama-server-linux-arm64"]
-    if nvidia and fits("llama-server-linux-cuda"):
+    accelerator = choice or ("cuda" if nvidia else "vulkan")
+    if accelerator == "cuda" and fits("llama-server-linux-cuda"):
         return ["llama-server-linux-cuda", "llama-server-linux-cudart"]
     if not fits("llama-server-linux-cpu"):
         raise RuntimeError("The VLM on Linux needs glibc 2.34 or newer (for example Ubuntu 22.04 or Debian 12).")
-    return ["llama-server-linux-cpu"]
+    return ["llama-server-linux-cpu"] if accelerator == "cpu" else ["llama-server-linux-vulkan"]
+
+
+def has_vulkan_backend(folder: Path) -> bool:
+    """True for a llama.cpp build that loads its Vulkan backend at run time."""
+    return any(folder.glob("ggml-vulkan.dll")) or any(folder.glob("libggml-vulkan.so*"))
 
 
 def find_server_binary(folder: Path) -> Path | None:
@@ -176,22 +200,45 @@ def free_port() -> int:
 class LlamaServer:
     """Starts llama-server on 127.0.0.1 for one job and stops it again (frees GPU memory)."""
 
-    def __init__(self, binary: Path, model: Path, mmproj: Path, context: int = 8192, gpu_layers: int = 99) -> None:
+    def __init__(self, binary: Path, model: Path, mmproj: Path, context: int = 8192, gpu_layers: int = 99, cpu_fallback: bool | None = None) -> None:
         self.binary, self.model, self.mmproj = binary, model, mmproj
         self.context, self.gpu_layers = context, gpu_layers
         self.port = free_port()
         self.process: subprocess.Popen | None = None
         self.log_path: Path | None = None
+        # A Vulkan GPU can fail where the CPU works (driver too old, too little graphics memory
+        # for the model): such a build retries once on the CPU instead of failing the job.
+        self.cpu_fallback = has_vulkan_backend(binary.parent) if cpu_fallback is None else cpu_fallback
+        self.on_cpu = False
 
     @property
     def url(self) -> str:
         return f"http://127.0.0.1:{self.port}"
 
     def start(self, timeout: float = 300.0) -> "LlamaServer":
+        try:
+            return self._start(timeout)
+        except RuntimeError as error:
+            if not self.cpu_fallback or self.on_cpu:
+                raise
+            self.stop()
+            if self.log_path:
+                self.log_path.unlink(missing_ok=True)
+            self.on_cpu, self.port = True, free_port()
+            try:
+                return self._start(timeout)
+            except RuntimeError as cpu_error:
+                raise RuntimeError(f"{cpu_error} (graphics card before that: {error})") from cpu_error
+
+    def command(self) -> list[str]:
         command = [
             str(self.binary), "-m", str(self.model), "--mmproj", str(self.mmproj),
-            "--host", "127.0.0.1", "--port", str(self.port), "-c", str(self.context), "-ngl", str(self.gpu_layers),
+            "--host", "127.0.0.1", "--port", str(self.port), "-c", str(self.context),
         ]
+        return command + (["--device", "none", "-ngl", "0"] if self.on_cpu else ["-ngl", str(self.gpu_layers)])
+
+    def _start(self, timeout: float) -> "LlamaServer":
+        command = self.command()
         environment = dict(os.environ)
         if os.name != "nt":
             # The build ships its shared libraries next to the binary.
