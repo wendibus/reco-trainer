@@ -170,7 +170,9 @@ Reco Trainer only downloads models under **Apache-2.0** or **MIT**, each with a 
 | LaMa (ONNX by Carve) | empty-hall plates in the Augmentation Studio | Apache-2.0 |
 | Florence-2 Base / Large | second opinion during auto-label | MIT |
 | Qwen3.5-4B / 9B (GGUF by unsloth) | consistency check, anonymization check (optional) | Apache-2.0 |
-| llama.cpp `llama-server` (b11985) | runs the VLM locally | MIT |
+| llama.cpp `llama-server` (b11985; Metal, CUDA, Vulkan or CPU build) | runs the VLM locally | MIT |
+| ONNX Runtime (`onnxruntime`, installed by **Set up ML** from PyPI) | imported ONNX models, RF-DETR on AMD/Intel graphics | MIT |
+| DirectML (`DirectML.dll` inside `onnxruntime-directml`, Windows without NVIDIA only) | RF-DETR detection on AMD/Intel graphics | Microsoft DirectML license terms (redistributable, Windows/Xbox only) |
 
 RF-DETR XL/2XL (PML 1.0), SAM 3 and Ultralytics models are not used. Hugging Face models are pinned to one exact revision.
 
