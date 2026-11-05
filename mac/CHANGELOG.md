@@ -1,5 +1,12 @@
 # Änderungen
 
+## 0.27.0
+
+- Neu: Ergebnisse der Konsistenzprüfung Bild für Bild durchgehen. Über der Bildliste startet „markierte Bilder prüfen“ (dazu „Nur markierte zeigen“), im Ergebnisfenster „Der Reihe nach prüfen“. Unter dem Bild stehen Grund, VLM-Kommentar und ein konkreter Vorschlag; im Bild sind messbar doppelte Boxen rot und vom zweiten Detektor gefundene, noch fehlende Boxen grün gestrichelt. Pro Bild: Vorschlag übernehmen, nachbessern, ablehnen oder Bild löschen. Meldet die VLM doppelte Boxen, die sich nicht messen lassen, weist die App auf einen vermutlichen Fehlalarm hin.
+- Neu: Die Konsistenzprüfung speichert, welche Boxen der zweite Detektor ergänzen würde. Für frühere Prüfungen holt „Vorschläge berechnen“ das nach, ohne Markierungen zu ändern.
+- Neu: Balltracking-Simulation mit zwei Modellen vergleichen. Zwei Seiten A und B mit eigenem Video und eigenem Modell (aktives Modell oder jedes Bibliotheksmodell mit Ball-Klasse, auch ONNX-YOLO), gemeinsame Zeitleiste, Trefferstatistik je Seite; „Gleiches Video wie A“ vergleicht beide Modelle auf denselben Bildern. Das aktive Modell bleibt dabei unverändert.
+- Behoben: Die Balltracking-Simulation nutzte immer die Größe „nano“, auch wenn ein anderes Modell eingestellt war.
+
 ## 0.26.0
 
 - Neu: „Datensatz importieren“ direkt unter „Arbeitsordner auswählen“. Ein Ordner mit Bildern und COCO- oder YOLO-Labels lässt sich übernehmen, sobald ein Arbeitsordner gewählt ist, auch wenn dort noch nichts vorbereitet wurde. Das Projekt wird dann mit dem Datensatz angelegt; die Bilder werden kopiert, das Original bleibt unverändert.
