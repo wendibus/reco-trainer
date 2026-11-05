@@ -180,7 +180,12 @@ def detected_tier() -> str:
             _TIER_CACHE["tier"] = teachers.choose_tier("mps", memory_gb=memory_gb)
         else:
             vram = nvidia_vram_gb()
-            _TIER_CACHE["tier"] = teachers.choose_tier("cuda", vram_gb=vram) if vram else teachers.choose_tier("cpu")
+            graphics = teachers.directml_graphics() if (not vram and os.name == "nt") else None
+            _TIER_CACHE["tier"] = (
+                teachers.choose_tier("cuda", vram_gb=vram) if vram
+                else teachers.choose_tier("directml", vram_gb=graphics["vramGB"]) if graphics
+                else teachers.choose_tier("cpu")
+            )
     return _TIER_CACHE["tier"]
 
 
@@ -232,7 +237,7 @@ def non_apple_accelerator() -> dict:
                     info = (
                         {"kind": "cuda", "gpuName": payload["name"]} if payload.get("cuda") and payload.get("name")
                         else {"kind": "cuda"} if payload.get("cuda")
-                        else {"kind": "cpu-directml"} if payload.get("directml")
+                        else {"kind": "cpu-directml", "gpuName": (teachers.directml_graphics() or {}).get("name")} if payload.get("directml")
                         else {"kind": "cpu-no-cuda"}
                     )
                     _ACCELERATOR_CACHE[cache_key] = info

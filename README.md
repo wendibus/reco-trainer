@@ -181,7 +181,7 @@ RF-DETR XL/2XL (PML 1.0), SAM 3 and Ultralytics models are not used. Hugging Fac
 Reco Trainer picks a **hardware tier** and uses the models that fit (override under **Advanced options**):
 
 - **Strong** - NVIDIA GPU with 16 GB VRAM or Apple silicon with 32 GB or more: RF-DETR Large as suggestion model, Florence-2 Large as second opinion, SAM 2 Base+ when chosen, VLM on by default (Qwen3.5-4B, 9B selectable).
-- **Medium** - NVIDIA with 8 GB or Apple with 16 GB: RF-DETR Medium, Florence-2 Base, SAM 2 Small, VLM optional (Qwen3.5-4B).
+- **Medium** - NVIDIA with 8 GB, Apple with 16 GB, or an AMD/Intel graphics card with 8 GB of its own on Windows (detection and VLM on the card, training on the CPU): RF-DETR Medium, Florence-2 Base, SAM 2 Small, VLM optional (Qwen3.5-4B).
 - **Weak** - CPU only: RF-DETR Small and Florence-2 Base, no SAM 2 and no VLM. Training and the anonymized export are much slower; a plain export needs no ML environment at all.
 
 ## Privacy and security

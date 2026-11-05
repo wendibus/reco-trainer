@@ -710,10 +710,15 @@ def accelerated_model(model: Any, weights: Path | None, size: str, language: str
                     exported = next(iter(sorted(exported.rglob("*.onnx"))))
                 os.replace(exported, target)
         wrapped = OnnxRfdetrModel(model, target, providers)
+        card = ""
+        if wrapped.providers[0] == "DmlExecutionProvider":
+            import teachers
+            graphics = teachers.directml_graphics()
+            card = f", {graphics['name']}, {graphics['vramGB']:g} GB" if graphics else ""
         emit(localized(
             language,
-            f"Erkennung läuft über ONNX Runtime ({wrapped.providers[0]}).",
-            f"Detection runs through ONNX Runtime ({wrapped.providers[0]}).",
+            f"Erkennung läuft über ONNX Runtime ({wrapped.providers[0]}{card}).",
+            f"Detection runs through ONNX Runtime ({wrapped.providers[0]}{card}).",
         ))
         return wrapped
     except Exception as error:  # noqa: BLE001 - PyTorch on the CPU always works
@@ -764,6 +769,10 @@ def hardware_tier(override: str | None = None) -> str:
             vram_gb = torch.cuda.get_device_properties(0).total_memory / 1024**3
         except Exception:
             vram_gb = None
+    elif device == "cpu" and "DmlExecutionProvider" in (onnx_inference_providers() or []):
+        graphics = teachers.directml_graphics()
+        if graphics is not None:
+            device, vram_gb = "directml", graphics["vramGB"]
     return teachers.choose_tier(device, vram_gb, total_memory_bytes() / 1024**3)
 
 

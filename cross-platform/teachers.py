@@ -32,14 +32,91 @@ TEACHER_SIZES = {"rf-detr-nano": "nano", "rf-detr-small": "small", "rf-detr-medi
 
 def choose_tier(device: str, vram_gb: float | None = None, memory_gb: float | None = None) -> str:
     """CUDA by VRAM (16 GB is the comfortable target), Apple silicon by unified memory,
-    everything on the CPU is "weak" (no SAM 2, no VLM - the export still works)."""
+    everything on the CPU is "weak" (no SAM 2, no VLM - the export still works).
+
+    "directml" (AMD or Intel graphics on Windows): detection and the VLM run on the GPU, but
+    training, SAM 2 and Florence-2 stay on the CPU, so at most "medium" - from 8 GB of graphics
+    memory; integrated graphics with little memory of their own stay "weak"."""
     if device == "cuda":
         vram = vram_gb or 0.0
         return "strong" if vram >= 14 else "medium" if vram >= 8 else "weak"
+    if device == "directml":
+        return "medium" if (vram_gb or 0.0) >= 8 else "weak"
     if device == "mps":
         memory = memory_gb or 0.0
         return "strong" if memory >= 32 else "medium" if memory >= 16 else "weak"
     return "weak"
+
+
+# Display adapters under Windows (the class key of all graphics drivers).
+DISPLAY_CLASS_KEY = r"SYSTEM\CurrentControlSet\Control\Class\{4d36e968-e325-11ce-bfc1-08002be10318}"
+
+
+def windows_graphics() -> list[dict[str, Any]]:
+    """[{"name", "vendor", "vramGB"}] of the graphics cards, from the registry (no PyTorch needed).
+
+    HardwareInformation.qwMemorySize is the 64-bit dedicated memory; WMI's AdapterRAM stops at 4 GB.
+    Microsoft's own adapters (Basic Display, Remote Display) are left out."""
+    try:
+        import winreg
+    except ImportError:
+        return []
+    found: list[dict[str, Any]] = []
+    try:
+        root = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, DISPLAY_CLASS_KEY)
+    except OSError:
+        return []
+    with root:
+        index = 0
+        while True:
+            try:
+                name = winreg.EnumKey(root, index)
+            except OSError:
+                break
+            index += 1
+            if not name.isdigit():
+                continue
+            try:
+                with winreg.OpenKey(root, name) as key:
+                    values: dict[str, Any] = {}
+                    for value in ("DriverDesc", "ProviderName", "HardwareInformation.qwMemorySize", "HardwareInformation.MemorySize"):
+                        try:
+                            values[value] = winreg.QueryValueEx(key, value)[0]
+                        except OSError:
+                            pass
+            except OSError:
+                continue
+            found_card = windows_graphics_entry(values)
+            if found_card is not None:
+                found.append(found_card)
+    return found
+
+
+def windows_graphics_entry(values: dict[str, Any]) -> dict[str, Any] | None:
+    description = str(values.get("DriverDesc") or "").strip()
+    provider = str(values.get("ProviderName") or "").strip()
+    if not description or provider.lower() == "microsoft":
+        return None
+    memory = values.get("HardwareInformation.qwMemorySize", values.get("HardwareInformation.MemorySize"))
+    if isinstance(memory, (bytes, bytearray)):
+        memory = int.from_bytes(bytes(memory)[:8], "little")
+    try:
+        vram_gb = round(int(memory) / 1024**3, 1)
+    except (TypeError, ValueError):
+        vram_gb = 0.0
+    lowered = f"{description} {provider}".lower()
+    vendor = "nvidia" if "nvidia" in lowered else "amd" if ("amd" in lowered or "radeon" in lowered or "advanced micro" in lowered) else "intel" if "intel" in lowered else "other"
+    return {"name": description, "vendor": vendor, "vramGB": vram_gb}
+
+
+def directml_graphics() -> dict[str, Any] | None:
+    """The AMD or Intel card with the most memory of its own, or None (no card, or NVIDIA present -
+    an NVIDIA GPU uses CUDA instead)."""
+    cards = windows_graphics()
+    if any(card["vendor"] == "nvidia" for card in cards):
+        return None
+    candidates = [card for card in cards if card["vendor"] in {"amd", "intel"}]
+    return max(candidates, key=lambda card: card["vramGB"]) if candidates else None
 
 
 def tier_plan(tier: str | None) -> dict[str, Any]:

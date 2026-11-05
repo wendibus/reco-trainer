@@ -127,6 +127,44 @@ class DecodeTests(unittest.TestCase):
             self.assertEqual(ml_worker.rfdetr_class_names(tuned), {0: "ball", 1: "player"})
 
 
+import teachers  # noqa: E402
+
+
+class TierTests(unittest.TestCase):
+    def test_directml_reaches_medium_at_most(self):
+        self.assertEqual(teachers.choose_tier("directml", vram_gb=16), "medium")
+        self.assertEqual(teachers.choose_tier("directml", vram_gb=8), "medium")
+        self.assertEqual(teachers.choose_tier("directml", vram_gb=0.5), "weak")  # integrated graphics
+        self.assertEqual(teachers.choose_tier("directml"), "weak")
+
+    def test_registry_entries_become_cards(self):
+        radeon = teachers.windows_graphics_entry({"DriverDesc": "AMD Radeon RX 7800 XT", "ProviderName": "Advanced Micro Devices, Inc.", "HardwareInformation.qwMemorySize": 16 * 1024**3})
+        self.assertEqual(radeon, {"name": "AMD Radeon RX 7800 XT", "vendor": "amd", "vramGB": 16.0})
+        arc = teachers.windows_graphics_entry({"DriverDesc": "Intel(R) Arc(TM) A770 Graphics", "ProviderName": "Intel Corporation", "HardwareInformation.MemorySize": (16 * 1024**3).to_bytes(8, "little")})
+        self.assertEqual((arc["vendor"], arc["vramGB"]), ("intel", 16.0))
+        self.assertIsNone(teachers.windows_graphics_entry({"DriverDesc": "Microsoft Basic Display Adapter", "ProviderName": "Microsoft"}))
+        self.assertEqual(teachers.windows_graphics_entry({"DriverDesc": "Intel(R) UHD Graphics", "ProviderName": "Intel Corporation"})["vramGB"], 0.0)
+
+    def test_best_amd_or_intel_card_unless_nvidia_is_there(self):
+        radeon = {"name": "AMD Radeon RX 7800 XT", "vendor": "amd", "vramGB": 16.0}
+        uhd = {"name": "Intel(R) UHD Graphics", "vendor": "intel", "vramGB": 0.1}
+        with mock.patch.object(teachers, "windows_graphics", return_value=[uhd, radeon]):
+            self.assertEqual(teachers.directml_graphics(), radeon)
+        with mock.patch.object(teachers, "windows_graphics", return_value=[uhd, {"name": "RTX 4070", "vendor": "nvidia", "vramGB": 12.0}]):
+            self.assertIsNone(teachers.directml_graphics())
+        self.assertEqual(teachers.windows_graphics() if sys.platform != "win32" else [], [])
+
+    def test_ml_worker_tier_uses_the_directml_card(self):
+        with mock.patch.object(ml_worker, "detect_device", return_value="cpu"), \
+                mock.patch.object(ml_worker, "onnx_inference_providers", return_value=["DmlExecutionProvider", "CPUExecutionProvider"]), \
+                mock.patch.object(teachers, "directml_graphics", return_value={"name": "AMD Radeon RX 7800 XT", "vendor": "amd", "vramGB": 16.0}):
+            self.assertEqual(ml_worker.hardware_tier(), "medium")
+        with mock.patch.object(ml_worker, "detect_device", return_value="cpu"), \
+                mock.patch.object(ml_worker, "onnx_inference_providers", return_value=None):
+            self.assertEqual(ml_worker.hardware_tier(), "weak")
+        self.assertEqual(ml_worker.hardware_tier("strong"), "strong")  # a choice in the app still wins
+
+
 class SetupTests(unittest.TestCase):
     def test_directml_only_on_windows_x64_without_nvidia(self):
         cases = [("nt", "AMD64", None, True), ("nt", "AMD64", "NVIDIA GeForce RTX 4070", False),
