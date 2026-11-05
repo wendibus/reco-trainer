@@ -2,6 +2,8 @@
 
 ## 0.28.0
 
+AMD- und Intel-Grafik sind **experimentell**: noch nicht auf echter AMD-/Intel-Hardware getestet; bei Problemen läuft alles wie bisher auf der CPU.
+
 - Neu: AMD- und Intel-Grafikkarten unter Windows beschleunigen die Erkennung (Vorlabeln, zweiter Detektor der Konsistenzprüfung, Benchmark, Balltracking-Simulation). RF-DETR läuft dort über ONNX Runtime mit DirectML; „ML einrichten“ installiert `onnxruntime-directml`, wenn keine NVIDIA-GPU vorhanden ist. Das Modell wird je Gewichtsdatei einmal nach ONNX exportiert und bei den gemeinsamen Modellen abgelegt. Ergebnisse sind mit PyTorch identisch (gleiche Boxen, Klassen und Scores, Abweichung unter 0,05 px). Fällt die Grafikkarte aus, läuft die Erkennung mit PyTorch auf der CPU weiter. Die Hardwarezeile zeigt dann „Training auf der CPU · Erkennung auf der Grafikkarte (DirectML)“. Abschaltbar mit `RECO_ONNX_INFERENCE=off`.
 - Neu: Die VLM der Konsistenzprüfung nutzt unter Windows und Linux (x64) ohne NVIDIA-GPU den Vulkan-Build von llama.cpp (b11985, MIT) und damit AMD- und Intel-Grafik. Ohne Vulkan-Treiber läuft er wie bisher auf der CPU; scheitert der Start auf der Grafikkarte, startet der Server einmal neu auf der CPU. `RECO_VLM_RUNTIME=cpu|vulkan|cuda` legt den Build fest.
 - Neu: Die Hardware-Stufe erkennt AMD- und Intel-Grafikkarten unter Windows (aus der Registry, ohne PyTorch). Ab 8 GB eigenem Grafikspeicher gilt der Rechner als „Mittel“ (RF-DETR Medium als Vorschlagsmodell, VLM wählbar), integrierte Grafik bleibt „Schwach“. Die Hardwarezeile nennt die Karte, das Job-Log Provider, Karte und Speicher.
