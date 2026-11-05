@@ -2175,6 +2175,42 @@ def comparable(boxes: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return result
 
 
+def detector_additions(ours: list[dict[str, Any]], theirs: list[dict[str, Any]], iou_threshold: float) -> list[dict[str, Any]]:
+    """Second-detector boxes that match none of the frame's own boxes of the same group
+    (person/ball): the concrete "add this box" part of a consistency suggestion."""
+    own = comparable(ours)
+    additions = []
+    for box in theirs:
+        group = comparable([box])
+        if not group:
+            continue
+        candidate = group[0]
+        geometry = (float(box["x"]), float(box["y"]), float(box["width"]), float(box["height"]))
+        best = max((box_iou_xywh(geometry, (float(item["x"]), float(item["y"]), float(item["width"]), float(item["height"]))) for item in own if item["category"] == candidate["category"]), default=0.0)
+        if best < iou_threshold:
+            additions.append({
+                "category": str(box["category"]), "x": round(float(box["x"]), 1), "y": round(float(box["y"]), 1),
+                "width": round(float(box["width"]), 1), "height": round(float(box["height"]), 1),
+                "confidence": round(float(box.get("confidence") or 0.0), 3),
+            })
+    return additions
+
+
+def store_consistency_suggestions(frames: list[dict[str, Any]], second: dict[str, list[dict[str, Any]]], iou_threshold: float, source: str) -> int:
+    """Remember, for each flagged frame, which boxes the second detector would add, so the
+    step-by-step review can offer them for acceptance. Returns how many frames got one."""
+    count = 0
+    for frame in frames:
+        frame.pop("consistencySuggestion", None)
+        if not frame.get("reviewFlags") or frame["id"] not in second:
+            continue
+        additions = detector_additions(frame.get("annotations", []), second[frame["id"]], iou_threshold)
+        if additions:
+            frame["consistencySuggestion"] = {"add": additions, "source": source}
+            count += 1
+    return count
+
+
 def flag_vanished_players(frames: list[dict[str, Any]], max_gap_seconds: float = 1.0) -> int:
     """Within one video, at least two and at least half of the people disappear between two
     frames at most a second apart - usually missing boxes, not people leaving."""
@@ -2238,6 +2274,7 @@ def consistency_check(args: argparse.Namespace) -> None:
     batch = training_profile("nano", device)["batch_size"] if device != "cpu" else 1
     second = predict_boxes(detector, project_root, frames, ["player", "ball"], category_map, args.threshold, batch)
     del detector
+    detector_source = f"RF-DETR {size}"
     disagreement = 0
     for frame in frames:
         theirs = comparable(second.get(frame["id"], []))
@@ -2281,6 +2318,7 @@ def consistency_check(args: argparse.Namespace) -> None:
                     frame["reviewFlags"] = [flag for flag in frame["reviewFlags"] if flag not in CONSISTENCY_FLAGS]
                     vlm_resolved += 1
 
+    store_consistency_suggestions(frames, second, args.iou, detector_source)
     for frame in frames:
         if not frame.get("reviewFlags"):
             frame.pop("reviewFlags", None)
@@ -2299,6 +2337,36 @@ def consistency_check(args: argparse.Namespace) -> None:
         f"Consistency check: {len(frames)} images, {disagreement} where the second detector disagrees, {vanished} with players suddenly missing"
         + (f"; VLM: {vlm_checked} checked, {vlm_issues} with issues, {vlm_resolved} cleared" if args.vlm else "") + f". {len(review)} images flagged for review.",
     ))
+    print(json.dumps(summary, ensure_ascii=False))
+
+
+def consistency_suggest(args: argparse.Namespace) -> None:
+    """Run only the second detector over the frames a consistency check already flagged and
+    store its suggestions, without changing any flag - for results of a check that ran
+    before suggestions were stored, or after labels were edited."""
+    project_root = Path(args.project).resolve()
+    document = require_project(project_root, args.language)
+    frames = [frame for frame in document.get("frames", []) if frame.get("reviewFlags") and not frame.get("heldOut")]
+    if not frames:
+        raise SystemExit(localized(args.language, "Keine markierten Bilder. Zuerst „Konsistenz prüfen“ ausführen.", "No flagged images. Run “Check consistency” first."))
+    tier = hardware_tier(getattr(args, "tier", None))
+    size = teacher_size(getattr(args, "teacher", None), tier)
+    emit(localized(args.language, f"Zweiter Detektor schaut {len(frames)} markierte Bilder an …", f"The second detector looks at {len(frames)} flagged images …"))
+    detector = model_instance(project_root, size, trained=False, language=args.language)
+    device = detect_device()
+    batch = training_profile("nano", device)["batch_size"] if device != "cpu" else 1
+    second = predict_boxes(detector, project_root, frames, ["player", "ball"], detection_category_map(["player", "ball"]), args.threshold, batch)
+    del detector
+    # The labels may have changed while the detector ran; only write suggestions into
+    # the current document, never an older copy of it.
+    current = require_project(project_root, args.language)
+    by_id = {frame.get("id"): frame for frame in current.get("frames", [])}
+    targets = [by_id[frame["id"]] for frame in frames if frame["id"] in by_id and by_id[frame["id"]].get("reviewFlags")]
+    count = store_consistency_suggestions(targets, second, args.iou, f"RF-DETR {size}")
+    current["updatedAt"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    atomic_json(project_file(project_root), current)
+    summary = {"checked": len(targets), "suggestions": count}
+    emit(localized(args.language, f"Vorschläge für {count} von {len(targets)} markierten Bildern gespeichert.", f"Suggestions stored for {count} of {len(targets)} flagged images."))
     print(json.dumps(summary, ensure_ascii=False))
 
 
@@ -5364,6 +5432,14 @@ def build_parser() -> argparse.ArgumentParser:
     consistency_parser.add_argument("--tier", choices=["auto", "strong", "medium", "weak"], default="auto")
     consistency_parser.add_argument("--language", choices=["de", "en", "es", "fr"], default="de")
     consistency_parser.set_defaults(func=consistency_check)
+    suggest_parser = commands.add_parser("consistency-suggest")
+    suggest_parser.add_argument("--project", required=True)
+    suggest_parser.add_argument("--iou", type=float, default=0.5)
+    suggest_parser.add_argument("--threshold", type=float, default=0.35)
+    suggest_parser.add_argument("--teacher", choices=["auto", "nano", "small", "medium", "large"], default="auto")
+    suggest_parser.add_argument("--tier", choices=["auto", "strong", "medium", "weak"], default="auto")
+    suggest_parser.add_argument("--language", choices=["de", "en", "es", "fr"], default="de")
+    suggest_parser.set_defaults(func=consistency_suggest)
 
     export_dataset_parser = commands.add_parser("export-dataset")
     export_dataset_parser.add_argument("--project", required=True)

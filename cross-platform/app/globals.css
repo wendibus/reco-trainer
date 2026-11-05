@@ -491,3 +491,19 @@ button:disabled[data-hint] { pointer-events:none; }
 .training-card.collapsed { max-height:none; padding:7px 14px; }
 #training-panel:not([hidden]) { margin-top:8px; }
 .annotation-box:focus-visible > rect:first-child { stroke-width:4; }
+
+.flagged-tools { display:flex; flex-direction:column; gap:6px; margin-bottom:8px; }
+.flagged-tools .secondary-button { width:100%; }
+.consistency-review { flex-wrap:wrap; align-items:flex-start; }
+.consistency-review-text { display:flex; flex-direction:column; gap:3px; flex:1 1 420px; min-width:0; }
+.consistency-review-text small { line-height:1.4; }
+.consistency-vlm { color:#4a5872; }
+.consistency-false-alarm { color:#8a5a12; }
+.consistency-no-detector { color:#657287; }
+.consistency-editing { color:#1d5fd6; font-weight:600; }
+.consistency-review-actions { display:flex; flex-wrap:wrap; gap:6px; align-items:center; }
+.consistency-delete.confirm { background:#c63b3b; color:#fff; border-color:#c63b3b; }
+.link-button { border:0; background:none; padding:0; color:var(--accent); text-decoration:underline; cursor:pointer; font:inherit; }
+.local-frame-canvas .suggest-remove { fill:rgba(220, 50, 50, .18); stroke:#e03b3b; stroke-width:3; stroke-dasharray:8 5; pointer-events:none; vector-effect:non-scaling-stroke; }
+.local-frame-canvas .suggest-add rect { fill:rgba(47, 174, 107, .12); stroke:#2fae6b; stroke-width:3; stroke-dasharray:8 5; pointer-events:none; vector-effect:non-scaling-stroke; }
+.local-frame-canvas .suggest-add text { fill:#2fae6b; font-size:16px; font-weight:700; pointer-events:none; paint-order:stroke; stroke:#fff; stroke-width:3px; }

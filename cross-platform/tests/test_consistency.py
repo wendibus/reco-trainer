@@ -124,6 +124,43 @@ class ConsistencyCheckTests(unittest.TestCase):
         self.assertEqual(state["frames"]["missing"]["reviewFlags"], ["detector-disagreement"])
         self.assertNotIn("reviewFlags", state["frames"]["agree"])
 
+    def test_flagged_frame_remembers_the_box_the_second_detector_would_add(self):
+        _summary, state = self.run_check(use_vlm=False)
+        suggestion = state["frames"]["missing"]["consistencySuggestion"]
+        self.assertEqual(len(suggestion["add"]), 1)
+        self.assertEqual(suggestion["add"][0]["category"], "player")
+        self.assertAlmostEqual(suggestion["add"][0]["x"], 100.0)
+        self.assertNotIn("consistencySuggestion", state["frames"]["agree"])
+
+    def test_suggest_fills_in_suggestions_without_changing_flags(self):
+        self.run_check(use_vlm=False)
+        document = json.loads((self.root / "project.json").read_text())
+        for frame in document["frames"]:
+            frame.pop("consistencySuggestion", None)
+        document["frames"][2]["reviewFlags"] = ["vlm-issue"]  # flagged, but the detector agrees
+        ml_worker.atomic_json(self.root / "project.json", document)
+        args = argparse.Namespace(project=str(self.root), iou=0.5, threshold=0.3, teacher="auto", tier="strong", language="en")
+        output = io.StringIO()
+        with mock.patch.object(ml_worker, "model_instance", lambda *_a, **_k: self.detector), \
+                mock.patch.object(ml_worker, "detect_device", lambda: "cpu"), \
+                contextlib.redirect_stdout(output), contextlib.redirect_stderr(io.StringIO()):
+            ml_worker.consistency_suggest(args)
+        summary = json.loads(output.getvalue().strip().splitlines()[-1])
+        frames = {frame["id"]: frame for frame in json.loads((self.root / "project.json").read_text())["frames"]}
+        self.assertEqual(summary, {"checked": 2, "suggestions": 1})
+        self.assertIn("consistencySuggestion", frames["missing"])
+        self.assertEqual(frames["missing"]["reviewFlags"], ["detector-disagreement"])
+        self.assertEqual(frames["vlm-bad"]["reviewFlags"], ["vlm-issue"])
+        self.assertNotIn("consistencySuggestion", frames["vlm-bad"])
+
+    def test_detector_additions_ignore_matched_boxes_and_compare_referees_as_people(self):
+        ours = [person(0), person(100, "referee")]
+        theirs = [{"category": "player", "x": 0.0, "y": 50.0, "width": 40.0, "height": 120.0, "confidence": .9},
+                  {"category": "player", "x": 100.0, "y": 50.0, "width": 40.0, "height": 120.0, "confidence": .8},
+                  {"category": "ball", "x": 200.0, "y": 60.0, "width": 10.0, "height": 10.0, "confidence": .6}]
+        additions = ml_worker.detector_additions(ours, theirs, 0.5)
+        self.assertEqual([box["category"] for box in additions], ["ball"])
+
     def test_vlm_clears_resolved_warnings_and_marks_hard_examples(self):
         summary, state = self.run_check(use_vlm=True, answers={"missing": {"missing": 0, "duplicates": 0}}, sample=1.0)
         # The VLM saw nothing wrong on "missing": warning cleared.

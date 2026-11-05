@@ -11,7 +11,7 @@ const text: Record<Language, {
   title: string; intro: string; iou: string; iouHint: string; vlm: string; vlmHint: string; vlmWeak: string; model: string; model9b: string;
   sample: string; sampleHint: string; download: (size: string) => string; downloaded: string; start: string; cancel: string;
   result: (checked: number, flagged: number) => string; details: (disagree: number, vanished: number) => string; vlmResult: (checked: number, issues: number, cleared: number) => string;
-  hard: (count: number) => string; open: (index: number) => string; none: string;
+  hard: (count: number) => string; open: (index: number) => string; none: string; stepThrough: string;
 }> = {
   de: {
     title: 'Konsistenz prüfen', intro: 'Ein zweiter Detektor und der zeitliche Verlauf suchen nach fehlenden, doppelten oder springenden Boxen. Auf Wunsch schaut sich ein lokales Sprach-Bild-Modell nur die auffälligen Bilder und eine Stichprobe an.',
@@ -22,7 +22,7 @@ const text: Record<Language, {
     download: (size) => `Beim ersten Mal werden etwa ${size} geladen (einmal pro Rechner).`, downloaded: 'Bereits geladen.', start: 'Prüfen', cancel: 'Abbrechen',
     result: (checked, flagged) => `${checked} Bilder geprüft, ${flagged} zur Prüfung markiert.`, details: (disagree, vanished) => `Zweiter Detektor uneinig: ${disagree} · plötzlich fehlende Spieler: ${vanished}`,
     vlmResult: (checked, issues, cleared) => `VLM: ${checked} angesehen, ${issues} beanstandet (Hard Examples), ${cleared} entwarnt.`, hard: (count) => `${count} Hard Examples insgesamt.`,
-    open: (index) => `Bild ${index}`, none: 'Keine Auffälligkeiten.',
+    open: (index) => `Bild ${index}`, none: 'Keine Auffälligkeiten.', stepThrough: 'Der Reihe nach prüfen',
   },
   en: {
     title: 'Check consistency', intro: 'A second detector and the timeline look for missing, duplicate or jumping boxes. Optionally, a local vision-language model looks at the suspicious images and a sample only.',
@@ -33,7 +33,7 @@ const text: Record<Language, {
     download: (size) => `About ${size} are downloaded the first time (once per computer).`, downloaded: 'Already downloaded.', start: 'Check', cancel: 'Cancel',
     result: (checked, flagged) => `${checked} images checked, ${flagged} flagged for review.`, details: (disagree, vanished) => `Second detector disagrees: ${disagree} · players suddenly missing: ${vanished}`,
     vlmResult: (checked, issues, cleared) => `VLM: ${checked} looked at, ${issues} with issues (hard examples), ${cleared} cleared.`, hard: (count) => `${count} hard examples in total.`,
-    open: (index) => `Image ${index}`, none: 'Nothing suspicious.',
+    open: (index) => `Image ${index}`, none: 'Nothing suspicious.', stepThrough: 'Review one by one',
   },
   es: {
     title: 'Comprobar coherencia', intro: 'Un segundo detector y la línea temporal buscan cuadros que faltan, duplicados o que saltan. Opcionalmente, un modelo de visión y lenguaje local revisa solo las imágenes sospechosas y una muestra.',
@@ -44,7 +44,7 @@ const text: Record<Language, {
     download: (size) => `La primera vez se descargan unos ${size} (una vez por equipo).`, downloaded: 'Ya descargado.', start: 'Comprobar', cancel: 'Cancelar',
     result: (checked, flagged) => `${checked} imágenes comprobadas, ${flagged} marcadas para revisar.`, details: (disagree, vanished) => `Segundo detector en desacuerdo: ${disagree} · jugadores que desaparecen: ${vanished}`,
     vlmResult: (checked, issues, cleared) => `VLM: ${checked} revisadas, ${issues} con problemas (ejemplos difíciles), ${cleared} descartadas.`, hard: (count) => `${count} ejemplos difíciles en total.`,
-    open: (index) => `Imagen ${index}`, none: 'Nada sospechoso.',
+    open: (index) => `Imagen ${index}`, none: 'Nada sospechoso.', stepThrough: 'Revisar una a una',
   },
   fr: {
     title: 'Vérifier la cohérence', intro: 'Un second détecteur et la chronologie cherchent des boîtes manquantes, en double ou qui sautent. En option, un modèle vision-langage local n’examine que les images suspectes et un échantillon.',
@@ -55,7 +55,7 @@ const text: Record<Language, {
     download: (size) => `Environ ${size} sont téléchargés la première fois (une fois par ordinateur).`, downloaded: 'Déjà téléchargé.', start: 'Vérifier', cancel: 'Annuler',
     result: (checked, flagged) => `${checked} images vérifiées, ${flagged} signalées pour vérification.`, details: (disagree, vanished) => `Second détecteur en désaccord : ${disagree} · joueurs disparus soudainement : ${vanished}`,
     vlmResult: (checked, issues, cleared) => `VLM : ${checked} examinées, ${issues} avec problèmes (exemples difficiles), ${cleared} levées.`, hard: (count) => `${count} exemples difficiles au total.`,
-    open: (index) => `Image ${index}`, none: 'Rien de suspect.',
+    open: (index) => `Image ${index}`, none: 'Rien de suspect.', stepThrough: 'Vérifier une par une',
   },
 };
 
@@ -96,6 +96,7 @@ export function ConsistencyResult({ job, language, onOpenFrame }: { job: Job; la
     <p>{t.details(result.detectorDisagreement ?? 0, result.playersVanished ?? 0)}</p>
     {(result.vlmChecked ?? 0) > 0 && <p>{t.vlmResult(result.vlmChecked ?? 0, result.vlmIssues ?? 0, result.vlmResolved ?? 0)}</p>}
     {(result.hardExamples ?? 0) > 0 && <p>{t.hard(result.hardExamples ?? 0)}</p>}
+    {review.length > 0 && <p><button data-hint={hintText[language].reviewFlagged} type="button" className="primary-button" onClick={() => onOpenFrame(review[0])}>⚠️ {t.stepThrough}</button></p>}
     {review.length ? <div className="export-held-list">{review.slice(0, 60).map((frameID, index) => <button data-hint={hintText[language].openFrame} type="button" key={frameID} className="tool-button" onClick={() => onOpenFrame(frameID)}>{t.open(index + 1)}</button>)}</div> : <p>{t.none}</p>}
   </div>;
 }

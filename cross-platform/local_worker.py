@@ -2340,6 +2340,9 @@ def ml_action(action: str, payload: dict) -> None:
                 args = ["consistency-check", "--project", str(root), "--iou", f"{iou:.2f}", "--sample", f"{sample:.2f}", "--tier", tier_argument(payload), "--language", language]
                 if payload.get("vlm"):
                     args += ["--vlm", "--vlm-model", "qwen3.5-9b-vlm" if payload.get("vlmModel") == "qwen3.5-9b-vlm" else "qwen3.5-4b-vlm"]
+            elif action == "consistency-suggest":
+                backup_project(root, "konsistenz-vorschlaege")
+                args = ["consistency-suggest", "--project", str(root), "--tier", tier_argument(payload), "--language", language]
             elif action == "refine-boxes":
                 backup_project(root, "boxen")
                 args = ["refine-boxes", "--project", str(root), "--language", language, "--tier", tier_argument(payload)]
@@ -2354,6 +2357,14 @@ def ml_action(action: str, payload: dict) -> None:
                 STATE.update(project=load_project(root), folder_empty=False, operation="ready", busy=False, progress=1.0, message=message)
                 return
             result = run_logged([str(executable), str(worker), *args])
+            if action == "consistency-suggest" and result:
+                STATE.update(project=load_project(root), operation="ready", busy=False, progress=1.0, message=localized(
+                    f"Vorschläge für {result.get('suggestions')} von {result.get('checked')} markierten Bildern berechnet.",
+                    f"Suggestions computed for {result.get('suggestions')} of {result.get('checked')} flagged images.",
+                    f"Sugerencias calculadas para {result.get('suggestions')} de {result.get('checked')} imágenes marcadas.",
+                    f"Suggestions calculées pour {result.get('suggestions')} images signalées sur {result.get('checked')}.",
+                ))
+                return
             if action == "consistency-check" and result:
                 STATE.update(result={"kind": "consistency", **result}, project=load_project(root), operation="ready", busy=False, progress=1.0, message=consistency_message(result))
                 return
@@ -2460,6 +2471,66 @@ def reveal_training_folder(export_name: str | None = None) -> None:
     subprocess.Popen([opener, str(target)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
+def clean_annotations(project: dict, annotations: list) -> list[dict]:
+    allowed = set(SPORT_CATEGORIES.get(project.get("sport"), []))
+    clean = []
+    for annotation in annotations:
+        if not isinstance(annotation, dict):
+            continue
+        category = str(annotation.get("category", ""))
+        if category not in allowed:
+            continue
+        clean.append({
+            "id": str(annotation.get("id") or uuid.uuid4()), "category": category,
+            "x": max(0.0, float(annotation.get("x", 0))), "y": max(0.0, float(annotation.get("y", 0))),
+            "width": max(1.0, float(annotation.get("width", 1))), "height": max(1.0, float(annotation.get("height", 1))),
+            "confidence": annotation.get("confidence"), "source": str(annotation.get("source", "manual")),
+        })
+    return clean
+
+
+CONSISTENCY_DECISIONS = {"accept", "reject", "edited"}
+
+
+def review_consistency_frame(payload: dict) -> None:
+    """One decision in the step-by-step review of consistency-check flags: "accept" stores
+    the suggested boxes the UI sends, "edited" keeps the boxes as corrected by hand, "reject"
+    keeps the boxes unchanged. In every case the frame's flags and suggestion are cleared and
+    the decision is recorded, so the frame leaves the review list. Deleting an image goes
+    through /api/remove-frame."""
+    root = STATE.project_root
+    project = STATE.project
+    if root is None or project is None:
+        raise RuntimeError(localized("Kein lokales Projekt geöffnet.", "No local project is open.", "No hay ningún proyecto local abierto.", "Aucun projet local n’est ouvert."))
+    if STATE.busy:
+        raise RuntimeError(localized(
+            "Bitte warten, bis der laufende Vorgang fertig ist.", "Please wait until the running operation has finished.",
+            "Espera a que termine la operación en curso.", "Veuillez attendre la fin de l’opération en cours.",
+        ))
+    decision = str(payload.get("decision", ""))
+    if decision not in CONSISTENCY_DECISIONS:
+        raise RuntimeError(localized("Unbekannte Entscheidung.", "Unknown decision.", "Decisión desconocida.", "Décision inconnue."))
+    frame_id = str(payload.get("frameId", ""))
+    frame = next((item for item in project.get("frames", []) if item.get("id") == frame_id), None)
+    if frame is None:
+        raise RuntimeError(localized("Frame wurde nicht gefunden.", "Frame was not found.", "No se encontró el fotograma.", "L’image est introuvable."))
+    annotations = payload.get("annotations")
+    changed = decision == "accept" and isinstance(annotations, list)
+    if changed:
+        backup_project(root, "konsistenz")
+        frame["annotations"] = clean_annotations(project, annotations)
+    flags = frame.pop("reviewFlags", None) or []
+    frame.pop("consistencySuggestion", None)
+    frame["consistencyReview"] = {"decision": decision, "flags": flags, "at": utc_now()}
+    project["updatedAt"] = utc_now()
+    atomic_json(root / "project.json", project)
+    remaining = sum(1 for item in project.get("frames", []) if item.get("reviewFlags"))
+    STATE.update(project=project, message=localized(
+        f"Entscheidung gespeichert. Noch {remaining} Bilder zu prüfen.", f"Decision saved. {remaining} images left to review.",
+        f"Decisión guardada. Quedan {remaining} imágenes por revisar.", f"Décision enregistrée. Encore {remaining} images à vérifier.",
+    ))
+
+
 def save_annotations(payload: dict) -> None:
     root = STATE.project_root
     project = STATE.project
@@ -2473,18 +2544,7 @@ def save_annotations(payload: dict) -> None:
     if frame is None:
         raise RuntimeError(localized("Frame wurde nicht gefunden.", "Frame was not found.", "No se encontró el fotograma.", "L’image est introuvable."))
     backup_project(root, "markierung")
-    allowed = set(SPORT_CATEGORIES.get(project.get("sport"), []))
-    clean = []
-    for annotation in annotations:
-        category = str(annotation.get("category", ""))
-        if category not in allowed:
-            continue
-        clean.append({
-            "id": str(annotation.get("id") or uuid.uuid4()), "category": category,
-            "x": max(0.0, float(annotation.get("x", 0))), "y": max(0.0, float(annotation.get("y", 0))),
-            "width": max(1.0, float(annotation.get("width", 1))), "height": max(1.0, float(annotation.get("height", 1))),
-            "confidence": annotation.get("confidence"), "source": str(annotation.get("source", "manual")),
-        })
+    clean = clean_annotations(project, annotations)
     frame["annotations"] = clean
     project["updatedAt"] = utc_now()
     atomic_json(root / "project.json", project)
@@ -2893,6 +2953,9 @@ class Handler(BaseHTTPRequestHandler):
                 video = simulation_video(payload)
                 job = JOBS.submit("simulate-ball-tracking", simulate_ball_tracking, video, payload)
                 self.json_response({"ok": True, "video": str(video), "job": job})
+            elif self.path == "/api/consistency-review":
+                review_consistency_frame(payload)
+                self.json_response({"ok": True, "status": STATE.snapshot()})
             elif self.path == "/api/annotations":
                 save_annotations(payload)
                 self.json_response({"ok": True, "status": STATE.snapshot()})
@@ -2935,7 +2998,7 @@ class Handler(BaseHTTPRequestHandler):
                     start_empty_project(STATE.selected_folder, STATE.project_root, str(payload.get("sport", "")))
                 job = JOBS.submit("import-labels", ml_action, "import-labels", {**payload, "source": str(label_folder)})
                 self.json_response({"ok": True, "folder": str(label_folder), "job": job})
-            elif self.path in {"/api/setup", "/api/autolabel", "/api/train", "/api/train-batch", "/api/hub-install", "/api/hub-share", "/api/export-coreml", "/api/export-onnx", "/api/refine-boxes", "/api/package-model", "/api/combine-models", "/api/benchmark", "/api/activate-model", "/api/rename-model", "/api/delete-model", "/api/download-models", "/api/export-dataset", "/api/consistency-check"}:
+            elif self.path in {"/api/setup", "/api/autolabel", "/api/train", "/api/train-batch", "/api/hub-install", "/api/hub-share", "/api/export-coreml", "/api/export-onnx", "/api/refine-boxes", "/api/package-model", "/api/combine-models", "/api/benchmark", "/api/activate-model", "/api/rename-model", "/api/delete-model", "/api/download-models", "/api/export-dataset", "/api/consistency-check", "/api/consistency-suggest"}:
                 action = self.path.removeprefix("/api/")
                 job = JOBS.submit(action, ml_action, action, payload, cancellable=action not in QUICK_ACTIONS)
                 self.json_response({"ok": True, "job": job})

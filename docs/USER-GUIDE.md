@@ -121,6 +121,17 @@ Reco Trainer flags certain candidate frames as worth reviewing first, using two 
 
 Flagged frames appear first in the queue with a warning icon and a short reason. This only ever changes review *order* — it never changes what gets trained on.
 
+### Reviewing the results of a consistency check
+
+**Check consistency** looks at already labelled images: a second detector, the timeline and optionally a local VLM. Every flagged image gets a ⚠️ in the image list. To work through them, click **Review N flagged images** above the list (or **Review one by one** in the result window); **Show flagged only** narrows the list. Below the image you then see the reason, the VLM's comment and a concrete suggestion:
+
+- **red dashed** boxes: measurable duplicates, two boxes of the same class overlapping by at least 60 %; the less certain one would be removed,
+- **green dashed** boxes: people or balls the second detector found that have no box yet.
+
+For each image choose **Accept suggestion**, **Fix by hand** (correct the boxes in the image, then **Fixed, next**), **Reject, keep boxes** or **Delete image** (asks once more). Every decision takes the image off the list and moves to the next one; **Skip** leaves it flagged. If the VLM reports duplicates but no two boxes overlap strongly, the panel says it is probably a false alarm — players overlap all the time in team sports.
+
+Checks run before 0.27 did not store the second detector's boxes. **Compute suggestions** runs only the second detector over the flagged images and stores what it would add, without changing any flag; on a few thousand images this takes a while and shares the GPU with any training that is running.
+
 ### More room for labeling and changing an existing class
 
 Use the collapse button above the training controls to hide training and model management below the image. The preview grows into the available space; click again to restore the controls. This preference stays saved on the computer. Training settings and models are preserved while collapsed.

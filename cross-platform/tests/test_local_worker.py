@@ -716,6 +716,56 @@ class SimulationSlotTests(unittest.TestCase):
             local_worker.STATE.update(project_root=None, project=None, error=None)
 
 
+class ConsistencyReviewTests(unittest.TestCase):
+    """Step-by-step review of frames flagged by the consistency check."""
+
+    def setUp(self):
+        self.temporary = tempfile.TemporaryDirectory()
+        self.root = Path(self.temporary.name)
+        box = {"id": "a", "category": "player", "x": 1, "y": 2, "width": 30, "height": 60, "source": "manual"}
+        self.project = {"sport": "basketball", "frames": [
+            {"id": "f1", "annotations": [box, {**box, "id": "b"}], "reviewFlags": ["vlm-issue"], "consistencySuggestion": {"add": []}, "vlmCheck": {"comment": "dup"}},
+            {"id": "f2", "annotations": [box], "reviewFlags": ["detector-disagreement"]},
+        ]}
+        local_worker.atomic_json(self.root / "project.json", self.project)
+        local_worker.STATE.update(project_root=self.root, project=self.project, busy=False, language="en")
+
+    def tearDown(self):
+        local_worker.STATE.update(project_root=None, project=None, busy=False, language="de")
+        self.temporary.cleanup()
+
+    def saved(self) -> dict:
+        return {frame["id"]: frame for frame in json.loads((self.root / "project.json").read_text())["frames"]}
+
+    def test_accept_stores_the_suggested_boxes_and_clears_the_flags(self):
+        local_worker.review_consistency_frame({"frameId": "f1", "decision": "accept", "annotations": [self.project["frames"][0]["annotations"][0], {"category": "ball", "x": 5, "y": 5, "width": 8, "height": 8, "source": "manual"}, {"category": "unicorn", "x": 0, "y": 0, "width": 1, "height": 1}]})
+        frame = self.saved()["f1"]
+        self.assertEqual([box["category"] for box in frame["annotations"]], ["player", "ball"])
+        self.assertNotIn("reviewFlags", frame)
+        self.assertNotIn("consistencySuggestion", frame)
+        self.assertEqual(frame["consistencyReview"]["decision"], "accept")
+        self.assertEqual(frame["consistencyReview"]["flags"], ["vlm-issue"])
+        self.assertEqual(frame["vlmCheck"], {"comment": "dup"})
+        self.assertIn("1 images left", local_worker.STATE.message)
+
+    def test_reject_and_edited_keep_the_boxes(self):
+        for frame_id, decision in (("f1", "reject"), ("f2", "edited")):
+            local_worker.review_consistency_frame({"frameId": frame_id, "decision": decision, "annotations": []})
+        saved = self.saved()
+        self.assertEqual(len(saved["f1"]["annotations"]), 2)
+        self.assertEqual(len(saved["f2"]["annotations"]), 1)
+        self.assertEqual(saved["f2"]["consistencyReview"]["decision"], "edited")
+        self.assertFalse(any("reviewFlags" in frame for frame in saved.values()))
+
+    def test_rejects_unknown_decisions_and_running_jobs(self):
+        with self.assertRaises(RuntimeError):
+            local_worker.review_consistency_frame({"frameId": "f1", "decision": "maybe"})
+        local_worker.STATE.update(busy=True)
+        with self.assertRaises(RuntimeError):
+            local_worker.review_consistency_frame({"frameId": "f1", "decision": "reject"})
+        self.assertIn("reviewFlags", self.saved()["f1"])
+
+
 class RunJsonTests(unittest.TestCase):
     """Regression coverage for a real report: the ball-tracking simulation failed
     with "Expecting ',' delimiter: line 1 column 6 (char 5)" because a library
