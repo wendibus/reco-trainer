@@ -3,9 +3,11 @@ import { hintText } from './hints';
 
 type Language = 'de' | 'en' | 'es' | 'fr';
 type SimulationFrame = { file: string; timestamp: number; width: number; height: number; ball: { x: number; y: number; confidence: number } | null };
-type Simulation = { id?: string; fps: number; frames: SimulationFrame[] };
+type Simulation = { id?: string; fps: number; frames: SimulationFrame[]; slot?: 'a' | 'b'; video?: string; model?: string; package?: string | null; threshold?: number };
 type TrackState = 'detected' | 'interpolated' | 'coasting' | 'lost';
 type Resolved = { state: TrackState; x: number | null; y: number | null };
+type Slot = 'a' | 'b';
+type LibraryModel = { packageID: string; displayName?: string; modelSize?: string; classes: string[]; sport?: string; isActive?: boolean };
 
 type Props = {
   language: Language;
@@ -16,14 +18,18 @@ type Props = {
   message?: string;
   error?: string | null;
   simulation?: Simulation | null;
+  simulationB?: Simulation | null;
+  models?: LibraryModel[];
+  modelSize?: string;
+  sport?: string;
   post: (path: string, payload?: Record<string, unknown>) => Promise<unknown>;
 };
 
 const text = {
-  de: { title: 'Balltracking-Simulation', intro: 'Kurzes Video wählen und die Ballerkennung des aktiven Modells Bild für Bild abspielen. Das Video wird nur lokal verarbeitet, nie gespeichert oder trainiert.', pick: 'Video auswählen', empty: 'Wähle oben ein kurzes Video aus, um zu starten.', lookahead: 'Wie weit direkt in die Zukunft schauen', frames: 'Bilder', detected: 'Erkannt', interpolated: 'Interpoliert', coasting: 'Gehalten', lost: 'Verloren' },
-  en: { title: 'Ball-tracking simulation', intro: "Pick a short clip and play back the active model's ball detection frame by frame. The video is only processed locally, never saved or trained on.", pick: 'Select video', empty: 'Select a short video above to get started.', lookahead: 'How far to look directly into the future', frames: 'frames', detected: 'Detected', interpolated: 'Interpolated', coasting: 'Held', lost: 'Lost' },
-  es: { title: 'Simulación de seguimiento del balón', intro: 'Elige un vídeo corto y reproduce la detección del balón del modelo activo cuadro a cuadro. El vídeo solo se procesa localmente, nunca se guarda ni se entrena con él.', pick: 'Seleccionar vídeo', empty: 'Selecciona un vídeo corto arriba para empezar.', lookahead: 'Hasta dónde mirar directamente al futuro', frames: 'imágenes', detected: 'Detectado', interpolated: 'Interpolado', coasting: 'Mantenido', lost: 'Perdido' },
-  fr: { title: 'Simulation de suivi du ballon', intro: 'Choisissez une courte vidéo et regardez la détection du ballon du modèle actif image par image. La vidéo n’est traitée que localement, jamais enregistrée ni utilisée pour l’entraînement.', pick: 'Sélectionner une vidéo', empty: 'Sélectionnez une courte vidéo ci-dessus pour commencer.', lookahead: 'Jusqu’où regarder directement dans le futur', frames: 'images', detected: 'Détecté', interpolated: 'Interpolé', coasting: 'Maintenu', lost: 'Perdu' },
+  de: { title: 'Balltracking-Simulation', intro: 'Kurzes Video wählen und die Ballerkennung Bild für Bild abspielen. Im Vergleich laufen zwei Videos mit zwei Modellen synchron nebeneinander. Videos werden nur lokal verarbeitet, nie gespeichert oder trainiert.', pick: 'Video auswählen', empty: 'Wähle oben ein kurzes Video aus, um zu starten.', emptySide: 'Noch keine Simulation auf dieser Seite.', lookahead: 'Wie weit direkt in die Zukunft schauen', frames: 'Bilder', detected: 'Erkannt', interpolated: 'Interpoliert', coasting: 'Gehalten', lost: 'Verloren', compare: 'Zwei Modelle vergleichen', single: 'Nur eine Simulation', model: 'Modell', activeModel: 'Aktives Modell', sameVideo: 'Gleiches Video wie A', tracked: 'Ball verfolgt', avgConfidence: 'Ø Sicherheit', onlyA: 'Nur A erkennt', onlyB: 'Nur B erkennt', both: 'Beide erkennen', sameClip: 'Gleiches Video: Unterschiede Bild für Bild', noBallModels: 'Keine Modelle mit Ball-Klasse in der Bibliothek; es läuft das aktive Modell.' },
+  en: { title: 'Ball-tracking simulation', intro: 'Pick a short clip and play back the ball detection frame by frame. In comparison mode, two videos with two models play in sync side by side. Videos are only processed locally, never saved or trained on.', pick: 'Select video', empty: 'Select a short video above to get started.', emptySide: 'No simulation on this side yet.', lookahead: 'How far to look directly into the future', frames: 'frames', detected: 'Detected', interpolated: 'Interpolated', coasting: 'Held', lost: 'Lost', compare: 'Compare two models', single: 'Single simulation', model: 'Model', activeModel: 'Active model', sameVideo: 'Same video as A', tracked: 'Ball tracked', avgConfidence: 'Avg. confidence', onlyA: 'Only A detects', onlyB: 'Only B detects', both: 'Both detect', sameClip: 'Same video: frame-by-frame differences', noBallModels: 'No models with a ball class in the library; the active model is used.' },
+  es: { title: 'Simulación de seguimiento del balón', intro: 'Elige un vídeo corto y reproduce la detección del balón cuadro a cuadro. En la comparación, dos vídeos con dos modelos se reproducen sincronizados uno al lado del otro. Los vídeos solo se procesan localmente, nunca se guardan ni se entrena con ellos.', pick: 'Seleccionar vídeo', empty: 'Selecciona un vídeo corto arriba para empezar.', emptySide: 'Aún no hay simulación en este lado.', lookahead: 'Hasta dónde mirar directamente al futuro', frames: 'imágenes', detected: 'Detectado', interpolated: 'Interpolado', coasting: 'Mantenido', lost: 'Perdido', compare: 'Comparar dos modelos', single: 'Una sola simulación', model: 'Modelo', activeModel: 'Modelo activo', sameVideo: 'Mismo vídeo que A', tracked: 'Balón seguido', avgConfidence: 'Confianza media', onlyA: 'Solo A detecta', onlyB: 'Solo B detecta', both: 'Ambos detectan', sameClip: 'Mismo vídeo: diferencias imagen por imagen', noBallModels: 'No hay modelos con clase de balón en la biblioteca; se usa el modelo activo.' },
+  fr: { title: 'Simulation de suivi du ballon', intro: 'Choisissez une courte vidéo et regardez la détection du ballon image par image. En mode comparaison, deux vidéos avec deux modèles sont lues côte à côte de façon synchronisée. Les vidéos ne sont traitées que localement, jamais enregistrées ni utilisées pour l’entraînement.', pick: 'Sélectionner une vidéo', empty: 'Sélectionnez une courte vidéo ci-dessus pour commencer.', emptySide: 'Pas encore de simulation de ce côté.', lookahead: 'Jusqu’où regarder directement dans le futur', frames: 'images', detected: 'Détecté', interpolated: 'Interpolé', coasting: 'Maintenu', lost: 'Perdu', compare: 'Comparer deux modèles', single: 'Une seule simulation', model: 'Modèle', activeModel: 'Modèle actif', sameVideo: 'Même vidéo que A', tracked: 'Ballon suivi', avgConfidence: 'Confiance moy.', onlyA: 'Seul A détecte', onlyB: 'Seul B détecte', both: 'Les deux détectent', sameClip: 'Même vidéo : différences image par image', noBallModels: 'Aucun modèle avec une classe ballon dans la bibliothèque ; le modèle actif est utilisé.' },
 } as const;
 
 /// Resolves raw per-frame ball detections into a track: real detections pass
@@ -61,36 +67,162 @@ function resolve(detections: Array<{ x: number; y: number } | null>, lookaheadFr
 
 const stateColor: Record<TrackState, string> = { detected: '#2fae6b', interpolated: '#e0902f', coasting: '#e0c22f', lost: 'transparent' };
 
+type Prepared = { simulation: Simulation; frames: SimulationFrame[]; fps: number; duration: number; resolved: Resolved[] };
+
+function useStableSimulation(simulation: Simulation | null | undefined) {
+  // The app re-fetches the worker status every ~900 ms, so the simulation prop is a
+  // fresh object on every poll even though nothing changed. Key everything off the
+  // simulation's id instead - depending on the object itself restarted the clip from
+  // frame 0 on every poll, so it never played past its first second.
+  const id = simulation?.id ?? (simulation ? `${simulation.frames.length}:${simulation.fps}` : '');
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  return { id, simulation: useMemo(() => simulation ?? null, [id]) };
+}
+
+function prepare(simulation: Simulation | null, lookaheadFrames: number): Prepared | null {
+  if (!simulation || !simulation.frames.length) return null;
+  const fps = simulation.fps || 12;
+  const detections = simulation.frames.map((frame) => frame.ball ? { x: frame.ball.x, y: frame.ball.y } : null);
+  return { simulation, frames: simulation.frames, fps, duration: simulation.frames.length / fps, resolved: resolve(detections, lookaheadFrames) };
+}
+
+/// Frame shown at a playback time; clips shorter than the longest one hold their last frame.
+function indexAt(prepared: Prepared, time: number) {
+  return Math.min(prepared.frames.length - 1, Math.max(0, Math.floor(time * prepared.fps + 1e-6)));
+}
+
+function summarize(prepared: Prepared) {
+  const counts: Record<TrackState, number> = { detected: 0, interpolated: 0, coasting: 0, lost: 0 };
+  for (const item of prepared.resolved) counts[item.state] += 1;
+  const confidences = prepared.frames.flatMap((frame) => frame.ball ? [frame.ball.confidence] : []);
+  const total = prepared.frames.length;
+  return {
+    counts, total,
+    tracked: total ? (total - counts.lost) / total : 0,
+    avgConfidence: confidences.length ? confidences.reduce((sum, value) => sum + value, 0) / confidences.length : null,
+  };
+}
+
+const percent = (value: number) => `${Math.round(value * 100)} %`;
+
 export default function BallTrackingPlayer(props: Props) {
   const t = text[props.language];
+  const h = hintText[props.language];
   const [lookaheadFrames, setLookaheadFrames] = useState(8);
-  const [currentIndex, setCurrentIndex] = useState(0);
+  const [time, setTime] = useState(0);
   const [isPlaying, setIsPlaying] = useState(true);
-  const containerRef = useRef<HTMLDivElement>(null);
-  const [containerSize, setContainerSize] = useState({ width: 640, height: 360 });
+  const a = useStableSimulation(props.simulation);
+  const b = useStableSimulation(props.simulationB);
+  const [compare, setCompare] = useState(Boolean(props.simulationB));
+  const [choice, setChoice] = useState<Record<Slot, string>>({ a: '', b: '' });
+  // The worker deletes a slot's old frames before extracting new ones, so that slot's
+  // player is hidden while it is being re-simulated instead of requesting missing images.
+  // Hidden until that slot reports a new simulation id, or the run fails.
+  const [running, setRunning] = useState<{ slot: Slot; previousId: string } | null>(null);
+  const ballClass = props.sport === 'hockey' ? 'puck' : 'ball';
+  const ballModels = useMemo(() => (props.models ?? []).filter((model) => model.classes?.includes(ballClass) && (!props.sport || !model.sport || model.sport === props.sport)), [props.models, props.sport, ballClass]);
 
-  // The app re-fetches the worker status every ~900 ms, so props.simulation is a
-  // fresh object on every poll even though nothing changed. Key everything off
-  // the simulation's id instead - depending on the object itself restarted the
-  // clip from frame 0 on every poll, so it never played past its first second.
-  const simulationId = props.simulation?.id ?? (props.simulation ? `${props.simulation.frames.length}:${props.simulation.fps}` : '');
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  const simulation = useMemo(() => props.simulation, [simulationId]);
-  const frames = useMemo(() => simulation?.frames ?? [], [simulation]);
-  const fps = simulation?.fps || 12;
-  const detections = useMemo(() => frames.map((frame) => frame.ball ? { x: frame.ball.x, y: frame.ball.y } : null), [frames]);
-  const resolved = useMemo(() => resolve(detections, lookaheadFrames), [detections, lookaheadFrames]);
+  const preparedA = useMemo(() => prepare(a.simulation, lookaheadFrames), [a.simulation, lookaheadFrames]);
+  const preparedB = useMemo(() => compare ? prepare(b.simulation, lookaheadFrames) : null, [compare, b.simulation, lookaheadFrames]);
+  const shown = [preparedA, preparedB].filter((item): item is Prepared => item !== null);
+  const duration = Math.max(0, ...shown.map((item) => item.duration));
+  const step = 1 / Math.max(1, ...shown.map((item) => item.fps));
 
   // Restart only when a different simulation arrives (reset while rendering, not in an effect).
-  const [shownSimulationId, setShownSimulationId] = useState(simulationId);
-  if (shownSimulationId !== simulationId) { setShownSimulationId(simulationId); setCurrentIndex(0); }
+  const shownKey = `${a.id}|${compare ? b.id : ''}`;
+  const [lastKey, setLastKey] = useState(shownKey);
+  if (lastKey !== shownKey) { setLastKey(shownKey); setTime(0); }
 
   useEffect(() => {
-    if (!isPlaying || frames.length < 2) return;
-    const id = setInterval(() => setCurrentIndex((index) => (index + 1) % frames.length), Math.max(30, 1000 / fps));
+    if (!isPlaying || duration <= step) return;
+    const id = setInterval(() => setTime((value) => (value + step >= duration - 1e-6 ? 0 : value + step)), Math.max(30, 1000 * step));
     return () => clearInterval(id);
-  }, [isPlaying, frames.length, fps]);
+  }, [isPlaying, duration, step]);
 
+  async function run(slot: Slot, sameVideo = false) {
+    setRunning({ slot, previousId: slot === 'a' ? a.id : b.id });
+    try {
+      await props.post('/api/simulate-ball-tracking', {
+        slot, sameVideo, model: props.modelSize || 'nano', package: choice[slot] || undefined, threshold: 0.25, language: props.language,
+      });
+    } catch { setRunning(null); /* surfaced via props.error from worker status */ }
+  }
+
+  const sameClip = Boolean(preparedA && preparedB && preparedA.simulation.video === preparedB.simulation.video && preparedA.frames.length === preparedB.frames.length);
+  const difference = useMemo(() => {
+    if (!sameClip || !preparedA || !preparedB) return null;
+    let onlyA = 0, onlyB = 0, both = 0;
+    preparedA.frames.forEach((frame, index) => {
+      const inA = Boolean(frame.ball), inB = Boolean(preparedB.frames[index]?.ball);
+      if (inA && inB) both += 1; else if (inA) onlyA += 1; else if (inB) onlyB += 1;
+    });
+    return { onlyA, onlyB, both };
+  }, [sameClip, preparedA, preparedB]);
+
+  const simulating = Boolean(props.busy && props.operation?.startsWith('simulation'));
+  const failed = !props.busy && (props.operation === 'error' || props.operation === 'cancelled');
+  const runningSlot = running && !failed && (running.slot === 'a' ? a.id : b.id) === running.previousId ? running.slot : null;
+  const maxFps = Math.max(12, ...shown.map((item) => item.fps));
+  const lookaheadSeconds = (lookaheadFrames / maxFps).toFixed(1);
+
+  const modelPicker = (slot: Slot) => compare && <label className="ball-tracking-model" data-hint={h.simulationModel}>
+    <span>{t.model}</span>
+    <select value={choice[slot]} disabled={props.busy} onChange={(event) => setChoice((current) => ({ ...current, [slot]: event.target.value }))}>
+      <option value="">{t.activeModel}</option>
+      {ballModels.map((model) => <option key={model.packageID} value={model.packageID}>{model.displayName || model.packageID}{model.modelSize ? ` · ${model.modelSize}` : ''}{model.isActive ? ' ●' : ''}</option>)}
+    </select>
+  </label>;
+
+  return <section className="ball-tracking-workspace">
+    <div className="benchmark-heading"><div><span className="benchmark-kicker">◆ SIMULATION</span><h2>{t.title}</h2><p>{t.intro}</p></div>
+      <button data-hint={h.compareModels} type="button" className={compare ? 'secondary-button active-view' : 'secondary-button'} onClick={() => setCompare((value) => !value)}>{compare ? t.single : `⇆ ${t.compare}`}</button>
+    </div>
+    {compare && !ballModels.length && <div className="ball-tracking-note">{t.noBallModels}</div>}
+    <div className="ball-tracking-controls">
+      {!compare && <button data-hint={h.pickClip} type="button" className="primary-button" onClick={() => void run('a')} disabled={props.busy}>{t.pick}</button>}
+      {simulating && <div className="ball-tracking-progress"><div className="benchmark-progress"><span style={{ width: `${Math.max(props.progress, .02) * 100}%` }} /></div><small>{props.message} · {Math.round(props.progress * 100)} %</small></div>}
+    </div>
+    {props.error && <div className="benchmark-error">{props.error}</div>}
+    {!compare && !preparedA ? <div className="benchmark-empty">{t.empty}</div> : <>
+      <div className={compare ? 'ball-tracking-sides' : 'ball-tracking-sides single'}>
+        {(compare ? (['a', 'b'] as Slot[]) : (['a'] as Slot[])).map((slot) => {
+          const prepared = runningSlot === slot ? null : slot === 'a' ? preparedA : preparedB;
+          return <div className="ball-tracking-side" key={slot}>
+            {compare && <div className="ball-tracking-side-controls">
+              <strong className="ball-tracking-slot">{slot.toUpperCase()}</strong>
+              {modelPicker(slot)}
+              <button data-hint={h.pickClip} type="button" className="primary-button" onClick={() => void run(slot)} disabled={props.busy}>{t.pick}</button>
+              {slot === 'b' && <button data-hint={h.sameVideo} type="button" className="secondary-button" onClick={() => void run('b', true)} disabled={props.busy || !preparedA}>{t.sameVideo}</button>}
+            </div>}
+            {runningSlot === slot ? <div className="benchmark-empty ball-tracking-side-empty">{simulating ? props.message : '…'}</div> : prepared ? <SimulationStage prepared={prepared} index={indexAt(prepared, time)} api={props.api} slot={slot} /> : <div className="benchmark-empty ball-tracking-side-empty">{t.emptySide}</div>}
+            {prepared && <SideSummary prepared={prepared} t={t} />}
+          </div>;
+        })}
+      </div>
+      {difference && <div className="ball-tracking-difference"><span>{t.sameClip}</span><b>{t.both}: {difference.both}</b><b>{t.onlyA}: {difference.onlyA}</b><b>{t.onlyB}: {difference.onlyB}</b></div>}
+      <div className="ball-tracking-legend">
+        <span><i style={{ background: stateColor.detected }} />{t.detected}</span>
+        <span><i style={{ borderColor: stateColor.interpolated }} />{t.interpolated}</span>
+        <span><i style={{ borderColor: stateColor.coasting }} />{t.coasting}</span>
+        <span><i className="lost" />{t.lost}</span>
+      </div>
+      {shown.length > 0 && <div className="ball-tracking-transport">
+        <button data-hint={h.playPause} type="button" className="secondary-button" onClick={() => setIsPlaying((value) => !value)}>{isPlaying ? '⏸' : '▶'}</button>
+        <input type="range" min={0} max={Math.max(0, duration - step)} step={step} value={Math.min(time, Math.max(0, duration - step))} onChange={(event) => setTime(Number(event.target.value))} />
+        <span className="ball-tracking-frame-count">{time.toFixed(1)} / {duration.toFixed(1)} s</span>
+      </div>}
+      <label className="ball-tracking-lookahead">
+        <span>{t.lookahead}</span>
+        <input type="range" min={0} max={Math.max(1, Math.round(maxFps * 5))} value={lookaheadFrames} onChange={(event) => setLookaheadFrames(Number(event.target.value))} />
+        <strong>{lookaheadSeconds}s ({lookaheadFrames} {t.frames})</strong>
+      </label>
+    </>}
+  </section>;
+}
+
+function SimulationStage({ prepared, index, api, slot }: { prepared: Prepared; index: number; api: string; slot: Slot }) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [containerSize, setContainerSize] = useState({ width: 640, height: 360 });
   useEffect(() => {
     const node = containerRef.current;
     if (!node) return;
@@ -101,57 +233,40 @@ export default function BallTrackingPlayer(props: Props) {
     observer.observe(node);
     return () => observer.disconnect();
   }, []);
-
-  async function pick() {
-    try { await props.post('/api/simulate-ball-tracking', { model: 'nano', threshold: 0.25, language: props.language }); }
-    catch { /* surfaced via props.error from worker status */ }
-  }
-
-  const frame = frames[currentIndex];
-  const position = resolved[currentIndex];
+  const frame = prepared.frames[index];
+  const position = prepared.resolved[index];
   const fitted = frame ? fitRect(frame.width, frame.height, containerSize.width, containerSize.height) : null;
-  const lookaheadSeconds = fps > 0 ? (lookaheadFrames / fps).toFixed(1) : '0.0';
-
-  return <section className="ball-tracking-workspace">
-    <div className="benchmark-heading"><div><span className="benchmark-kicker">◆ SIMULATION</span><h2>{t.title}</h2><p>{t.intro}</p></div></div>
-    <div className="ball-tracking-controls">
-      <button data-hint={hintText[props.language].pickClip} type="button" className="primary-button" onClick={() => void pick()} disabled={props.busy}>{t.pick}</button>
-      {props.busy && props.operation?.startsWith('simulation') && <div className="ball-tracking-progress"><div className="benchmark-progress"><span style={{ width: `${Math.max(props.progress, .02) * 100}%` }} /></div><small>{props.message} · {Math.round(props.progress * 100)} %</small></div>}
-    </div>
-    {props.error && <div className="benchmark-error">{props.error}</div>}
-    {!frames.length ? <div className="benchmark-empty">{t.empty}</div> : <>
-      <div className="ball-tracking-stage" ref={containerRef}>
-        {frame && fitted && <>
-          <img src={`${props.api}/api/simulation-frame?file=${encodeURIComponent(frame.file)}`} alt="" style={{ position: 'absolute', left: fitted.x, top: fitted.y, width: fitted.width, height: fitted.height }} />
-          {position?.x != null && position.y != null && position.state !== 'lost' && <span
-            className={`ball-marker ball-marker-${position.state}`}
-            style={{
-              left: fitted.x + (position.x / frame.width) * fitted.width,
-              top: fitted.y + (position.y / frame.height) * fitted.height,
-              borderColor: stateColor[position.state],
-              background: position.state === 'detected' ? stateColor.detected : 'transparent',
-            }}
-          />}
-        </>}
-      </div>
-      <div className="ball-tracking-legend">
-        <span><i style={{ background: stateColor.detected }} />{t.detected}</span>
-        <span><i style={{ borderColor: stateColor.interpolated }} />{t.interpolated}</span>
-        <span><i style={{ borderColor: stateColor.coasting }} />{t.coasting}</span>
-        <span><i className="lost" />{t.lost}</span>
-      </div>
-      <div className="ball-tracking-transport">
-        <button data-hint={hintText[props.language].playPause} type="button" className="secondary-button" onClick={() => setIsPlaying((value) => !value)}>{isPlaying ? '⏸' : '▶'}</button>
-        <input type="range" min={0} max={Math.max(0, frames.length - 1)} value={currentIndex} onChange={(event) => setCurrentIndex(Number(event.target.value))} />
-        <span className="ball-tracking-frame-count">{currentIndex + 1} / {frames.length}</span>
-      </div>
-      <label className="ball-tracking-lookahead">
-        <span>{t.lookahead}</span>
-        <input type="range" min={0} max={Math.max(1, Math.round(fps * 5))} value={lookaheadFrames} onChange={(event) => setLookaheadFrames(Number(event.target.value))} />
-        <strong>{lookaheadSeconds}s ({lookaheadFrames} {t.frames})</strong>
-      </label>
+  return <div className="ball-tracking-stage" ref={containerRef}>
+    {frame && fitted && <>
+      <img src={`${api}/api/simulation-frame?slot=${slot}&file=${encodeURIComponent(frame.file)}&v=${encodeURIComponent(prepared.simulation.id ?? '')}`} alt="" style={{ position: 'absolute', left: fitted.x, top: fitted.y, width: fitted.width, height: fitted.height }} />
+      {position?.x != null && position.y != null && position.state !== 'lost' && <span
+        className={`ball-marker ball-marker-${position.state}`}
+        style={{
+          left: fitted.x + (position.x / frame.width) * fitted.width,
+          top: fitted.y + (position.y / frame.height) * fitted.height,
+          borderColor: stateColor[position.state],
+          background: position.state === 'detected' ? stateColor.detected : 'transparent',
+        }}
+      />}
+      <span className="ball-tracking-frame-badge">{index + 1} / {prepared.frames.length}</span>
     </>}
-  </section>;
+  </div>;
+}
+
+function SideSummary({ prepared, t }: { prepared: Prepared; t: (typeof text)[Language] }) {
+  const summary = useMemo(() => summarize(prepared), [prepared]);
+  const share = (state: TrackState) => percent(summary.total ? summary.counts[state] / summary.total : 0);
+  return <div className="ball-tracking-summary">
+    <div className="ball-tracking-summary-title"><b>{prepared.simulation.model || '—'}</b>{prepared.simulation.video && <small>{prepared.simulation.video}</small>}</div>
+    <div className="ball-tracking-summary-stats">
+      <span><b>{percent(summary.tracked)}</b>{t.tracked}</span>
+      <span><b>{share('detected')}</b>{t.detected}</span>
+      <span><b>{share('interpolated')}</b>{t.interpolated}</span>
+      <span><b>{share('coasting')}</b>{t.coasting}</span>
+      <span><b>{share('lost')}</b>{t.lost}</span>
+      <span><b>{summary.avgConfidence == null ? '—' : percent(summary.avgConfidence)}</b>{t.avgConfidence}</span>
+    </div>
+  </div>;
 }
 
 function fitRect(imageWidth: number, imageHeight: number, containerWidth: number, containerHeight: number) {

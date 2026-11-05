@@ -298,6 +298,11 @@ class LocalState:
         self.busy = False
         self.error: str | None = None
         self.simulation: dict | None = None
+        # Second simulation for the side-by-side model comparison (slot "b").
+        self.simulation_b: dict | None = None
+        # Source video per simulation slot, kept out of the status so "same video
+        # as A" can re-run without another file dialog.
+        self.simulation_videos: dict[str, Path] = {}
         # Extraction progress for the progress dialog: video n of m, frames done/target, start time.
         self.detail: dict | None = None
         # Multi-step jobs: {"index": 2, "count": 5, "label": "..."} ("Step 2/5: ...").
@@ -365,6 +370,7 @@ class LocalState:
                 "frames": frames,
                 "log": "\n".join(self.log[-80:]),
                 "simulation": self.simulation,
+                "simulationB": self.simulation_b,
                 "detail": self.detail,
                 "stage": self.stage,
             }
@@ -1452,6 +1458,32 @@ def expand_dataset(folder: Path, payload: dict, held_out: bool = False) -> None:
         STATE.update(operation="error", busy=False, detail=None, error=str(error), message=localized("Datensatzerweiterung fehlgeschlagen.", "Dataset expansion failed.", "La ampliación del conjunto de datos falló.", "L’extension du jeu de données a échoué."))
 
 
+SIMULATION_SLOTS = {"a": "simulation", "b": "simulation-b"}
+
+
+def simulation_slot(payload: dict) -> str:
+    return "b" if str(payload.get("slot", "a")).lower() == "b" else "a"
+
+
+def simulation_frames_dir(root: Path, slot: str) -> Path:
+    return root / ".runtime" / SIMULATION_SLOTS.get(slot, "simulation")
+
+
+def simulation_video(payload: dict) -> Path:
+    """The clip for a simulation run: the one slot A used when slot B asks for the
+    same video (so two models can be compared on identical frames), otherwise a
+    file dialog."""
+    if simulation_slot(payload) == "b" and payload.get("sameVideo"):
+        video = STATE.simulation_videos.get("a")
+        if video is None or not video.is_file():
+            raise RuntimeError(localized(
+                "Zuerst links (A) ein Video simulieren.", "Simulate a video on the left (A) first.",
+                "Primero simula un vídeo a la izquierda (A).", "Simulez d’abord une vidéo à gauche (A).",
+            ))
+        return video
+    return select_video_file()
+
+
 def simulate_ball_tracking(video: Path, payload: dict) -> None:
     """Extract a short clip at near-native frame rate into a scratch directory
     (never added to project.json - this is a read-only diagnostic, not data
@@ -1472,6 +1504,10 @@ def simulate_ball_tracking(video: Path, payload: dict) -> None:
         if language not in {"de", "en", "es", "fr"}:
             language = "de"
         threshold = min(0.95, max(0.01, float(payload.get("threshold", 0.25))))
+        slot = simulation_slot(payload)
+        package = str(payload.get("package") or "").strip()
+        if package and (Path(package).name != package or package in {".", ".."}):
+            raise RuntimeError(localized("Ungültige Modell-ID.", "Invalid model ID.", "ID de modelo no válido.", "ID de modèle invalide."))
         venv_python = venv_python_path(ml_venv(root))
         if not venv_python.is_file():
             raise RuntimeError(localized("ML-Umgebung fehlt. Zuerst „ML einrichten“ anklicken.", "The ML environment is missing. Click “Set up ML” first.", "Falta el entorno de ML. Primero haz clic en “Configurar ML”.", "L’environnement ML est manquant. Cliquez d’abord sur « Configurer le ML »."))
@@ -1481,7 +1517,7 @@ def simulate_ball_tracking(video: Path, payload: dict) -> None:
         apple_extractor = native_frame_extractor(root) if not ffmpeg or not shutil.which("ffprobe") else None
         duration, width, height = media_info(video, apple_extractor)
         target_count = min(300, max(1, round(duration * 12)))
-        frames_dir = root / ".runtime" / "simulation"
+        frames_dir = simulation_frames_dir(root, slot)
         if frames_dir.exists():
             shutil.rmtree(frames_dir)
         frames_dir.mkdir(parents=True, exist_ok=True)
@@ -1511,6 +1547,7 @@ def simulate_ball_tracking(video: Path, payload: dict) -> None:
             str(venv_python), str(worker), "simulate-ball-tracking",
             "--project", str(root), "--frames-dir", str(frames_dir),
             "--model", model, "--threshold", str(threshold), "--language", language,
+            *(["--package", package] if package else []),
         ], on_progress=lambda done, total: STATE.update(
             progress=0.4 + 0.58 * done / max(total, 1),
             message=localized(f"Ballerkennung läuft … {done}/{total}", f"Ball detection running … {done}/{total}", f"Detección del balón en curso … {done}/{total}", f"Détection du ballon en cours … {done}/{total}"),
@@ -1525,8 +1562,14 @@ def simulate_ball_tracking(video: Path, payload: dict) -> None:
             }
             for index, item in enumerate(detections.get("frames", []))
         ]
+        STATE.simulation_videos[slot] = video
+        result = {
+            "id": str(time.time_ns()), "fps": rate, "frames": frames, "slot": slot,
+            "video": video.name, "model": detections.get("model") or model, "package": package or None,
+            "threshold": threshold,
+        }
         STATE.update(
-            simulation={"id": str(time.time_ns()), "fps": rate, "frames": frames},
+            **({"simulation_b": result} if slot == "b" else {"simulation": result}),
             operation="ready", busy=False, progress=1.0,
             message=localized(f"{len(frames)} Bilder simuliert.", f"{len(frames)} images simulated.", f"{len(frames)} imágenes simuladas.", f"{len(frames)} images simulées."),
         )
@@ -2664,7 +2707,8 @@ class Handler(BaseHTTPRequestHandler):
             if root is None or not file_name:
                 self.send_error(HTTPStatus.NOT_FOUND)
                 return
-            frames_dir = (root / ".runtime" / "simulation").resolve()
+            slot = "b" if (parse_qs(route.query).get("slot") or ["a"])[0] == "b" else "a"
+            frames_dir = simulation_frames_dir(root, slot).resolve()
             target = (frames_dir / file_name).resolve()
             if frames_dir not in target.parents or not target.is_file():
                 self.send_error(HTTPStatus.NOT_FOUND)
@@ -2846,7 +2890,7 @@ class Handler(BaseHTTPRequestHandler):
                 job = JOBS.submit("independent-validation", expand_dataset, folder, payload, held_out=True)
                 self.json_response({"ok": True, "folder": str(folder), "job": job})
             elif self.path == "/api/simulate-ball-tracking":
-                video = select_video_file()
+                video = simulation_video(payload)
                 job = JOBS.submit("simulate-ball-tracking", simulate_ball_tracking, video, payload)
                 self.json_response({"ok": True, "video": str(video), "job": job})
             elif self.path == "/api/annotations":

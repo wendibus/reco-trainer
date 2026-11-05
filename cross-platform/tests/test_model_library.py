@@ -1388,6 +1388,82 @@ class SimulateBallTrackingTests(unittest.TestCase):
                 ml_worker.simulate_ball_tracking(args)
 
 
+class SimulatePackageTests(unittest.TestCase):
+    """The tracking-simulation comparison runs a chosen library package instead of the
+    active model, without changing which model is active."""
+
+    class _Detections:
+        def __init__(self, names, boxes, confidences):
+            self.data = {"class_name": names}
+            self.xyxy = boxes
+            self.class_id = [0] * len(names)
+            self.confidence = confidences
+
+    def _package(self, root: Path, package_id: str, classes: list[str]) -> Path:
+        package_dir = root / "models" / "library" / package_id
+        (package_dir / "weights").mkdir(parents=True)
+        (package_dir / "weights" / "model.pth").write_bytes(b"weights")
+        ml_worker.atomic_json(package_dir / "manifest.json", {
+            "packageID": package_id, "displayName": f"Model {package_id}", "sport": "basketball",
+            "modelSize": "small", "classes": classes, "weights": {"file": "weights/model.pth"},
+        })
+        return package_dir
+
+    def _run(self, root: Path, frames_dir: Path, package: str, loaded: list):
+        class FakeModel:
+            def __init__(self, **kwargs): loaded.append(kwargs)
+            def predict(self, paths, threshold):
+                return [SimulatePackageTests._Detections(["ball"], [[0.0, 0.0, 4.0, 8.0]], [.7]) for _ in paths]
+
+        originals = (ml_worker.import_model_class, ml_worker.detect_device, ml_worker.verify_weights_pickle_safety)
+        try:
+            ml_worker.import_model_class = lambda *_: FakeModel
+            ml_worker.detect_device = lambda: "cpu"
+            ml_worker.verify_weights_pickle_safety = lambda *_: None
+            args = type("Args", (), {
+                "project": str(root), "frames_dir": str(frames_dir), "model": "nano",
+                "threshold": 0.25, "language": "en", "package": package,
+            })()
+            buffer = io.StringIO()
+            with contextlib.redirect_stdout(buffer):
+                ml_worker.simulate_ball_tracking(args)
+            return json.loads(buffer.getvalue())
+        finally:
+            ml_worker.import_model_class, ml_worker.detect_device, ml_worker.verify_weights_pickle_safety = originals
+
+    def _project(self, temporary: str) -> tuple[Path, Path]:
+        root = Path(temporary) / "project"
+        ml_worker.atomic_json(root / "project.json", {"sport": "basketball", "frames": []})
+        frames_dir = Path(temporary) / "frames"
+        frames_dir.mkdir()
+        (frames_dir / "one.jpg").write_bytes(b"fake")
+        return root, frames_dir
+
+    def test_runs_the_chosen_package_and_reports_its_name(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root, frames_dir = self._project(temporary)
+            package_dir = self._package(root, "pkg-b", ["ball", "player"])
+            loaded: list = []
+            payload = self._run(root, frames_dir, "pkg-b", loaded)
+            self.assertEqual(payload["model"], "Model pkg-b")
+            self.assertEqual(Path(loaded[0]["pretrain_weights"]), (package_dir / "weights" / "model.pth").resolve())
+            self.assertAlmostEqual(payload["frames"][0]["ball"]["x"], 2.0)
+            self.assertFalse((root / "models" / "active.json").exists())
+
+    def test_rejects_a_package_without_a_ball_class(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root, frames_dir = self._project(temporary)
+            self._package(root, "players-only", ["player"])
+            with self.assertRaises(SystemExit):
+                self._run(root, frames_dir, "players-only", [])
+
+    def test_rejects_a_package_outside_the_library(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root, frames_dir = self._project(temporary)
+            with self.assertRaises(SystemExit):
+                self._run(root, frames_dir, "../../elsewhere", [])
+
+
 class ComputeDisagreementTests(unittest.TestCase):
     """compute_disagreement() is the pure IoU-matching core of the
     ensemble-disagreement review-priority signal (flag_ensemble_disagreement)."""

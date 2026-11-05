@@ -1028,10 +1028,16 @@ def simulate_ball_tracking(args: argparse.Namespace) -> None:
     global emit
     original_emit = emit
     emit = lambda _message: None
+    package_id = str(getattr(args, "package", "") or "").strip()
+    package_classes: set[str] | None = None
+    model_label = ""
     try:
-        active_manifest = active_model_manifest(project_root, args.model)
+        active_manifest = None if package_id else active_model_manifest(project_root, args.model)
         ensemble = (active_manifest or {}).get("ensemble") if active_manifest else None
-        if ensemble:
+        model_label = str((active_manifest or {}).get("displayName") or (active_manifest or {}).get("packageID") or f"RF-DETR {args.model}")
+        if package_id:
+            model, model_size, package_classes, model_label = simulation_package_model(project_root, package_id, ball_category, args.language)
+        elif ensemble:
             package_dir = (project_root / "models" / "library" / str(active_manifest["packageID"])).resolve()
             member = next((item for item in ensemble.get("members", []) if ball_category in set(item.get("categories", []))), None)
             if member is None:
@@ -1066,7 +1072,9 @@ def simulate_ball_tracking(args: argparse.Namespace) -> None:
                     class_id = int(detections.class_id[index]) if getattr(detections, "class_id", None) is not None else None
                     detected_name = "sports ball" if class_id == 32 else ""
                 if category_map.get(detected_name) != ball_category:
-                    continue
+                    class_id = int(detections.class_id[index]) if getattr(detections, "class_id", None) is not None else None
+                    if package_classes is None or benchmark_detection_category(detected_name, class_id, sport, package_classes) != ball_category:
+                        continue
                 confidence = float(detections.confidence[index])
                 if best is not None and confidence <= best["confidence"]:
                     continue
@@ -1076,7 +1084,41 @@ def simulate_ball_tracking(args: argparse.Namespace) -> None:
         # stderr, not stdout: stdout must stay exactly one JSON blob (see docstring).
         print(f"RECO_PROGRESS {len(results)} {len(image_paths)}", file=sys.stderr, flush=True)
 
-    print(json.dumps({"frames": results}, ensure_ascii=False))
+    print(json.dumps({"frames": results, "model": model_label}, ensure_ascii=False))
+
+
+def simulation_package_model(project_root: Path, package_id: str, ball_category: str, language: str) -> tuple[Any, str, set[str], str]:
+    """Load one library package (RF-DETR, imported ONNX YOLO or a combined model's
+    ball member) for the tracking simulation, so two simulations can compare two
+    models without changing which model is active. Returns (model, size used for the
+    batch profile, the package's classes, display name)."""
+    library_root = (project_root / "models" / "library").resolve()
+    package_dir = (library_root / package_id).resolve()
+    manifest_path = package_dir / "manifest.json"
+    if library_root not in package_dir.parents or not manifest_path.is_file():
+        raise SystemExit(localized(language, f"Modell nicht in der Bibliothek gefunden: {package_id}", f"Model not found in the library: {package_id}"))
+    manifest = load_json(manifest_path)
+    label = str(manifest.get("displayName") or manifest.get("packageID") or package_id)
+    classes = {str(item) for item in manifest.get("classes", [])}
+    if ball_category not in classes:
+        raise SystemExit(localized(language, f"„{label}“ erkennt keine Klasse „{ball_category}“.", f"“{label}” does not detect the class “{ball_category}”."))
+    ensemble = manifest.get("ensemble")
+    if ensemble:
+        member = next((item for item in ensemble.get("members", []) if ball_category in set(item.get("categories", []))), None)
+        if member is None:
+            raise SystemExit(localized(language, f"Kein Modell in „{label}“ kennt „{ball_category}“.", f"No model in “{label}” knows “{ball_category}”."))
+        return ensemble_member_model(package_dir, member, language), str(member["modelSize"]), classes, label
+    if is_onnx_manifest(manifest):
+        return load_onnx_package_model(package_dir, manifest, language), "nano", classes, label
+    size = str(manifest.get("modelSize") or "")
+    if size not in MODEL_CLASSES:
+        raise SystemExit(localized(language, f"Unbekannte Modellgröße in „{label}“.", f"Unknown model size in “{label}”."))
+    weight_path = (package_dir / "weights" / Path(str(manifest.get("weights", {}).get("file", ""))).name).resolve()
+    if package_dir not in weight_path.parents or not weight_path.is_file():
+        raise SystemExit(localized(language, f"Gewichtsdatei fehlt: {label}", f"Weights file is missing: {label}"))
+    model_class = import_model_class(size, language)
+    verify_weights_pickle_safety(weight_path, language, package_id)
+    return model_class(pretrain_weights=str(weight_path), device=detect_device()), size, classes, label
 
 
 def frame_has_category(frame: dict[str, Any], target_category: str) -> bool:
@@ -5277,6 +5319,7 @@ def build_parser() -> argparse.ArgumentParser:
     simulate_parser.add_argument("--frames-dir", required=True)
     simulate_parser.add_argument("--model", choices=MODEL_CLASSES, default="nano")
     simulate_parser.add_argument("--threshold", type=float, default=0.25)
+    simulate_parser.add_argument("--package", default="", help="library package ID to use instead of the active model")
     simulate_parser.add_argument("--language", choices=["de", "en", "es", "fr"], default="de")
     simulate_parser.set_defaults(func=simulate_ball_tracking)
 

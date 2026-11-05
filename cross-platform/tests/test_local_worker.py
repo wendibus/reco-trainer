@@ -637,6 +637,85 @@ class RunLoggedEncodingTests(unittest.TestCase):
         self.assertEqual(captured.get("env", {}).get("PYTHONIOENCODING"), "utf-8")
 
 
+class SimulationSlotTests(unittest.TestCase):
+    """Two simulation slots (A, B) for the side-by-side model comparison."""
+
+    def setUp(self):
+        local_worker.STATE.update(simulation_videos={}, simulation=None, simulation_b=None, language="en")
+
+    def tearDown(self):
+        local_worker.STATE.update(simulation_videos={}, language="de")
+
+    def test_each_slot_has_its_own_frames_directory(self):
+        root = Path("/project")
+        self.assertEqual(local_worker.simulation_frames_dir(root, "a"), root / ".runtime" / "simulation")
+        self.assertEqual(local_worker.simulation_frames_dir(root, "b"), root / ".runtime" / "simulation-b")
+        self.assertEqual(local_worker.simulation_slot({"slot": "B"}), "b")
+        self.assertEqual(local_worker.simulation_slot({"slot": "x"}), "a")
+
+    def test_same_video_reuses_slot_a_without_a_dialog(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            video = Path(temporary) / "clip.mp4"
+            video.write_bytes(b"video")
+            local_worker.STATE.simulation_videos["a"] = video
+            original = local_worker.select_video_file
+            local_worker.select_video_file = lambda: self.fail("no dialog expected")
+            try:
+                self.assertEqual(local_worker.simulation_video({"slot": "b", "sameVideo": True}), video)
+            finally:
+                local_worker.select_video_file = original
+
+    def test_same_video_without_a_simulation_in_a_fails_clearly(self):
+        with self.assertRaises(RuntimeError):
+            local_worker.simulation_video({"slot": "b", "sameVideo": True})
+
+    def test_slot_b_result_does_not_replace_slot_a(self):
+        commands: list[list[str]] = []
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            project = {"sport": "basketball", "frames": []}
+            local_worker.STATE.update(project_root=root, project=project, simulation={"id": "keep"})
+            venv_python = local_worker.venv_python_path(local_worker.ml_venv(root))
+            venv_python.parent.mkdir(parents=True, exist_ok=True)
+            venv_python.write_text("")
+            video = root / "clip.mp4"
+            video.write_bytes(b"video")
+
+            def fake_extract(_video, _duration, _width, _height, _count, frames_dir, prefix, *_rest):
+                (frames_dir / f"{prefix}-0001.jpg").write_bytes(b"jpg")
+                return 1, 12.0, 320, 180
+
+            def fake_run_json(command, on_progress=None):
+                commands.append(command)
+                return {"frames": [{"file": "sim-0001.jpg", "ball": None}], "model": "Model B"}
+
+            originals = (local_worker.extract_frames_for_video, local_worker.run_json, local_worker.media_info, local_worker.native_frame_extractor)
+            local_worker.extract_frames_for_video = fake_extract
+            local_worker.run_json = fake_run_json
+            local_worker.media_info = lambda *_: (1.0, 320, 180)
+            local_worker.native_frame_extractor = lambda *_: None
+            try:
+                local_worker.simulate_ball_tracking(video, {"slot": "b", "package": "pkg-b", "language": "en"})
+            finally:
+                (local_worker.extract_frames_for_video, local_worker.run_json, local_worker.media_info, local_worker.native_frame_extractor) = originals
+            self.assertEqual(local_worker.STATE.simulation, {"id": "keep"})
+            self.assertEqual(local_worker.STATE.simulation_b["model"], "Model B")
+            self.assertEqual(local_worker.STATE.simulation_b["video"], "clip.mp4")
+            self.assertIn("--package", commands[0])
+            self.assertEqual(commands[0][commands[0].index("--package") + 1], "pkg-b")
+            self.assertIn(str(root / ".runtime" / "simulation-b"), commands[0])
+            self.assertEqual(local_worker.STATE.simulation_videos["b"], video)
+            local_worker.STATE.update(project_root=None, project=None, simulation=None, simulation_b=None)
+
+    def test_rejects_a_package_id_with_a_path(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            local_worker.STATE.update(project_root=root, project={"sport": "basketball", "frames": []})
+            local_worker.simulate_ball_tracking(root / "clip.mp4", {"slot": "b", "package": "../x", "language": "en"})
+            self.assertEqual(local_worker.STATE.operation, "error")
+            local_worker.STATE.update(project_root=None, project=None, error=None)
+
+
 class RunJsonTests(unittest.TestCase):
     """Regression coverage for a real report: the ball-tracking simulation failed
     with "Expecting ',' delimiter: line 1 column 6 (char 5)" because a library

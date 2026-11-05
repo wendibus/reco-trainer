@@ -166,6 +166,8 @@ This panel plays back a short clip frame by frame, running the active model's ba
 
 ![The ball-tracking simulation panel, ready to play back a selected clip](screenshots/ball-tracking-simulation.png)
 
+**Compare two models.** Click **Compare two models** to get two players side by side, A and B. Each side has its own model (the active model or any library model with a ball class, including imported ONNX YOLO models) and its own video; **Same video as A** runs the right-hand model on exactly the clip from the left. Both sides play on one shared timeline, so a shorter clip holds its last frame. Under each player you see how often the ball was tracked, detected, interpolated, held or lost, plus the average confidence. On the same video, a line below also counts the frames where both models, only A, or only B found the ball. Choosing a model here does not change the active model.
+
 ### Field geometry editor
 
 Click the outline of the playing surface on a reference frame once per project: at least four points, in order along the edge (up to 32); straight lines join them. For a fully visible rectangular field its four corners are enough. If the field leaves the frame, put points on the image edge where it does - any shape is possible. No measurements are needed. Drag a point to move it, or remove the last point if you misclicked; an outline whose edges cross cannot be saved. Auto-label then only adds players, referees and goalkeepers whose feet are on the field, so spectators, the bench and staff next to the court are ignored. Reco Trainer suggests this as soon as frames are ready; you can skip it, and you can change it at any time with **Edit field boundaries**. It is available in the Mac app and in the Windows, Linux and Docker interface.
