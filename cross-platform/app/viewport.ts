@@ -7,7 +7,20 @@ export type Point = { x: number; y: number };
 export type View = { zoom: number; pan: Point };
 
 export const MIN_ZOOM = 1;
-export const MAX_ZOOM = 5;
+export const MAX_ZOOM = 20;
+/** One +/- click: three clicks double or halve the zoom, so every step feels the same (1 → 1.26 → 1.59 → 2 … 20). */
+export const ZOOM_STEP = 2 ** (1 / 3);
+
+/** Next zoom for `steps` button clicks (negative = out); lands exactly on the limits. */
+export function steppedZoom(zoom: number, steps: number): number {
+  const next = zoom * ZOOM_STEP ** steps;
+  return clampZoom(Math.abs(next - Math.round(next)) < 0.02 ? Math.round(next) : next);
+}
+
+/** "1.26×", "4.0×", "20×" */
+export function zoomLabel(zoom: number): string {
+  return `${zoom < 2 ? zoom.toFixed(2) : zoom < 10 ? zoom.toFixed(1) : Math.round(zoom)}×`;
+}
 
 export const clampZoom = (zoom: number) => Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, Number.isFinite(zoom) ? zoom : MIN_ZOOM));
 

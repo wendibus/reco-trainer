@@ -52,13 +52,17 @@ try {
  const labelZoomed=await labelHeight();assert(Math.abs(labelZoomed-labelAt1)<1.5,JSON.stringify({labelAt1,labelZoomed}));
  await page.getByRole('button',{name:/Neue Box/}).click();
  const toScreen=(x,y)=>page.evaluate(([x,y])=>{const svg=document.querySelector('.local-frame-canvas');const p=new DOMPoint(x,y).matrixTransform(svg.getScreenCTM());return {x:p.x,y:p.y,scale:svg.getScreenCTM().a};},[x,y]);
- const a=await toScreen(1000,300),b=await toScreen(1030,340);
+ const a=await toScreen(760,400),b=await toScreen(790,440);// inside the zoomed-in centre
  await page.mouse.move(a.x,a.y);await page.mouse.down();await page.mouse.move((a.x+b.x)/2,(a.y+b.y)/2);await page.mouse.move(b.x,b.y);await page.mouse.up();
  await page.waitForFunction((n)=>true,saves.length);await page.waitForTimeout(150);
  const drawn=saves.at(-1).annotations.at(-1);const tolerance=1/a.scale+.01;
- for(const [key,expected] of [['x',1000],['y',300],['width',30],['height',40]])assert(Math.abs(drawn[key]-expected)<=tolerance,`${key}: ${drawn[key]} vs ${expected} (±${tolerance})`);
+ for(const [key,expected] of [['x',760],['y',400],['width',30],['height',40]])assert(Math.abs(drawn[key]-expected)<=tolerance,`${key}: ${drawn[key]} vs ${expected} (±${tolerance})`);
  assert.deepEqual(saves.at(-1).annotations[1],{id:'ball1',category:'ball',x:900,y:500,width:25,height:25,source:'manual'},'other boxes untouched');
- console.log('wheel zooms to the mouse');
+ console.log('zoom up to 20x');
+ for(let i=0;i<20&&await page.getByRole('button',{name:'+',exact:true}).isEnabled();i++)await page.getByRole('button',{name:'+',exact:true}).click();
+ assert.equal(await page.locator('.zoom-controls strong').textContent(),'20×');
+ assert.deepEqual(await strokeOf(),{width:'1.5px',effect:'non-scaling-stroke'});
+ console.log('wheel zooms to the mouse','zoom up to 20x');
  await page.getByRole('button',{name:'Ansicht zurücksetzen'}).click();
  await page.getByRole('button',{name:/Neue Box/}).click();
  const ballCentre=()=>page.evaluate(()=>{const r=[...document.querySelectorAll('.annotation-box')].find(g=>g.getAttribute('aria-label')==='Ball').querySelector('rect').getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2,w:r.width};});
@@ -70,5 +74,5 @@ try {
  assert.equal(await page.locator('.tool-group button.active').textContent(),'＋ Neue Box','tool unchanged');
  const scrollTop=await page.evaluate(()=>document.querySelector('.workspace').scrollTop);assert.equal(scrollTop,0,'wheel over the frame does not scroll the page');
  assert.equal(errors.length,0,errors.join('\n'));
- console.log(JSON.stringify({result:'PASS',expandedPreviewHeight:before.height,collapsedPreviewHeight:after.height,checks:['viewer keeps window height','zoom keeps coordinates and 1.5 px lines','wheel zooms to the mouse','click without mutation','class mapping and unchanged geometry','undo/redo','persistence after reload','save failure rollback','expand','no browser errors']},null,2));
+ console.log(JSON.stringify({result:'PASS',expandedPreviewHeight:before.height,collapsedPreviewHeight:after.height,checks:['viewer keeps window height','zoom keeps coordinates and 1.5 px lines','wheel zooms to the mouse','zoom up to 20x','click without mutation','class mapping and unchanged geometry','undo/redo','persistence after reload','save failure rollback','expand','no browser errors']},null,2));
 }finally{await browser.close();server.close();}

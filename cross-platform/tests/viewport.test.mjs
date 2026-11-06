@@ -1,7 +1,7 @@
 // node --test tests/viewport.test.mjs  (Node 23.6+ runs the TypeScript module directly)
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { MAX_ZOOM, clampZoom, placement, screenPixels, toImage, toScreen, viewBox, wheelFactor, zoomAt } from '../app/viewport.ts';
+import { MAX_ZOOM, clampZoom, placement, screenPixels, steppedZoom, toImage, toScreen, viewBox, wheelFactor, zoomAt, zoomLabel } from '../app/viewport.ts';
 
 const viewport = { width: 1058, height: 537 };
 const image = { width: 1920, height: 1080 };
@@ -58,4 +58,15 @@ test('wheel up zooms in, wheel down zooms out, symmetric', () => {
   assert.ok(wheelFactor(-100) > 1 && wheelFactor(100) < 1);
   close(wheelFactor(-100) * wheelFactor(100), 1, 'symmetric');
   close(wheelFactor(3, 1), wheelFactor(48), 'lines count as 16 px');
+});
+
+test('zoom reaches 20x in even, multiplicative steps', () => {
+  assert.ok(MAX_ZOOM >= 20);
+  let zoom = 1; const seen = [1];
+  while (zoom < MAX_ZOOM) { zoom = steppedZoom(zoom, 1); seen.push(zoom); }
+  assert.equal(zoom, MAX_ZOOM);
+  assert.ok(seen.length <= 15, `${seen.length} clicks to the maximum`);
+  for (let index = 1; index < seen.length - 1; index++) close(seen[index] / seen[index - 1], 2 ** (1 / 3), `ratio ${index}`);
+  assert.equal(steppedZoom(1, 3), 2); assert.equal(steppedZoom(2, -3), 1); assert.equal(steppedZoom(1, -1), 1);
+  assert.deepEqual([zoomLabel(1), zoomLabel(4), zoomLabel(20)], ['1.00×', '4.0×', '20×']);
 });
