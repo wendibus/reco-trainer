@@ -14,7 +14,7 @@ import { hintText } from './hints';
 import { BatchReportPanel, TrainDialog, type TrainRequest } from './TrainDialog';
 import { HubDialog, HubShareDialog, hubLabels } from './ModelHub';
 import { AugmentationStudio } from './AugmentationStudio';
-import { MAX_ZOOM, MIN_ZOOM, clampZoom, screenPixels, viewBox as frameViewBox, type Size } from './viewport';
+import { MAX_ZOOM, MIN_ZOOM, clampZoom, screenPixels, viewBox as frameViewBox, wheelFactor, zoomAt, type Point, type Size, type View } from './viewport';
 import ConsistencyReview, { consistencyProposal, reviewListText, type ReviewAnnotation } from './ConsistencyReview';
 
 type Platform = 'mac' | 'windows' | 'linux';
@@ -223,16 +223,25 @@ export default function Home() {
   const pointers = useRef(new Map<number, { x: number; y: number }>());
   const [viewportSize, setViewportSize] = useState<Size>({ width: 0, height: 0 });
   const viewportObserver = useRef<ResizeObserver | null>(null);
+  const viewportNode = useRef<HTMLDivElement | null>(null);
+  // Latest view for event handlers that fire several times between renders (wheel, trackpad).
+  const viewRef = useRef<View>({ zoom: 1, pan: { x: 0, y: 0 } });
+  const wheelHandler = useRef<(event: WheelEvent) => void>(() => undefined);
+  const onViewportWheel = useCallback((event: WheelEvent) => wheelHandler.current(event), []);
   // The viewer's pixel size drives the SVG viewBox (see viewport.ts); it changes with the window.
   const viewportRef = useCallback((node: HTMLDivElement | null) => {
     viewportObserver.current?.disconnect();
     viewportObserver.current = null;
+    viewportNode.current?.removeEventListener('wheel', onViewportWheel);
+    viewportNode.current = node;
     if (!node) return;
+    // Not React's onWheel: that listener is passive, so it could not stop the workspace from scrolling.
+    node.addEventListener('wheel', onViewportWheel, { passive: false });
     const update = () => setViewportSize((current) => current.width === node.clientWidth && current.height === node.clientHeight ? current : { width: node.clientWidth, height: node.clientHeight });
     update();
     viewportObserver.current = new ResizeObserver(update);
     viewportObserver.current.observe(node);
-  }, []);
+  }, [onViewportWheel]);
   const pinch = useRef<{ distance: number; centerX: number; centerY: number; zoom: number; panX: number; panY: number } | null>(null);
 
   const t = copy[language];
@@ -493,6 +502,22 @@ export default function Home() {
     } catch (error) { setWorker((current) => current ? { ...current, error: String(error) } : current); }
   }
 
+  function applyView(next: View) { viewRef.current = next; setZoom(next.zoom); setPan(next.pan); }
+  /** Zoom by `factor` around a viewport-relative point (default: the viewport centre). */
+  function zoomBy(factor: number, point?: Point) {
+    if (!selectedFrame) return;
+    const size = { width: selectedFrame.width, height: selectedFrame.height };
+    const anchor = point ?? { x: viewportSize.width / 2, y: viewportSize.height / 2 };
+    applyView(zoomAt(anchor, viewRef.current.zoom * factor, viewportSize, size, viewRef.current));
+  }
+  wheelHandler.current = (event: WheelEvent) => {
+    event.preventDefault();
+    const box = viewportNode.current?.getBoundingClientRect();
+    if (!box) return;
+    // The point under the mouse stays where it is, in every tool (also while "New box" is active).
+    zoomBy(wheelFactor(event.deltaY, event.deltaMode), { x: event.clientX - box.left, y: event.clientY - box.top });
+  };
+
   function framePoint(clientX: number, clientY: number) {
     if (!selectedFrame || !svgRef.current) return { x: 0, y: 0 };
     const matrix = svgRef.current.getScreenCTM();
@@ -526,11 +551,10 @@ export default function Home() {
       const values = [...pointers.current.values()].slice(0, 2);
       const distance = Math.max(1, Math.hypot(values[1].x - values[0].x, values[1].y - values[0].y));
       const centerX = (values[0].x + values[1].x) / 2, centerY = (values[0].y + values[1].y) / 2;
-      setZoom(clamp(pinch.current.zoom * distance / Math.max(1, pinch.current.distance), 1, 5));
-      setPan({ x: pinch.current.panX + centerX - pinch.current.centerX, y: pinch.current.panY + centerY - pinch.current.centerY }); return;
+      applyView({ zoom: clampZoom(pinch.current.zoom * distance / Math.max(1, pinch.current.distance)), pan: { x: pinch.current.panX + centerX - pinch.current.centerX, y: pinch.current.panY + centerY - pinch.current.centerY } }); return;
     }
     if (!gesture || gesture.pointerId !== event.pointerId || !selectedFrame) return;
-    if (gesture.type === 'pan') { setPan({ x: gesture.startPanX + event.clientX - gesture.startClientX, y: gesture.startPanY + event.clientY - gesture.startClientY }); return; }
+    if (gesture.type === 'pan') { applyView({ zoom: viewRef.current.zoom, pan: { x: gesture.startPanX + event.clientX - gesture.startClientX, y: gesture.startPanY + event.clientY - gesture.startClientY } }); return; }
     const point = framePoint(event.clientX, event.clientY);
     if (gesture.type === 'draw') setGesture({ ...gesture, x: Math.min(gesture.startX, point.x), y: Math.min(gesture.startY, point.y), width: Math.abs(point.x - gesture.startX), height: Math.abs(point.y - gesture.startY) });
     else if (gesture.type === 'move') {
@@ -584,7 +608,7 @@ export default function Home() {
   async function rejectAutomatic() { if (!selectedFrame) return; await commitAnnotations(selectedFrame.annotations.filter((item) => item.source !== 'auto')); setSelectedAnnotationID(null); }
   async function undo() { if (!selectedFrame || !history.length) return; const previous = history[history.length - 1]; setHistory((items) => items.slice(0, -1)); setFuture((items) => [...items, cloneAnnotations(selectedFrame.annotations)].slice(-10)); await commitAnnotations(previous, false); }
   async function redo() { if (!selectedFrame || !future.length) return; const next = future[future.length - 1]; setFuture((items) => items.slice(0, -1)); setHistory((items) => [...items, cloneAnnotations(selectedFrame.annotations)].slice(-10)); await commitAnnotations(next, false); }
-  function chooseFrame(id: string) { setSelectedFrameID(id); setPan({ x: 0, y: 0 }); setZoom(1); }
+  function chooseFrame(id: string) { setSelectedFrameID(id); applyView({ zoom: 1, pan: { x: 0, y: 0 } }); }
 
   /// The flagged frame to show after the current one leaves the review list.
   function nextFlaggedAfter(frameID: string) {
@@ -660,13 +684,13 @@ export default function Home() {
       {workspaceView === 'augment' ? <AugmentationStudio language={language} api={api} busy={isWorking} modelSize={modelSize} post={post} /> : workspaceView === 'benchmark' ? <BenchmarkPanel language={language} busy={isWorking} operation={worker?.operation} progress={worker?.progress ?? 0} message={worker?.message} error={worker?.error} log={worker?.log} frameCount={stats.frameCount} automaticCount={stats.automaticCount} sport={worker?.sport ?? sport} models={worker?.modelLibrary?.packages ?? []} benchmark={worker?.benchmark} post={post} /> : workspaceView === 'simulation' ? <BallTrackingPlayer language={language} api={api} busy={isWorking} operation={worker?.operation} progress={worker?.progress ?? 0} message={worker?.message} error={worker?.error} simulation={worker?.simulation} simulationB={worker?.simulationB} models={worker?.modelLibrary?.packages ?? []} modelSize={modelSize} sport={worker?.sport ?? sport} post={post} /> : <section className={`workspace ${framesReady ? '' : 'empty-workspace'}`}>
         {framesReady && <div className="annotation-toolbar"><div className="tool-group"><button data-hint={h.select} type="button" className={mode === 'select' ? 'active' : ''} onClick={() => setMode('select')}>⌖ {t.select}</button><button data-hint={h.draw} type="button" className={mode === 'draw' ? 'active' : ''} onClick={() => { setSelectedAnnotationID(null); setMode('draw'); }}>＋ {t.draw}</button><button data-hint={h.pan} type="button" className={mode === 'pan' ? 'active' : ''} onClick={() => setMode('pan')}>↔ {t.pan}</button></div><label htmlFor="category">{selectedAnnotation ? et.selectedClass : t.annotate}</label><span className="category-swatch" style={{ background: categoryColor(selectedAnnotation?.category ?? category) }} aria-hidden="true" /><select id="category" data-hint={et.changeClass} value={selectedAnnotation?.category ?? category} onChange={(event) => void changeCategory(event.target.value)}>{categories.map((item) => <option value={item} key={item}>{categoryName(item)}</option>)}</select><div className="edit-actions"><button data-hint={h.undo} type="button" onClick={() => void undo()} disabled={!history.length} aria-label={t.undo}>↶</button><button data-hint={h.redo} type="button" onClick={() => void redo()} disabled={!future.length} aria-label={t.redo}>↷</button><button data-hint={h.removeBox} type="button" onClick={() => void removeSelected()} disabled={!selectedAnnotation}>{t.remove}</button>{autoOnFrame > 0 && <><button data-hint={h.accept} type="button" className="accept" onClick={() => void acceptAutomatic()}>{t.accept}</button><button data-hint={h.reject} type="button" className="reject" onClick={() => void rejectAutomatic()}>{t.reject}</button></>}</div></div>}
         <div className={`editor-shell ${framesReady ? 'video-ready' : ''}`}>
-          {selectedFrame ? <div ref={viewportRef} className="local-frame-viewport" onWheel={(event) => { event.preventDefault(); setZoom((value) => clamp(value * (event.deltaY < 0 ? 1.12 : .89), 1, 5)); }}><svg ref={svgRef} className={`local-frame-canvas mode-${mode}`} viewBox={frameViewBox(viewportSize, frameSize, { zoom, pan })} preserveAspectRatio="xMinYMin meet" aria-label={`${selectedFrame.videoName} ${selectedFrame.timestamp.toFixed(1)}s`} onPointerDown={startPointer} onPointerMove={movePointer} onPointerUp={(event) => void endPointer(event)} onPointerCancel={(event) => void endPointer(event)}><image className={px < .34 ? 'local-frame-image pixelated' : 'local-frame-image'} href={`${api}/api/frame?id=${encodeURIComponent(selectedFrame.id)}`} x={0} y={0} width={selectedFrame.width} height={selectedFrame.height} preserveAspectRatio="none" />
+          {selectedFrame ? <div ref={viewportRef} className="local-frame-viewport"><svg ref={svgRef} className={`local-frame-canvas mode-${mode}`} viewBox={frameViewBox(viewportSize, frameSize, { zoom, pan })} preserveAspectRatio="xMinYMin meet" aria-label={`${selectedFrame.videoName} ${selectedFrame.timestamp.toFixed(1)}s`} onPointerDown={startPointer} onPointerMove={movePointer} onPointerUp={(event) => void endPointer(event)} onPointerCancel={(event) => void endPointer(event)}><image className={px < .34 ? 'local-frame-image pixelated' : 'local-frame-image'} href={`${api}/api/frame?id=${encodeURIComponent(selectedFrame.id)}`} x={0} y={0} width={selectedFrame.width} height={selectedFrame.height} preserveAspectRatio="none" />
             {shown.map((box) => <g key={box.id} className={`annotation-box ${box.source === 'auto' ? 'automatic' : ''} ${selectedAnnotationID === box.id ? 'selected' : ''}`} style={{ '--box-color': categoryColor(box.category) } as React.CSSProperties} onPointerDown={(event) => startBox(event, box)} role="button" tabIndex={0} aria-label={categoryName(box.category)} aria-pressed={selectedAnnotationID === box.id} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); event.stopPropagation(); setSelectedAnnotationID(box.id); setMode('select'); } }}><rect x={box.x} y={box.y} width={box.width} height={box.height} /><text x={box.x} y={Math.max(12 * px, box.y - 4 * px)} style={labelStyle}>{categoryName(box.category)}{box.confidence != null ? ` ${Math.round(box.confidence * 100)}%` : ''}</text>{selectedAnnotationID === box.id && (['nw', 'ne', 'sw', 'se'] as Handle[]).map((handle) => { const size = 9 * px; const cx = handle.includes('w') ? box.x : box.x + box.width; const cy = handle.includes('n') ? box.y : box.y + box.height; return <rect key={handle} className={`resize-handle handle-${handle}`} x={cx - size / 2} y={cy - size / 2} width={size} height={size} onPointerDown={(event) => startResize(event, box, handle)} />; })}</g>)}
             {gesture?.type === 'draw' && <rect className="draft-box" x={gesture.x} y={gesture.y} width={gesture.width} height={gesture.height} />}
             {reviewProposal && selectedFrame.annotations.filter((box) => reviewProposal.remove.has(box.id)).map((box) => <rect key={`remove-${box.id}`} className="suggest-remove" x={box.x} y={box.y} width={box.width} height={box.height} />)}
             {reviewProposal && reviewProposal.add.map((box) => <g key={box.id} className="suggest-add"><rect x={box.x} y={box.y} width={box.width} height={box.height} /><text x={box.x} y={Math.max(12 * px, box.y - 4 * px)} style={labelStyle}>+ {categoryName(box.category)}{box.confidence != null ? ` ${Math.round(box.confidence * 100)}%` : ''}</text></g>)}
           </svg></div> : <div className="empty-video-viewport"><strong>{sportName}</strong></div>}
-          {framesReady && <div className="editor-controls"><button data-hint={h.previous} type="button" onClick={() => frames[selectedFrameIndex - 1] && chooseFrame(frames[selectedFrameIndex - 1].id)} disabled={!frames[selectedFrameIndex - 1]}>←</button><strong>{selectedFrameIndex + 1} / {frames.length}</strong><button data-hint={h.next} type="button" onClick={() => frames[selectedFrameIndex + 1] && chooseFrame(frames[selectedFrameIndex + 1].id)} disabled={!frames[selectedFrameIndex + 1]}>→</button><span className="instruction">{t.drag}</span><button data-hint={h.removeFrame} type="button" className="remove-frame" onClick={() => void removeFrame()} disabled={isWorking}>⌫ {ft.remove}</button><div className="zoom-controls"><button data-hint={h.zoomOut} type="button" onClick={() => setZoom((value) => clamp(value - .25, 1, 5))}>−</button><strong>{zoom.toFixed(2)}×</strong><button data-hint={h.zoomIn} type="button" onClick={() => setZoom((value) => clamp(value + .25, 1, 5))}>+</button><button data-hint={h.resetView} type="button" className="reset" onClick={() => { setZoom(1); setPan({ x: 0, y: 0 }); }}>{t.reset}</button></div></div>}
+          {framesReady && <div className="editor-controls"><button data-hint={h.previous} type="button" onClick={() => frames[selectedFrameIndex - 1] && chooseFrame(frames[selectedFrameIndex - 1].id)} disabled={!frames[selectedFrameIndex - 1]}>←</button><strong>{selectedFrameIndex + 1} / {frames.length}</strong><button data-hint={h.next} type="button" onClick={() => frames[selectedFrameIndex + 1] && chooseFrame(frames[selectedFrameIndex + 1].id)} disabled={!frames[selectedFrameIndex + 1]}>→</button><span className="instruction">{t.drag}</span><button data-hint={h.removeFrame} type="button" className="remove-frame" onClick={() => void removeFrame()} disabled={isWorking}>⌫ {ft.remove}</button><div className="zoom-controls"><button data-hint={h.zoomOut} type="button" onClick={() => zoomBy(Math.max(1, viewRef.current.zoom - .25) / viewRef.current.zoom)}>−</button><strong>{zoom.toFixed(2)}×</strong><button data-hint={h.zoomIn} type="button" onClick={() => zoomBy((viewRef.current.zoom + .25) / viewRef.current.zoom)}>+</button><button data-hint={h.resetView} type="button" className="reset" onClick={() => applyView({ zoom: 1, pan: { x: 0, y: 0 } })}>{t.reset}</button></div></div>}
         </div>
         {reviewing && selectedFrame && <ConsistencyReview language={language} frame={selectedFrame} position={flaggedFrames.findIndex((frame) => frame.id === selectedFrame.id) + 1} total={flaggedFrames.length} missingSuggestions={flaggedFrames.filter((frame) => !frame.consistencySuggestion).length} busy={isWorking} flagLabel={reviewFlagLabel} onDecision={(decision, annotations) => void decideConsistency(decision, annotations)} onDelete={() => void deleteFlaggedFrame()} onSkip={() => { const next = nextFlaggedAfter(selectedFrame.id); if (next) showFlagged(next.id); }} onEdit={() => setMode('select')} onSuggest={() => void runML('/api/consistency-suggest', { tier: advanced.tier })} />}
         {selectedFrame?.reviewStatus === 'candidate' && selectedFrame.heldOut && <section className="candidate-review independent-review"><div><strong>{at.independentReview}: {independentCandidates.indexOf(selectedFrame) + 1} / {independentCandidates.length}</strong><small>{at.independentHint}</small></div><button data-hint={h.confirmIndependent} type="button" className="candidate-yes" onClick={() => void confirmIndependentCandidate()}>✓ {at.independentConfirm}</button><button data-hint={h.skip} type="button" onClick={() => void skipCandidate()}>{at.skip}</button></section>}

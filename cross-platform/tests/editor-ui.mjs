@@ -58,6 +58,17 @@ try {
  const drawn=saves.at(-1).annotations.at(-1);const tolerance=1/a.scale+.01;
  for(const [key,expected] of [['x',1000],['y',300],['width',30],['height',40]])assert(Math.abs(drawn[key]-expected)<=tolerance,`${key}: ${drawn[key]} vs ${expected} (±${tolerance})`);
  assert.deepEqual(saves.at(-1).annotations[1],{id:'ball1',category:'ball',x:900,y:500,width:25,height:25,source:'manual'},'other boxes untouched');
+ console.log('wheel zooms to the mouse');
+ await page.getByRole('button',{name:'Ansicht zurücksetzen'}).click();
+ await page.getByRole('button',{name:/Neue Box/}).click();
+ const ballCentre=()=>page.evaluate(()=>{const r=[...document.querySelectorAll('.annotation-box')].find(g=>g.getAttribute('aria-label')==='Ball').querySelector('rect').getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2,w:r.width};});
+ const ball0=await ballCentre();const mouse={x:Math.round(ball0.x),y:Math.round(ball0.y)};await page.mouse.move(mouse.x,mouse.y);// wheel events carry whole pixels
+ for(let i=0;i<5;i++){await page.mouse.wheel(0,-120);await page.waitForTimeout(30);}
+ const ball1=await ballCentre();
+ assert(ball1.w>ball0.w*2,JSON.stringify({ball0,ball1}));
+ const drift=(a,b,m)=>Math.abs((b-m)-(a-m)*ball1.w/ball0.w);assert(drift(ball0.x,ball1.x,mouse.x)<1&&drift(ball0.y,ball1.y,mouse.y)<1,'ball stays under the mouse '+JSON.stringify({ball0,ball1}));
+ assert.equal(await page.locator('.tool-group button.active').textContent(),'＋ Neue Box','tool unchanged');
+ const scrollTop=await page.evaluate(()=>document.querySelector('.workspace').scrollTop);assert.equal(scrollTop,0,'wheel over the frame does not scroll the page');
  assert.equal(errors.length,0,errors.join('\n'));
- console.log(JSON.stringify({result:'PASS',expandedPreviewHeight:before.height,collapsedPreviewHeight:after.height,checks:['viewer keeps window height','zoom keeps coordinates and 1.5 px lines','click without mutation','class mapping and unchanged geometry','undo/redo','persistence after reload','save failure rollback','expand','no browser errors']},null,2));
+ console.log(JSON.stringify({result:'PASS',expandedPreviewHeight:before.height,collapsedPreviewHeight:after.height,checks:['viewer keeps window height','zoom keeps coordinates and 1.5 px lines','wheel zooms to the mouse','click without mutation','class mapping and unchanged geometry','undo/redo','persistence after reload','save failure rollback','expand','no browser errors']},null,2));
 }finally{await browser.close();server.close();}

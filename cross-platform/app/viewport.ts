@@ -50,3 +50,26 @@ export function toScreen(point: Point, viewport: Size, image: Size, view: View):
 export function screenPixels(pixels: number, viewport: Size, image: Size, view: View): number {
   return pixels / placement(viewport, image, view).scale;
 }
+
+/** Zoom so that the image point under `point` (viewport-relative, e.g. the mouse) stays put.
+ *  Back at zoom 1 the frame is centred again. */
+export function zoomAt(point: Point, nextZoom: number, viewport: Size, image: Size, view: View): View {
+  const zoom = clampZoom(nextZoom);
+  if (zoom === MIN_ZOOM) return { zoom, pan: { x: 0, y: 0 } };
+  const anchor = toImage(point, viewport, image, view);
+  const scale = fitScale(viewport, image) * zoom;
+  return {
+    zoom,
+    pan: {
+      x: point.x - anchor.x * scale - viewport.width / 2 + (image.width * scale) / 2,
+      y: point.y - anchor.y * scale - viewport.height / 2 + (image.height * scale) / 2,
+    },
+  };
+}
+
+/** Wheel or trackpad delta -> zoom factor. Lines and pages are converted to pixels so a mouse
+ *  notch and a trackpad swipe feel alike. */
+export function wheelFactor(deltaY: number, deltaMode = 0): number {
+  const pixels = deltaY * (deltaMode === 1 ? 16 : deltaMode === 2 ? 400 : 1);
+  return Math.exp(-Math.max(-300, Math.min(300, pixels)) * 0.0022);
+}

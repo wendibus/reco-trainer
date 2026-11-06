@@ -1,7 +1,7 @@
 // node --test tests/viewport.test.mjs  (Node 23.6+ runs the TypeScript module directly)
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { MAX_ZOOM, clampZoom, placement, screenPixels, toImage, toScreen, viewBox } from '../app/viewport.ts';
+import { MAX_ZOOM, clampZoom, placement, screenPixels, toImage, toScreen, viewBox, wheelFactor, zoomAt } from '../app/viewport.ts';
 
 const viewport = { width: 1058, height: 537 };
 const image = { width: 1920, height: 1080 };
@@ -40,4 +40,22 @@ test('zoom is clamped to the allowed range', () => {
   assert.equal(clampZoom(0.2), 1);
   assert.equal(clampZoom(1e6), MAX_ZOOM);
   assert.equal(clampZoom(Number.NaN), 1);
+});
+
+test('zooming keeps the image point under the mouse in place', () => {
+  let view = { zoom: 1, pan: { x: 0, y: 0 } };
+  const mouse = { x: 812.5, y: 140.25 };
+  const anchor = toImage(mouse, viewport, image, view);
+  for (const factor of [1.3, 2, 1.7, 0.6, 3]) {
+    view = zoomAt(mouse, view.zoom * factor, viewport, image, view);
+    const under = toImage(mouse, viewport, image, view);
+    if (view.zoom > 1) { close(under.x, anchor.x, `x @${view.zoom}`); close(under.y, anchor.y, `y @${view.zoom}`); }
+  }
+  assert.deepEqual(zoomAt(mouse, 0.5, viewport, image, view), { zoom: 1, pan: { x: 0, y: 0 } }, 'zoom 1 centres the frame again');
+});
+
+test('wheel up zooms in, wheel down zooms out, symmetric', () => {
+  assert.ok(wheelFactor(-100) > 1 && wheelFactor(100) < 1);
+  close(wheelFactor(-100) * wheelFactor(100), 1, 'symmetric');
+  close(wheelFactor(3, 1), wheelFactor(48), 'lines count as 16 px');
 });
