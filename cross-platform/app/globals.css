@@ -561,3 +561,12 @@ button:disabled[data-hint] { pointer-events:none; }
 .tool-group button.resting { opacity:.6; } /* "New box" while space pans: still the chosen tool */
 .field-editor-video { margin:-4px 0 8px; color:#31435f; font-size:12px; font-weight:700; }
 .field-editor-all { margin-right:auto; }
+.benchmark-readiness { padding:10px 12px; border:1px solid #dfbe76; border-radius:10px; background:#fff8e8; color:#5c4410; font-size:11px; }
+.benchmark-readiness.ready { border-color:#8bd6ba; background:#effaf5; color:#177d58; }
+.benchmark-readiness ul { margin:6px 0 0; padding-left:18px; display:grid; gap:5px; }
+.benchmark-readiness li span { display:block; font-weight:700; }
+.benchmark-readiness li small { color:#7a5d1d; }
+.disabled-reason { display:inline-block; }
+.disabled-reason > button { width:100%; }
+.disabled-reason > button:disabled { pointer-events:none; } /* the wrapper shows the reason on hover */
+.benchmark-disabled-note { display:block; margin-top:5px; color:#8a6a24; font-size:9px; }
