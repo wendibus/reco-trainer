@@ -95,21 +95,21 @@ select { height:34px; padding:0 9px; border:1px solid #cbd3df; border-radius:7px
 .empty-video-viewport strong { font-size:clamp(34px,6vw,78px); font-weight:760; letter-spacing:-.045em; }
 .empty-video-viewport span { color:#aeb8c7; font-size:12px; }
 .local-frame-viewport { position:relative; width:100%; height:100%; min-height:0; overflow:hidden; background:#151a21; }
-.frame-transform { position:absolute; inset:0; transform-origin:center; will-change:transform; }
-.local-frame-image { position:absolute; inset:0; z-index:1; display:block; width:100%; height:100%; min-width:0; min-height:0; object-fit:contain; }
+.local-frame-image { pointer-events:none; }
+.local-frame-image.pixelated { image-rendering:pixelated; } /* from about 3 screen px per image px: show the real pixels of a tiny ball */
 .local-frame-canvas { position:absolute; inset:0; z-index:2; display:block; width:100%; height:100%; min-width:0; min-height:0; touch-action:none; cursor:crosshair; background:transparent; }
 .local-frame-canvas.mode-select { cursor:default; }
 .local-frame-canvas.mode-pan { cursor:grab; }
 .local-frame-canvas.mode-pan:active { cursor:grabbing; }
 .annotation-box { --box-color:#5b6475; }
-.annotation-box > rect:first-child { fill:color-mix(in srgb, var(--box-color) 12%, transparent); stroke:var(--box-color); stroke-width:2.5; vector-effect:non-scaling-stroke; }
+.annotation-box > rect:first-child { fill:color-mix(in srgb, var(--box-color) 12%, transparent); stroke:var(--box-color); stroke-width:1.5; vector-effect:non-scaling-stroke; }
 .annotation-box.automatic > rect:first-child { stroke-dasharray:7 4; }
-.annotation-box.selected > rect:first-child { fill:color-mix(in srgb, var(--box-color) 24%, transparent); stroke-width:4; }
-.annotation-box text { fill:#fff; stroke:var(--box-color); stroke-width:4; paint-order:stroke; font-size:13px; font-weight:800; pointer-events:none; }
+.annotation-box.selected > rect:first-child { fill:color-mix(in srgb, var(--box-color) 24%, transparent); stroke-width:2.5; }
+.annotation-box text { fill:#fff; stroke:var(--box-color); paint-order:stroke; font-weight:800; pointer-events:none; } /* size and outline set per zoom in page.tsx */
 .category-swatch { flex:0 0 auto; width:12px; height:12px; border-radius:50%; box-shadow:0 0 0 2px #fff, 0 0 0 3px #c8d1dd; }
-.annotation-box .resize-handle { fill:#fff; stroke:var(--box-color); stroke-width:2; vector-effect:non-scaling-stroke; cursor:nwse-resize; }
+.annotation-box .resize-handle { fill:#fff; stroke:var(--box-color); stroke-width:1.5; vector-effect:non-scaling-stroke; cursor:nwse-resize; }
 .annotation-box .handle-ne,.annotation-box .handle-sw { cursor:nesw-resize; }
-.draft-box { fill:rgba(255,255,255,.08); stroke:#fff; stroke-width:2; stroke-dasharray:7 5; vector-effect:non-scaling-stroke; }
+.draft-box { fill:rgba(255,255,255,.08); stroke:#fff; stroke-width:1.5; stroke-dasharray:7 5; vector-effect:non-scaling-stroke; }
 .editor-controls { display:flex; align-items:center; gap:12px; padding:6px 9px; border-top:1px solid #cfd7e2; background:#f6f8fb; }
 .editor-controls > button { min-width:29px; height:29px; border:1px solid #cad3df; border-radius:6px; background:#fff; color:#334158; }
 .editor-controls > button.remove-frame { width:auto; padding:0 9px; border-color:#e1aaa4; color:#9b342a; font-size:9px; }
@@ -490,7 +490,7 @@ button:disabled[data-hint] { pointer-events:none; }
 .training-toggle:focus-visible { outline:2px solid var(--accent); outline-offset:3px; }
 .training-card.collapsed { max-height:none; padding:7px 14px; }
 #training-panel:not([hidden]) { margin-top:8px; }
-.annotation-box:focus-visible > rect:first-child { stroke-width:4; }
+.annotation-box:focus-visible > rect:first-child { stroke-width:2.5; }
 
 .flagged-tools { display:flex; flex-direction:column; gap:6px; margin-bottom:8px; }
 .flagged-tools .secondary-button { width:100%; }
@@ -504,9 +504,9 @@ button:disabled[data-hint] { pointer-events:none; }
 .consistency-review-actions { display:flex; flex-wrap:wrap; gap:6px; align-items:center; }
 .consistency-delete.confirm { background:#c63b3b; color:#fff; border-color:#c63b3b; }
 .link-button { border:0; background:none; padding:0; color:var(--accent); text-decoration:underline; cursor:pointer; font:inherit; }
-.local-frame-canvas .suggest-remove { fill:rgba(220, 50, 50, .18); stroke:#e03b3b; stroke-width:3; stroke-dasharray:8 5; pointer-events:none; vector-effect:non-scaling-stroke; }
-.local-frame-canvas .suggest-add rect { fill:rgba(47, 174, 107, .12); stroke:#2fae6b; stroke-width:3; stroke-dasharray:8 5; pointer-events:none; vector-effect:non-scaling-stroke; }
-.local-frame-canvas .suggest-add text { fill:#2fae6b; font-size:16px; font-weight:700; pointer-events:none; paint-order:stroke; stroke:#fff; stroke-width:3px; }
+.local-frame-canvas .suggest-remove { fill:rgba(220, 50, 50, .18); stroke:#e03b3b; stroke-width:1.5; stroke-dasharray:8 5; pointer-events:none; vector-effect:non-scaling-stroke; }
+.local-frame-canvas .suggest-add rect { fill:rgba(47, 174, 107, .12); stroke:#2fae6b; stroke-width:1.5; stroke-dasharray:8 5; pointer-events:none; vector-effect:non-scaling-stroke; }
+.local-frame-canvas .suggest-add text { fill:#2fae6b; font-weight:700; pointer-events:none; paint-order:stroke; stroke:#fff; }
 /* AMD/Intel graphics: question and diagnosis report */
 .gpu-dialog { width:min(680px,100%); }
 .gpu-problem { padding:9px 11px; border-radius:8px; background:#fff4e5; color:#7a4a00 !important; }
