@@ -556,3 +556,6 @@ button:disabled[data-hint] { pointer-events:none; }
   .brand-block p { display:none; }
   .header-actions { margin-left:auto; flex-wrap:wrap; justify-content:flex-end; gap:8px; }
 }
+.tool-group kbd { margin-left:3px; padding:0 4px; border:1px solid #cbd4df; border-bottom-width:2px; border-radius:4px; background:#f6f8fb; color:#66748a; font:inherit; font-size:8px; font-weight:700; }
+.tool-group button.active kbd { border-color:color-mix(in srgb,var(--accent) 40%,#fff); color:var(--accent); }
+.tool-group button.resting { opacity:.6; } /* "New box" while space pans: still the chosen tool */

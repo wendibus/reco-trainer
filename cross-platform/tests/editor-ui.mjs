@@ -58,11 +58,11 @@ try {
  const drawn=saves.at(-1).annotations.at(-1);const tolerance=1/a.scale+.01;
  for(const [key,expected] of [['x',760],['y',400],['width',30],['height',40]])assert(Math.abs(drawn[key]-expected)<=tolerance,`${key}: ${drawn[key]} vs ${expected} (±${tolerance})`);
  assert.deepEqual(saves.at(-1).annotations[1],{id:'ball1',category:'ball',x:900,y:500,width:25,height:25,source:'manual'},'other boxes untouched');
- console.log('zoom up to 20x');
+ console.log('zoom up to 20x','shortcuts space/B/1-9');
  for(let i=0;i<20&&await page.getByRole('button',{name:'+',exact:true}).isEnabled();i++)await page.getByRole('button',{name:'+',exact:true}).click();
  assert.equal(await page.locator('.zoom-controls strong').textContent(),'20×');
  assert.deepEqual(await strokeOf(),{width:'1.5px',effect:'non-scaling-stroke'});
- console.log('wheel zooms to the mouse','zoom up to 20x');
+ console.log('wheel zooms to the mouse','zoom up to 20x','shortcuts space/B/1-9');
  await page.getByRole('button',{name:'Ansicht zurücksetzen'}).click();
  await page.getByRole('button',{name:/Neue Box/}).click();
  const ballCentre=()=>page.evaluate(()=>{const r=[...document.querySelectorAll('.annotation-box')].find(g=>g.getAttribute('aria-label')==='Ball').querySelector('rect').getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2,w:r.width};});
@@ -71,8 +71,30 @@ try {
  const ball1=await ballCentre();
  assert(ball1.w>ball0.w*2,JSON.stringify({ball0,ball1}));
  const drift=(a,b,m)=>Math.abs((b-m)-(a-m)*ball1.w/ball0.w);assert(drift(ball0.x,ball1.x,mouse.x)<1&&drift(ball0.y,ball1.y,mouse.y)<1,'ball stays under the mouse '+JSON.stringify({ball0,ball1}));
- assert.equal(await page.locator('.tool-group button.active').textContent(),'＋ Neue Box','tool unchanged');
+ assert.match(await page.locator('.tool-group button.active').textContent(),/Neue Box/,'tool unchanged');
  const scrollTop=await page.evaluate(()=>document.querySelector('.workspace').scrollTop);assert.equal(scrollTop,0,'wheel over the frame does not scroll the page');
+ console.log('shortcuts');
+ await page.getByRole('button',{name:'Ansicht zurücksetzen'}).click();
+ for(let i=0;i<4;i++)await page.getByRole('button',{name:'+',exact:true}).click();
+ await page.getByRole('button',{name:/Neue Box/}).click();// keeps the focus: space must not click it
+ const savesBeforePan=saves.length;
+ const ballBefore=await ballCentre();
+ await page.keyboard.down('Space');
+ assert.match(await page.locator('.tool-group button.active:not(.resting)').textContent(),/Verschieben/);
+ await page.mouse.move(700,500);await page.mouse.down();await page.mouse.move(650,470,{steps:4});await page.mouse.up();
+ await page.keyboard.up('Space');
+ const ballAfter=await ballCentre();
+ assert(Math.abs(ballAfter.x-ballBefore.x+50)<1.5&&Math.abs(ballAfter.y-ballBefore.y+30)<1.5,'space+drag pans '+JSON.stringify({ballBefore,ballAfter}));
+ assert.equal(saves.length,savesBeforePan,'panning with space draws nothing');
+ assert.match(await page.locator('.tool-group button.active').textContent(),/Neue Box/,'previous tool is back');
+ await page.getByRole('button',{name:/Auswählen/}).click();await page.keyboard.press('b');
+ assert.match(await page.locator('.tool-group button.active').textContent(),/Neue Box/,'B selects New box');
+ await page.keyboard.press('2');assert.equal(await page.locator('#category').inputValue(),'player','2 = second class');
+ await page.keyboard.press('1');assert.equal(await page.locator('#category').inputValue(),'ball','1 = first class');
+ assert.equal(await page.locator('#category option').first().textContent(),'Ball (1)');
+ await page.locator('#frames-per-video').focus();await page.keyboard.press('2');await page.keyboard.press('b');
+ assert.equal(await page.locator('#category').inputValue(),'ball','no shortcut while typing');
+ assert.match(await page.locator('.tool-group button.active').textContent(),/Neue Box/);
  assert.equal(errors.length,0,errors.join('\n'));
- console.log(JSON.stringify({result:'PASS',expandedPreviewHeight:before.height,collapsedPreviewHeight:after.height,checks:['viewer keeps window height','zoom keeps coordinates and 1.5 px lines','wheel zooms to the mouse','zoom up to 20x','click without mutation','class mapping and unchanged geometry','undo/redo','persistence after reload','save failure rollback','expand','no browser errors']},null,2));
+ console.log(JSON.stringify({result:'PASS',expandedPreviewHeight:before.height,collapsedPreviewHeight:after.height,checks:['viewer keeps window height','zoom keeps coordinates and 1.5 px lines','wheel zooms to the mouse','zoom up to 20x','shortcuts space/B/1-9','click without mutation','class mapping and unchanged geometry','undo/redo','persistence after reload','save failure rollback','expand','no browser errors']},null,2));
 }finally{await browser.close();server.close();}
