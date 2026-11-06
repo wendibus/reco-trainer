@@ -8,9 +8,11 @@ export type FieldGeometry = { corners: number[][]; realWidth?: number; realLengt
 type Props = {
   language: ExtraLanguage;
   api: string;
-  frame: { id: string };
+  frame: { id: string; videoName: string };
   existing?: FieldGeometry | null;
-  onSave: (geometry: FieldGeometry) => Promise<void>;
+  /** Number of videos in the project; from two on, the outline can be used for all of them. */
+  videoCount: number;
+  onSave: (geometry: FieldGeometry, applyToAll: boolean) => Promise<void>;
   onCancel: () => void;
 };
 
@@ -36,10 +38,11 @@ export function outlineCrosses(points: number[][]): boolean {
 /// lines join them into a closed outline. Points on the image edge cover a field that
 /// leaves the frame. Points can be dragged and the last one removed. They are stored as
 /// fractions (0..1) of the frame, the shape ml_worker.py's field_membership_checker() reads.
-export default function FieldGeometryEditor({ language, api, frame, existing, onSave, onCancel }: Props) {
+export default function FieldGeometryEditor({ language, api, frame, existing, videoCount, onSave, onCancel }: Props) {
   const t = extraText[language];
   const [corners, setCorners] = useState<number[][]>(existing?.corners ?? []);
   const [saving, setSaving] = useState(false);
+  const [applyToAll, setApplyToAll] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [imageFailed, setImageFailed] = useState(false);
   const imageRef = useRef<HTMLImageElement>(null);
@@ -82,7 +85,7 @@ export default function FieldGeometryEditor({ language, api, frame, existing, on
     setSaving(true);
     setError(null);
     try {
-      await onSave({ corners });
+      await onSave({ corners }, applyToAll);
     } catch (failure) {
       setError(failure instanceof Error ? failure.message : String(failure));
       setSaving(false);
@@ -95,6 +98,7 @@ export default function FieldGeometryEditor({ language, api, frame, existing, on
   return <div className="walkthrough-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onCancel(); }}>
     <section className="field-editor-dialog" role="dialog" aria-modal="true" aria-labelledby="field-editor-title">
       <h2 id="field-editor-title">{existing ? t.fieldEdit : t.fieldSet}</h2>
+      <p className="field-editor-video" data-hint={t.fieldPerVideo}>🎥 {t.fieldVideo(frame.videoName)}</p>
       <p className="field-editor-intro">{t.editorIntro}</p>
       <div className="field-editor-controls">
         <span className={count < 4 || crosses ? 'field-editor-status' : 'field-editor-status done'}>{statusText}</span>
@@ -125,6 +129,7 @@ export default function FieldGeometryEditor({ language, api, frame, existing, on
       </div>
       {error && <div className="benchmark-error">{error}</div>}
       <div className="field-editor-actions">
+        {videoCount > 1 && <label className="cuda-toggle field-editor-all" data-hint={t.fieldPerVideo}><input type="checkbox" checked={applyToAll} onChange={(event) => setApplyToAll(event.target.checked)} />{t.fieldApplyAll(videoCount)}</label>}
         <button data-hint={hintText[language].cancel} type="button" className="secondary-button" onClick={onCancel}>{t.cancel}</button>
         <button data-hint={hintText[language].saveField} type="button" className="primary-button" onClick={() => void save()} disabled={!canSave}>{t.save}</button>
       </div>

@@ -36,6 +36,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+import field_geometry  # standard library only: field outline per video
+
 # Sibling modules (teachers.py, anonymize.py) must import however this file is loaded -
 # as a script, from the payload, or by tests from another folder.
 if str(Path(__file__).resolve().parent) not in sys.path:
@@ -1394,6 +1396,29 @@ def field_membership_checker(
     return is_inside_outline
 
 
+def field_membership_by_video(
+    document: dict[str, Any],
+) -> tuple[Callable[[str, float, float, float, float, float, float, str], bool] | None, bool]:
+    """Like field_membership_checker, but each frame is tested against the outline of its own
+    video (camera position, see field_geometry.py). Returns (checker, outline_present): checker
+    is None when no video has a usable outline (or OpenCV is missing); videos without an
+    outline are not filtered."""
+    videos = field_geometry.project_videos(document) or [""]
+    outlines = {video: field_geometry.geometry_for(document, video) for video in videos}
+    present = any(outlines.values())
+    checkers = {video: field_membership_checker(outline) for video, outline in outlines.items()}
+    if not any(checkers.values()):
+        return None, present
+
+    def is_on_field(category: str, x1: float, y1: float, x2: float, y2: float, frame_width: float, frame_height: float, video: str) -> bool:
+        if video not in checkers:
+            checkers[video] = field_membership_checker(field_geometry.geometry_for(document, video))
+        checker = checkers[video]
+        return True if checker is None else checker(category, x1, y1, x2, y2, frame_width, frame_height)
+
+    return is_on_field, present
+
+
 # Typical referee attire per supported sport, used only as a best-effort hint (see
 # referee_clothing_checker) - actual colors vary by league/level and this is not a
 # substitute for a custom-trained model. "solid": one flat color, top and bottom
@@ -2016,7 +2041,7 @@ def run_autolabel_pass(
     project_root: Path,
     document: dict[str, Any],
     language: str,
-    is_on_field: Callable[[str, float, float, float, float, float, float], bool] | None = None,
+    is_on_field: Callable[[str, float, float, float, float, float, float, str], bool] | None = None,
     referee_clothing_match: Callable[[Any, tuple[float, float, float, float]], bool] | None = None,
 ) -> tuple[int, int, int]:
     """Run one model's detection pass over frames for target_categories, adding
@@ -2070,7 +2095,8 @@ def run_autolabel_pass(
                     continue
                 x1, y1, x2, y2 = [float(value) for value in box]
                 if is_on_field is not None and not is_on_field(
-                    category, x1, y1, x2, y2, float(frame.get("width", 0)), float(frame.get("height", 0))
+                    category, x1, y1, x2, y2, float(frame.get("width", 0)), float(frame.get("height", 0)),
+                    field_geometry.video_key(frame),
                 ):
                     continue
                 confidence = float(detections.confidence[index])
@@ -2215,15 +2241,14 @@ def auto_label(args: argparse.Namespace) -> None:
             "therefore be incorrectly labeled as players.",
         ))
 
-    field_geometry = document.get("fieldGeometry")
-    is_on_field = field_membership_checker(field_geometry)
-    if field_geometry and is_on_field is not None:
+    is_on_field, outline_present = field_membership_by_video(document)
+    if outline_present and is_on_field is not None:
         emit(localized(
             args.language,
-            "Spielfeldgrenzen aktiv: Nur Personen, die mit den Füßen auf dem markierten Feld stehen, werden berücksichtigt.",
-            "Field boundaries active: only people standing with their feet on the marked field are considered.",
+            "Spielfeldgrenzen aktiv: Nur Personen, die mit den Füßen auf dem für ihr Video markierten Feld stehen, werden berücksichtigt.",
+            "Field boundaries active: only people standing with their feet on the field marked for their video are considered.",
         ))
-    elif field_geometry and is_on_field is None:
+    elif outline_present and is_on_field is None:
         emit(localized(
             args.language,
             "Spielfeldgrenzen konnten nicht angewendet werden (OpenCV fehlt oder die Markierung ist unvollständig).",

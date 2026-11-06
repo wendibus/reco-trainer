@@ -29,6 +29,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlparse
 
+import field_geometry  # standard library only: field outline per video
 import model_hub  # standard library only at module level
 import teachers  # standard library only at module level: hardware tiers
 import vlm  # standard library only: the app-managed VLM (llama-server + Qwen3.5)
@@ -369,6 +370,8 @@ class LocalState:
                 "error": self.error,
                 "sport": (self.project or {}).get("sport"),
                 "framesPerVideo": (self.project or {}).get("framesPerVideo", DEFAULT_FRAMES_PER_VIDEO),
+                # per video since 0.29; "fieldGeometry" only for a project without videos yet
+                "fieldGeometries": field_geometry.geometries(self.project),
                 "fieldGeometry": (self.project or {}).get("fieldGeometry"),
                 "stats": {
                     "frameCount": len(training_frames),
@@ -675,7 +678,14 @@ def load_project(root: Path) -> dict | None:
     path = root / "project.json"
     if not path.is_file():
         return None
-    return json.loads(path.read_text(encoding="utf-8"))
+    project = json.loads(path.read_text(encoding="utf-8"))
+    if field_geometry.needs_migration(project):
+        # 0.29: one field outline per video. The old single outline is copied to every video
+        # (and kept as fieldGeometryBeforePerVideo); a backup of project.json comes first.
+        backup_project(root, "feldgrenze-pro-video")
+        field_geometry.migrate(project)
+        atomic_json(path, project)
+    return project
 
 
 def model_library_snapshot(root: Path | None) -> dict:
@@ -2731,7 +2741,11 @@ def outline_self_intersects(points: list[list[float]]) -> bool:
 def save_field_geometry(payload: dict) -> None:
     """Store the marked field outline in project.json, in the shape
     ml_worker.field_membership_checker reads: at least four fractional (0..1) image
-    points joined by straight lines. No real sizes are needed."""
+    points joined by straight lines. No real sizes are needed.
+
+    payload["video"] names the video (camera position) the outline belongs to;
+    payload["applyToAll"] stores it for every video of the project. Without a video
+    (an older client) it applies to all videos, as the single outline used to."""
     root = STATE.project_root
     project = STATE.project
     if root is None or project is None:
@@ -2752,7 +2766,16 @@ def save_field_geometry(payload: dict) -> None:
             "Les bords du terrain se croisent. Placez les points dans l’ordre le long du bord.",
         ))
     backup_project(root, "spielfeld")
-    project["fieldGeometry"] = {"corners": corners}
+    videos = field_geometry.project_videos(project)
+    video = payload.get("video")
+    if not videos:
+        project["fieldGeometry"] = {"corners": corners}  # no video yet: the default for the first ones
+    elif payload.get("applyToAll") or video is None:
+        field_geometry.set_geometry(project, videos, {"corners": corners})
+    else:
+        if str(video) not in videos:
+            raise RuntimeError(localized("Unbekanntes Video.", "Unknown video.", "Vídeo desconocido.", "Vidéo inconnue."))
+        field_geometry.set_geometry(project, [str(video)], {"corners": corners})
     project["updatedAt"] = utc_now()
     atomic_json(root / "project.json", project)
     STATE.update(project=project, message=localized("Spielfeld lokal gespeichert.", "Field boundaries saved locally.", "Límites del campo guardados localmente.", "Limites du terrain enregistrées localement."))
