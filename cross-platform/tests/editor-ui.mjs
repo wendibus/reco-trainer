@@ -29,7 +29,7 @@ try {
  await page.screenshot({path:process.env.EDITOR_SCREENSHOT_DIR ? resolve(process.env.EDITOR_SCREENSHOT_DIR,'expanded.png') : undefined});
  const before=await page.locator('.editor-shell').boundingBox();
  await page.locator('.training-toggle').click();assert.equal(await page.locator('.training-toggle').getAttribute('aria-expanded'),'false');assert.equal(await page.locator('#training-panel').isVisible(),false);
- const after=await page.locator('.editor-shell').boundingBox();assert(after.height>before.height+100,JSON.stringify({before,after}));
+ const after=await page.locator('.editor-shell').boundingBox();assert(before.height>=1000-240&&after.height>=before.height,JSON.stringify({before,after}));// 0.29: the viewer keeps the window height even with the training card open
  await page.getByRole('button',{name:'Spieler',exact:true}).click();
  assert.equal(saves.length,0,'Selecting must not save unchanged boxes');
  assert.equal(await page.locator('#category').inputValue(),'player');
@@ -42,5 +42,5 @@ try {
  console.log('failure rollback');await page.getByRole('button',{name:'Schiedsrichter',exact:true}).click();fail=true;await page.locator('#category').selectOption('player');await page.waitForFunction(()=>document.querySelector('#category')?.value==='referee');
  await page.locator('.training-toggle').click();assert(await page.locator('#training-panel').isVisible());
  assert.equal(errors.length,0,errors.join('\n'));
- console.log(JSON.stringify({result:'PASS',expandedPreviewHeight:before.height,collapsedPreviewHeight:after.height,checks:['collapse grows preview','click without mutation','class mapping and unchanged geometry','undo/redo','persistence after reload','save failure rollback','expand','no browser errors']},null,2));
+ console.log(JSON.stringify({result:'PASS',expandedPreviewHeight:before.height,collapsedPreviewHeight:after.height,checks:['viewer keeps window height','click without mutation','class mapping and unchanged geometry','undo/redo','persistence after reload','save failure rollback','expand','no browser errors']},null,2));
 }finally{await browser.close();server.close();}

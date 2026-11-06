@@ -522,3 +522,37 @@ button:disabled[data-hint] { pointer-events:none; }
 .gpu-report textarea { width:100%; min-height:220px; box-sizing:border-box; font:11px/1.4 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; border:1px solid #c8d1dd; border-radius:7px; padding:8px; resize:vertical; }
 .gpu-report code { overflow-wrap:anywhere; }
 .gpu-actions { flex-wrap:wrap; }
+
+/* 0.29: the frame viewer keeps most of the window on laptops (1366×768, 1440×900).
+   The workspace scrolls instead of squeezing the viewer; only the training card's
+   header line stays visible below it. */
+.workspace:not(.empty-workspace) { overflow-y:auto; }
+.workspace:not(.empty-workspace) > .editor-shell { flex:1 0 auto; min-height:max(300px, calc(100dvh - 222px)); }
+.workspace:not(.empty-workspace) > .training-card { max-height:none; overflow:visible; }
+.walkthrough-launch { white-space:nowrap; }
+.local-note { white-space:nowrap; }
+@media (max-width:2100px) { .local-note { display:none; } }
+@media (max-width:1600px) { .preview-header { grid-template-columns:auto 1fr auto; gap:14px; } }
+@media (max-height:950px) {
+  .preview-header { min-height:56px; padding-block:6px; }
+  .brand-mark { width:34px; height:34px; border-radius:10px; }
+  .brand-block p { display:none; }
+  .segmented button { padding:6px 10px; }
+  .workspace { gap:8px; padding:8px 12px 10px; }
+  .workspace:not(.empty-workspace) > .editor-shell { min-height:max(280px, calc(100dvh - 186px)); }
+  .app-sidebar { overflow-y:auto; }
+  /* the frame list keeps a usable height; the sidebar scrolls instead */
+  .frames-section { flex:1 0 auto; min-height:240px; display:flex; flex-direction:column; }
+  .frames-section .frame-list { flex:1 1 0; max-height:calc(100dvh - 140px); }
+}
+@media (orientation:portrait) and (max-width:1300px) {
+  .app-body { grid-template-columns:230px minmax(0,1fr); }
+  /* A landscape frame in a portrait window: no full-height black bars, the training card follows */
+  .workspace:not(.empty-workspace) > .editor-shell { flex-grow:0; min-height:max(300px, calc((100vw - 270px) * .75)); }
+}
+.brand-block h1 { white-space:nowrap; }
+@media (max-width:1300px) {
+  .preview-header { display:flex; flex-wrap:wrap; row-gap:8px; }
+  .brand-block p { display:none; }
+  .header-actions { margin-left:auto; flex-wrap:wrap; justify-content:flex-end; gap:8px; }
+}
