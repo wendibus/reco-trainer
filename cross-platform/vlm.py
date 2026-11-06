@@ -210,6 +210,7 @@ class LlamaServer:
         # for the model): such a build retries once on the CPU instead of failing the job.
         self.cpu_fallback = has_vulkan_backend(binary.parent) if cpu_fallback is None else cpu_fallback
         self.on_cpu = False
+        self.gpu_error: Exception | None = None
 
     @property
     def url(self) -> str:
@@ -224,7 +225,7 @@ class LlamaServer:
             self.stop()
             if self.log_path:
                 self.log_path.unlink(missing_ok=True)
-            self.on_cpu, self.port = True, free_port()
+            self.on_cpu, self.port, self.gpu_error = True, free_port(), error
             try:
                 return self._start(timeout)
             except RuntimeError as cpu_error:

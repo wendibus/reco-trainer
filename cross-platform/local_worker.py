@@ -180,7 +180,7 @@ def detected_tier() -> str:
             _TIER_CACHE["tier"] = teachers.choose_tier("mps", memory_gb=memory_gb)
         else:
             vram = nvidia_vram_gb()
-            graphics = teachers.directml_graphics() if (not vram and os.name == "nt") else None
+            graphics = teachers.directml_graphics() if (not vram and os.name == "nt" and amd_choice() == "yes") else None
             _TIER_CACHE["tier"] = (
                 teachers.choose_tier("cuda", vram_gb=vram) if vram
                 else teachers.choose_tier("directml", vram_gb=graphics["vramGB"]) if graphics
@@ -237,7 +237,7 @@ def non_apple_accelerator() -> dict:
                     info = (
                         {"kind": "cuda", "gpuName": payload["name"]} if payload.get("cuda") and payload.get("name")
                         else {"kind": "cuda"} if payload.get("cuda")
-                        else {"kind": "cpu-directml", "gpuName": (teachers.directml_graphics() or {}).get("name")} if payload.get("directml")
+                        else {"kind": "cpu-directml", "gpuName": (teachers.directml_graphics() or {}).get("name")} if payload.get("directml") and amd_choice() == "yes"
                         else {"kind": "cpu-no-cuda"}
                     )
                     _ACCELERATOR_CACHE[cache_key] = info
@@ -322,6 +322,12 @@ class LocalState:
         self.stage: dict | None = None
         # Summary of the last finished job (for example a dataset export), shown in its dialog.
         self.result: dict | None = None
+        # AMD/Intel graphics: the last fallback to the CPU reported by ml_worker (RECO_GPU_FALLBACK)
+        # and the summary of the last diagnosis report (see gpu_diagnosis.py).
+        self.gpu_problem: dict | None = None
+        self.gpu_diagnosis: dict | None = None
+        self.gpu_auto_diagnosed = False
+        self.gpu_diagnosing = False
         # Updated from the "language" field of every request body (see
         # do_POST()) - every status/error message this file itself generates
         # (as opposed to ml_worker.py subprocess output, which already gets an
@@ -373,6 +379,7 @@ class LocalState:
                     "classes": classes,
                 },
                 "hardware": hardware_summary(),
+                "gpu": gpu_status(),
                 "lastTraining": (self.project or {}).get("lastTraining"),
                 "trainingHistory": (self.project or {}).get("trainingHistory", []),
                 "modelLibrary": model_library_snapshot(self.project_root),
@@ -584,6 +591,8 @@ class JobManager:
                 del self.finished[10:]
             CANCEL_REQUESTED.clear()
             STATE.update(busy=False, stage=None, detail=None)
+            if status == "failed":
+                record_job_failure(str(job.get("type") or ""), error)
             self._start_next()
 
     def has_pending(self) -> bool:
@@ -1746,12 +1755,15 @@ def run_logged(command: list[str]) -> dict | None:
     # decodes what it reads back.
     process = popen_tracked(
         command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding="utf-8", errors="replace",
-        bufsize=1, env={**os.environ, "PYTHONUNBUFFERED": "1", "PYTORCH_ENABLE_MPS_FALLBACK": "1", "PYTHONIOENCODING": "utf-8"},
+        bufsize=1, env={**os.environ, **gpu_environment(), "PYTHONUNBUFFERED": "1", "PYTORCH_ENABLE_MPS_FALLBACK": "1", "PYTHONIOENCODING": "utf-8"},
     )
     assert process.stdout is not None
     last_json: dict | None = None
+    error_line: str | None = None
     try:
         for line in process.stdout:
+            if EXCEPTION_LINE.match(line.strip()):
+                error_line = line.strip()[:400]
             if line.startswith("{"):
                 # A command's result (for example a dataset export summary) - not log text.
                 try:
@@ -1759,6 +1771,9 @@ def run_logged(command: list[str]) -> dict | None:
                     continue
                 except ValueError:
                     pass
+            if line.startswith("RECO_GPU_FALLBACK "):
+                record_gpu_problem(line.removeprefix("RECO_GPU_FALLBACK ").strip())
+                continue
             stage = STAGE_LINE.match(line.strip())
             if stage:
                 STATE.update(stage={"index": int(stage.group(1)), "count": int(stage.group(2)), "label": stage.group(3).strip()}, progress=0.0)
@@ -1790,8 +1805,15 @@ def run_logged(command: list[str]) -> dict | None:
     if CANCEL_REQUESTED.is_set():
         raise OperationCancelled()
     if code != 0:
-        raise RuntimeError(localized(f"Lokaler ML-Worker wurde mit Code {code} beendet.", f"The local ML worker exited with code {code}.", f"El proceso local de ML terminó con el código {code}.", f"Le processus ML local s’est terminé avec le code {code}."))
+        # The bare exit code tells a remote tester nothing; name the last exception the
+        # worker printed so the error dialog already points at the cause.
+        cause = f" ({error_line})" if error_line else ""
+        raise RuntimeError(localized(f"Lokaler ML-Worker wurde mit Code {code} beendet.{cause}", f"The local ML worker exited with code {code}.{cause}", f"El proceso local de ML terminó con el código {code}.{cause}", f"Le processus ML local s’est terminé avec le code {code}.{cause}"))
     return last_json
+
+
+# "ValueError: ...", "onnxruntime.capi...Fail: ...", "OSError: [WinError 126] ..."
+EXCEPTION_LINE = re.compile(r"^[A-Za-z_][\w.]*(?:Error|Exception|Fail|Failure)\b:?")
 
 
 PROGRESS_LINE = re.compile(r"^RECO_PROGRESS (\d+) (\d+)\s*$")
@@ -2127,7 +2149,7 @@ def ensure_torch_importable(venv_python: Path) -> None:
 def wants_directml(nvidia_gpu: str | None) -> bool:
     """Windows x64 without a usable NVIDIA GPU: PyTorch only has the CPU there, but ONNX Runtime
     with DirectML reaches any DirectX 12 GPU (AMD, Intel), see accelerated_model in ml_worker."""
-    return os.name == "nt" and not nvidia_gpu and platform.machine().lower() in {"amd64", "x86_64"}
+    return os.name == "nt" and not nvidia_gpu and platform.machine().lower() in {"amd64", "x86_64"} and amd_choice() == "yes"
 
 
 def install_directml_runtime(venv_python: Path) -> None:
@@ -2152,6 +2174,259 @@ def install_directml_runtime(venv_python: Path) -> None:
             f"DirectML n’a pas pu être configuré, la détection s’exécute sur le CPU : {error}",
         ))
         run_logged([str(venv_python), "-m", "pip", "install", "--force-reinstall", "--no-deps", "onnxruntime"])
+
+
+
+# --- AMD / Intel graphics on Windows: ask once, test, report ------------------------------------
+
+_GPU_CHOICE: dict = {}
+ONNXRUNTIME_DISTRIBUTIONS = ("onnxruntime", "onnxruntime-directml", "onnxruntime-gpu")
+
+
+def gpu_choice_file() -> Path | None:
+    base = vlm.app_data_dir()
+    return base / "gpu-choice.json" if base is not None else None
+
+
+def amd_choice() -> str | None:
+    """"yes" (use the AMD/Intel card: DirectML + Vulkan), "no" (CPU only) or None (not asked yet).
+    Kept per computer, like the shared ML environment."""
+    if "choice" not in _GPU_CHOICE:
+        value = None
+        path = gpu_choice_file()
+        try:
+            if path is not None and path.is_file():
+                value = json.loads(path.read_text(encoding="utf-8")).get("amd")
+        except (OSError, ValueError, AttributeError):
+            value = None
+        _GPU_CHOICE["choice"] = value if value in {"yes", "no"} else None
+    return _GPU_CHOICE["choice"]
+
+
+def save_amd_choice(choice: str) -> None:
+    if choice not in {"yes", "no"}:
+        raise RuntimeError(localized("Ungültige Auswahl.", "Invalid choice.", "Selección no válida.", "Choix non valide."))
+    _GPU_CHOICE["choice"] = choice
+    path = gpu_choice_file()
+    if path is not None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        card = (amd_offer() or {}).get("card")
+        path.write_text(json.dumps({"amd": choice, "card": card, "decidedAt": datetime.now(timezone.utc).isoformat()}, indent=2), encoding="utf-8")
+    # The hardware line and the tier depend on the choice.
+    _ACCELERATOR_CACHE.clear()
+    _TIER_CACHE.clear()
+
+
+def amd_offer() -> dict | None:
+    """{"card", "choice"} on Windows x64 without an NVIDIA GPU (so no CUDA) but with an AMD or
+    Intel graphics card, else None. RECO_SIMULATE_AMD=1 pretends such a card (for developing the
+    dialogs on another computer)."""
+    if "card" not in _GPU_CHOICE:
+        card = None
+        if os.environ.get("RECO_SIMULATE_AMD") == "1":
+            card = {"name": "AMD Radeon RX 7800 XT (simulated)", "vendor": "amd", "vramGB": 16.0}
+        elif os.name == "nt" and platform.machine().lower() in {"amd64", "x86_64"} and not detect_nvidia_gpu_name():
+            card = teachers.directml_graphics()
+        _GPU_CHOICE["card"] = card
+    card = _GPU_CHOICE["card"]
+    return {"card": card, "choice": amd_choice()} if card else None
+
+
+def gpu_environment() -> dict[str, str]:
+    """Without a "yes", ml_worker leaves the AMD/Intel card alone: detection stays on PyTorch
+    (CPU) and the VLM uses the CPU build. Variables the user set themselves win."""
+    if amd_offer() is None or amd_choice() == "yes":
+        return {}
+    wanted = {"RECO_ONNX_INFERENCE": "off", "RECO_VLM_RUNTIME": "cpu"}
+    return {key: value for key, value in wanted.items() if key not in os.environ}
+
+
+def gpu_status() -> dict:
+    problem = STATE.gpu_problem
+    return {
+        "offer": amd_offer(),
+        "problem": {key: problem[key] for key in ("id", "reason", "operation", "at")} if problem else None,
+        "diagnosis": STATE.gpu_diagnosis,
+    }
+
+
+GPU_JOB_KINDS = {"gpu-test", "gpu-diagnose"}
+
+
+def record_job_failure(kind: str, error: str | None) -> None:
+    """A job crashed outright (for example "exited with code 1") while the user had chosen to try
+    the AMD/Intel graphics card. A hard crash never reaches the RECO_GPU_FALLBACK signal, so the
+    diagnosis report is started from here instead."""
+    if kind in GPU_JOB_KINDS or STATE.gpu_diagnosing or amd_choice() != "yes":
+        return
+    record_gpu_problem(json.dumps({"reason": error or kind, "traceback": ""}), crashed=kind)
+
+
+def record_gpu_problem(raw: str, crashed: str | None = None) -> None:
+    """ml_worker fell back from the graphics card to the CPU. The first time per session (after a
+    "yes"), a diagnosis report is queued right behind the running job."""
+    try:
+        data = json.loads(raw)
+    except ValueError:
+        data = {"reason": raw}
+    if STATE.gpu_diagnosing:
+        return  # the diagnosis reports its own failures
+    with STATE.lock:
+        problem = {
+            "id": uuid.uuid4().hex[:12], "reason": str(data.get("reason") or "")[:500], "traceback": str(data.get("traceback") or ""),
+            "operation": crashed or STATE.operation, "at": time.time(), "log": list(STATE.log[-150:]),
+        }
+        STATE.gpu_problem = problem
+        start = amd_choice() == "yes" and not STATE.gpu_auto_diagnosed
+        if start:
+            STATE.gpu_auto_diagnosed = True
+    if crashed:
+        STATE.append_log(localized(
+            "Der Job ist mit eingeschalteter Grafikkarte abgebrochen; ein Diagnosebericht wird erstellt.",
+            "The job failed with the graphics card switched on; a diagnosis report is being created.",
+            "La tarea falló con la gráfica activada; se está creando un informe de diagnóstico.",
+            "La tâche a échoué avec la carte graphique activée ; un rapport de diagnostic est en cours.",
+        ) if start else "")
+    else:
+        STATE.append_log(localized(
+            f"Grafikkarte ausgefallen, weiter auf der CPU: {problem['reason']}",
+            f"Graphics card failed, continuing on the CPU: {problem['reason']}",
+            f"La gráfica falló, se continúa en la CPU: {problem['reason']}",
+            f"La carte graphique a échoué, poursuite sur le CPU : {problem['reason']}",
+        ))
+    if start:
+        JOBS.submit("gpu-diagnose", gpu_diagnose_action, {"trigger": "problem"}, cancellable=True)
+
+
+def onnxruntime_distributions(venv_python: Path) -> list[str] | None:
+    probe = (
+        "import importlib.metadata as m, json\n"
+        "found = []\n"
+        f"for name in {list(ONNXRUNTIME_DISTRIBUTIONS)!r}:\n"
+        "    try:\n"
+        "        m.version(name); found.append(name)\n"
+        "    except m.PackageNotFoundError:\n"
+        "        pass\n"
+        "print(json.dumps(found))"
+    )
+    try:
+        result = subprocess.run([str(venv_python), "-c", probe], capture_output=True, text=True, timeout=30, check=False)
+        return json.loads(result.stdout.strip().splitlines()[-1]) if result.returncode == 0 and result.stdout.strip() else None
+    except (OSError, subprocess.TimeoutExpired, ValueError, IndexError):
+        return None
+
+
+def diagnostics_dir() -> Path:
+    import tempfile
+    base = vlm.app_data_dir()
+    if base is None:
+        base = (STATE.project_root / ".runtime") if STATE.project_root is not None else Path(tempfile.gettempdir()) / "reco-trainer"
+    folder = base / "diagnostics"
+    folder.mkdir(parents=True, exist_ok=True)
+    return folder
+
+
+def run_gpu_diagnosis(trigger: str, extra: dict | None = None) -> dict:
+    """Runs ml_worker gpu-diagnose (in the ML environment when there is one, so ONNX Runtime and
+    RF-DETR can be tested) and keeps the summary for the status. A crash of the diagnosis itself
+    (a graphics driver can take the process down) still produces a report from the log."""
+    root = STATE.project_root
+    venv_python = venv_python_path(ml_venv(root))
+    executable = venv_python if venv_python.is_file() else system_python()
+    folder = diagnostics_dir()
+    with STATE.lock:
+        problem = dict(STATE.gpu_problem) if STATE.gpu_problem else None
+        log = list(STATE.log[-150:])
+    context = {
+        "trigger": trigger, "log": log, "choice": amd_choice(), "offer": amd_offer(),
+        "accelerator": hardware_summary().get("accelerator"), "mlEnvironment": str(venv_python), "mlEnvironmentExists": venv_python.is_file(),
+        **(extra or {}),
+    }
+    if problem:
+        context["problem"] = {key: problem.get(key) for key in ("reason", "operation", "at", "traceback")}
+        context["problemLog"] = problem.get("log") or []
+    context_file = folder / f"context-{uuid.uuid4().hex[:8]}.json"
+    context_file.write_text(json.dumps(context, ensure_ascii=False, default=str), encoding="utf-8")
+    STATE.update(message=localized("Prüfe die Grafikkarte …", "Checking the graphics card …", "Comprobando la gráfica …", "Vérification de la carte graphique …"))
+    command = [str(executable), str(find_ml_worker()), "gpu-diagnose", "--out", str(folder), "--context", str(context_file), "--app-version", app_version(), "--language", STATE.language]
+    if root is not None:
+        command += ["--project", str(root)]
+    STATE.gpu_diagnosing = True
+    try:
+        summary = run_logged(command)
+        if not summary:
+            raise RuntimeError("the diagnosis returned no result")
+    except OperationCancelled:
+        raise
+    except Exception as error:  # noqa: BLE001 - the report is most needed exactly when this fails
+        identifier = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+        path = folder / f"gpu-diagnosis-{identifier}.txt"
+        with STATE.lock:
+            lines = list(STATE.log[-250:])
+        path.write_text("\n".join([
+            "Reco Trainer - GPU diagnosis (AMD/Intel: DirectML + Vulkan)",
+            f"The diagnosis process itself failed: {error}",
+            "The last 'GPU diagnosis: ...' line below names the check that was running.", "",
+            "== Context ==", json.dumps({key: value for key, value in context.items() if key not in {"log", "problemLog"}}, indent=2, ensure_ascii=False, default=str), "",
+            "== Diagnosis log ==", *lines, "", "== Log before the diagnosis ==", *[str(line) for line in context.get("problemLog") or log],
+        ]) + "\n", encoding="utf-8")
+        summary = {"id": identifier, "ok": False, "reportPath": str(path), "trigger": trigger, "steps": [
+            {"key": "process", "title": "Diagnosis process", "status": "failed", "summary": "", "error": str(error)},
+        ]}
+    finally:
+        STATE.gpu_diagnosing = False
+        context_file.unlink(missing_ok=True)
+    STATE.update(gpu_diagnosis=summary)
+    return summary
+
+
+def gpu_test_action(payload: dict) -> None:
+    """After "yes, try the AMD card": set up ML if needed (installs onnxruntime-directml), make sure
+    exactly onnxruntime-directml is installed, then run the diagnosis. Its result opens the report
+    popup in the app."""
+    STATE.update(operation="gpu-test", busy=True, error=None, log=[], progress=0.0, message=localized(
+        "Teste die Grafikkarte …", "Testing the graphics card …", "Probando la gráfica …", "Test de la carte graphique …"))
+    try:
+        root = STATE.project_root
+        venv_python = venv_python_path(ml_venv(root))
+        if root is not None and (root / "project.json").is_file() and not venv_python.is_file():
+            ml_action("setup", payload)  # wants_directml() is true now that the answer is "yes"
+            venv_python = venv_python_path(ml_venv(root))
+            STATE.update(operation="gpu-test", busy=True, error=None)
+        elif venv_python.is_file() and os.name == "nt" and onnxruntime_distributions(venv_python) != ["onnxruntime-directml"]:
+            install_directml_runtime(venv_python)
+        setup_log = list(STATE.log)
+        summary = run_gpu_diagnosis(str(payload.get("trigger") or "test"), {"setupLog": setup_log})
+    except OperationCancelled:
+        raise
+    except Exception as error:  # noqa: BLE001
+        STATE.append_log(str(error))
+        summary = run_gpu_diagnosis("test", {"setupLog": list(STATE.log), "setupError": str(error)})
+    _ACCELERATOR_CACHE.clear()
+    _TIER_CACHE.clear()
+    STATE.update(operation="ready", busy=False, progress=1.0, message=localized(
+        "Grafikkarte getestet: funktioniert." if summary.get("ok") else "Grafikkarte getestet: Probleme gefunden, Bericht ist bereit.",
+        "Graphics card tested: it works." if summary.get("ok") else "Graphics card tested: problems found, the report is ready.",
+        "Gráfica probada: funciona." if summary.get("ok") else "Gráfica probada: se encontraron problemas, el informe está listo.",
+        "Carte graphique testée : elle fonctionne." if summary.get("ok") else "Carte graphique testée : problèmes détectés, le rapport est prêt.",
+    ))
+
+
+def gpu_diagnose_action(payload: dict) -> None:
+    STATE.update(operation="gpu-diagnose", busy=True, error=None, progress=0.0)
+    run_gpu_diagnosis(str(payload.get("trigger") or "manual"))
+    STATE.update(operation="ready", busy=False, progress=1.0, message=localized(
+        "Diagnosebericht der Grafikkarte ist bereit.", "The graphics card report is ready.",
+        "El informe de la gráfica está listo.", "Le rapport de la carte graphique est prêt."))
+
+
+def gpu_report_text() -> dict:
+    """The text of the last report - only that file, never a path from the request."""
+    summary = STATE.gpu_diagnosis or {}
+    path = Path(str(summary.get("reportPath") or ""))
+    if not summary or path.parent.resolve() != diagnostics_dir().resolve() or not path.is_file():
+        raise RuntimeError(localized("Kein Diagnosebericht vorhanden.", "No diagnosis report available.", "No hay ningún informe de diagnóstico.", "Aucun rapport de diagnostic disponible."))
+    return {"id": summary.get("id"), "path": str(path), "text": path.read_text(encoding="utf-8", errors="replace")}
 
 
 def ml_action(action: str, payload: dict) -> None:
@@ -2736,6 +3011,12 @@ class Handler(BaseHTTPRequestHandler):
         if route.path == "/api/status":
             self.json_response(STATE.snapshot())
             return
+        if route.path == "/api/gpu-report":
+            try:
+                self.json_response(gpu_report_text())
+            except RuntimeError as error:
+                self.json_response({"error": str(error)}, HTTPStatus.NOT_FOUND)
+            return
         if route.path == "/api/jobs":
             self.json_response(JOBS.snapshot())
             return
@@ -3043,6 +3324,14 @@ class Handler(BaseHTTPRequestHandler):
                     start_empty_project(STATE.selected_folder, STATE.project_root, str(payload.get("sport", "")))
                 job = JOBS.submit("import-labels", ml_action, "import-labels", {**payload, "source": str(label_folder)})
                 self.json_response({"ok": True, "folder": str(label_folder), "job": job})
+            elif self.path == "/api/gpu-choice":
+                choice = str(payload.get("choice", ""))
+                save_amd_choice(choice)
+                job = JOBS.submit("gpu-test", gpu_test_action, payload) if choice == "yes" else None
+                self.json_response({"ok": True, "job": job, "status": STATE.snapshot()})
+            elif self.path == "/api/gpu-diagnose":
+                job = JOBS.submit("gpu-diagnose", gpu_diagnose_action, {"trigger": "manual"})
+                self.json_response({"ok": True, "job": job})
             elif self.path in {"/api/setup", "/api/autolabel", "/api/train", "/api/train-batch", "/api/hub-install", "/api/hub-share", "/api/export-coreml", "/api/export-onnx", "/api/refine-boxes", "/api/package-model", "/api/combine-models", "/api/benchmark", "/api/activate-model", "/api/rename-model", "/api/delete-model", "/api/download-models", "/api/export-dataset", "/api/consistency-check", "/api/consistency-suggest"}:
                 action = self.path.removeprefix("/api/")
                 job = JOBS.submit(action, ml_action, action, payload, cancellable=action not in QUICK_ACTIONS)

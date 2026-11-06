@@ -4,7 +4,9 @@ The Vulkan build of the VLM is covered in test_vlm.py.
 """
 from __future__ import annotations
 
+import importlib.metadata
 import importlib.util
+import json
 import os
 import sys
 import types
@@ -171,8 +173,16 @@ class SetupTests(unittest.TestCase):
                  ("nt", "ARM64", None, False), ("posix", "x86_64", None, False)]
         for os_name, machine, nvidia, expected in cases:
             with mock.patch.object(local_worker.os, "name", os_name), \
-                    mock.patch.object(local_worker.platform, "machine", return_value=machine):
+                    mock.patch.object(local_worker.platform, "machine", return_value=machine), \
+                    mock.patch.object(local_worker, "amd_choice", return_value="yes"):
                 self.assertEqual(local_worker.wants_directml(nvidia), expected, (os_name, machine, nvidia))
+
+    def test_directml_only_after_yes(self):
+        for choice, expected in (("yes", True), ("no", False), (None, False)):
+            with mock.patch.object(local_worker.os, "name", "nt"), \
+                    mock.patch.object(local_worker.platform, "machine", return_value="AMD64"), \
+                    mock.patch.object(local_worker, "amd_choice", return_value=choice):
+                self.assertEqual(local_worker.wants_directml(None), expected, choice)
 
     def test_directml_replaces_onnxruntime(self):
         commands: list[list[str]] = []
@@ -191,6 +201,226 @@ class SetupTests(unittest.TestCase):
         with mock.patch.object(local_worker, "run_logged", side_effect=run):
             local_worker.install_directml_runtime(Path("python"))
         self.assertEqual(commands[-1][-1], "onnxruntime")
+
+
+RADEON = {"name": "AMD Radeon RX 7800 XT", "vendor": "amd", "vramGB": 16.0}
+
+
+class AmdChoiceTests(unittest.TestCase):
+    def setUp(self):
+        self.folder = Path(self.enterContext(_tempdir()))
+        self.enterContext(mock.patch.object(local_worker.vlm, "app_data_dir", return_value=self.folder))
+        self.enterContext(mock.patch.dict(local_worker._GPU_CHOICE, clear=True))
+        self.enterContext(mock.patch.dict(os.environ, {}, clear=False))
+        for key in ("RECO_ONNX_INFERENCE", "RECO_VLM_RUNTIME", "RECO_SIMULATE_AMD"):
+            os.environ.pop(key, None)
+
+    def windows_with(self, card, nvidia=None):
+        self.enterContext(mock.patch.object(local_worker.os, "name", "nt"))
+        self.enterContext(mock.patch.object(local_worker.platform, "machine", return_value="AMD64"))
+        self.enterContext(mock.patch.object(local_worker, "detect_nvidia_gpu_name", return_value=nvidia))
+        self.enterContext(mock.patch.object(local_worker.teachers, "directml_graphics", return_value=card))
+
+    def test_offer_only_without_nvidia_and_with_an_amd_or_intel_card(self):
+        self.windows_with(RADEON)
+        self.assertEqual(local_worker.amd_offer(), {"card": RADEON, "choice": None})
+        local_worker._GPU_CHOICE.clear()
+        with mock.patch.object(local_worker, "detect_nvidia_gpu_name", return_value="NVIDIA GeForce RTX 4070"):
+            self.assertIsNone(local_worker.amd_offer())
+        local_worker._GPU_CHOICE.clear()
+        with mock.patch.object(local_worker.teachers, "directml_graphics", return_value=None):
+            self.assertIsNone(local_worker.amd_offer())
+
+    def test_no_offer_outside_windows(self):
+        with mock.patch.object(local_worker.os, "name", "posix"):
+            self.assertIsNone(local_worker.amd_offer())
+
+    def test_choice_is_remembered_per_computer(self):
+        self.windows_with(RADEON)
+        local_worker.save_amd_choice("yes")
+        local_worker._GPU_CHOICE.clear()
+        self.assertEqual(local_worker.amd_choice(), "yes")
+        saved = json.loads((self.folder / "gpu-choice.json").read_text(encoding="utf-8"))
+        self.assertEqual((saved["amd"], saved["card"]["name"]), ("yes", RADEON["name"]))
+        with self.assertRaises(RuntimeError):
+            local_worker.save_amd_choice("maybe")
+
+    def test_without_yes_ml_worker_keeps_the_card_alone(self):
+        self.windows_with(RADEON)
+        self.assertEqual(local_worker.gpu_environment(), {"RECO_ONNX_INFERENCE": "off", "RECO_VLM_RUNTIME": "cpu"})
+        local_worker.save_amd_choice("no")
+        self.assertEqual(local_worker.gpu_environment(), {"RECO_ONNX_INFERENCE": "off", "RECO_VLM_RUNTIME": "cpu"})
+        os.environ["RECO_VLM_RUNTIME"] = "vulkan"  # set by the user: wins
+        self.assertEqual(local_worker.gpu_environment(), {"RECO_ONNX_INFERENCE": "off"})
+        local_worker.save_amd_choice("yes")
+        self.assertEqual(local_worker.gpu_environment(), {})
+
+    def test_tier_uses_the_card_only_after_yes(self):
+        self.windows_with(RADEON)
+        self.enterContext(mock.patch.object(local_worker, "nvidia_vram_gb", return_value=None))
+        self.enterContext(mock.patch.dict(local_worker._TIER_CACHE, clear=True))
+        local_worker.save_amd_choice("no")
+        self.assertEqual(local_worker.detected_tier(), "weak")
+        local_worker.save_amd_choice("yes")
+        self.assertEqual(local_worker.detected_tier(), "medium")
+
+
+class GpuProblemTests(unittest.TestCase):
+    def setUp(self):
+        self.enterContext(mock.patch.object(local_worker, "STATE", local_worker.LocalState()))
+        self.submit = self.enterContext(mock.patch.object(local_worker.JOBS, "submit"))
+
+    def test_first_fallback_after_yes_queues_one_diagnosis(self):
+        local_worker.STATE.operation = "autolabel"
+        local_worker.STATE.log = ["loading model", "ONNX Runtime failed"]
+        with mock.patch.object(local_worker, "amd_choice", return_value="yes"):
+            local_worker.record_gpu_problem(json.dumps({"reason": "DML device removed", "traceback": "Traceback ..."}))
+            local_worker.record_gpu_problem(json.dumps({"reason": "again"}))
+        self.assertEqual(self.submit.call_count, 1)
+        self.assertEqual(self.submit.call_args.args[:3], ("gpu-diagnose", local_worker.gpu_diagnose_action, {"trigger": "problem"}))
+        problem = local_worker.STATE.gpu_problem
+        self.assertEqual((problem["reason"], problem["operation"]), ("again", "autolabel"))
+        self.assertIn("loading model", problem["log"])
+        status = local_worker.gpu_status()["problem"]
+        self.assertNotIn("log", status)  # the status poll stays small
+
+    def test_no_diagnosis_without_yes_or_during_one(self):
+        with mock.patch.object(local_worker, "amd_choice", return_value="no"):
+            local_worker.record_gpu_problem("not json")
+        self.assertEqual(local_worker.STATE.gpu_problem["reason"], "not json")
+        local_worker.STATE.gpu_problem = None
+        local_worker.STATE.gpu_diagnosing = True
+        with mock.patch.object(local_worker, "amd_choice", return_value="yes"):
+            local_worker.record_gpu_problem(json.dumps({"reason": "inside the diagnosis"}))
+        self.assertIsNone(local_worker.STATE.gpu_problem)
+        self.submit.assert_not_called()
+
+    def test_run_logged_picks_up_the_fallback_line(self):
+        line = "RECO_GPU_FALLBACK " + json.dumps({"reason": "DML failed"})
+        with mock.patch.object(local_worker, "record_gpu_problem") as record, \
+                mock.patch.object(local_worker, "gpu_environment", return_value={}):
+            local_worker.run_logged([sys.executable, "-c", f"print({line!r}); print('done')"])
+        record.assert_called_once_with(line.removeprefix("RECO_GPU_FALLBACK "))
+        self.assertNotIn(line, local_worker.STATE.log)
+
+    def test_a_crashed_job_after_yes_starts_the_diagnosis(self):
+        local_worker.STATE.log = ["OSError: [WinError 126] onnxruntime.dll"]
+        with mock.patch.object(local_worker, "amd_choice", return_value="yes"):
+            local_worker.record_job_failure("gpu-test", "ignored: the test reports itself")
+            local_worker.record_job_failure("autolabel", "The local ML worker exited with code 1.")
+        self.assertEqual(self.submit.call_count, 1)
+        problem = local_worker.STATE.gpu_problem
+        self.assertEqual((problem["reason"], problem["operation"]), ("The local ML worker exited with code 1.", "autolabel"))
+        self.assertIn("OSError: [WinError 126] onnxruntime.dll", problem["log"])
+
+    def test_a_crashed_job_without_yes_is_not_a_gpu_problem(self):
+        with mock.patch.object(local_worker, "amd_choice", return_value=None):
+            local_worker.record_job_failure("train", "exited with code 1")
+        self.assertIsNone(local_worker.STATE.gpu_problem)
+        self.submit.assert_not_called()
+
+    def test_exit_code_error_names_the_last_exception(self):
+        script = "import sys; print('loading'); print('OSError: [WinError 126] DirectML.dll'); sys.exit(1)"
+        with mock.patch.object(local_worker, "gpu_environment", return_value={}), \
+                self.assertRaisesRegex(RuntimeError, r" 1\D*\(OSError: \[WinError 126\] DirectML.dll\)"):
+            local_worker.run_logged([sys.executable, "-c", script])
+
+    def test_a_crashing_diagnosis_still_writes_a_report(self):
+        folder = Path(self.enterContext(_tempdir()))
+        local_worker.STATE.log = ["GPU diagnosis: DirectML: RF-DETR Nano …"]
+        with mock.patch.object(local_worker, "diagnostics_dir", return_value=folder), \
+                mock.patch.object(local_worker, "run_logged", side_effect=RuntimeError("exited with code 3221225477")), \
+                mock.patch.object(local_worker, "find_ml_worker", return_value=Path("ml_worker.py")), \
+                mock.patch.object(local_worker, "amd_offer", return_value=None):
+            summary = local_worker.run_gpu_diagnosis("test")
+        self.assertFalse(summary["ok"])
+        report = Path(summary["reportPath"]).read_text(encoding="utf-8")
+        self.assertIn("3221225477", report)
+        self.assertIn("DirectML: RF-DETR Nano", report)
+        self.assertEqual(list(folder.glob("context-*.json")), [])
+        self.assertFalse(local_worker.STATE.gpu_diagnosing)
+        with mock.patch.object(local_worker, "diagnostics_dir", return_value=folder):
+            self.assertIn("3221225477", local_worker.gpu_report_text()["text"])
+
+    def test_report_endpoint_only_reads_the_diagnostics_folder(self):
+        folder = Path(self.enterContext(_tempdir()))
+        local_worker.STATE.gpu_diagnosis = {"id": "x", "reportPath": str(Path(__file__))}
+        with mock.patch.object(local_worker, "diagnostics_dir", return_value=folder), self.assertRaises(RuntimeError):
+            local_worker.gpu_report_text()
+
+
+class FallbackSignalTests(unittest.TestCase):
+    def test_failed_directml_preparation_is_signalled(self):
+        model = types.SimpleNamespace(model=object(), export=mock.Mock(side_effect=RuntimeError("opset not supported")))
+        with mock.patch.object(ml_worker, "onnx_inference_providers", return_value=["DmlExecutionProvider", "CPUExecutionProvider"]), \
+                mock.patch.object(ml_worker, "onnx_cache_dir", return_value=Path(self.enterContext(_tempdir()))), \
+                mock.patch.dict(sys.modules, {"rfdetr": types.SimpleNamespace(__version__="1.11.2")}), \
+                mock.patch.object(ml_worker, "emit"), \
+                mock.patch("builtins.print") as printed:
+            ml_worker.accelerated_model(model, None, "nano", "en")
+        lines = [call.args[0] for call in printed.call_args_list if str(call.args[0]).startswith("RECO_GPU_FALLBACK ")]
+        self.assertEqual(len(lines), 1)
+        self.assertIn("opset not supported", json.loads(lines[0].split(" ", 1)[1])["reason"])
+
+    def test_cpu_only_onnx_is_not_a_gpu_failure(self):
+        model = types.SimpleNamespace(model=object(), export=mock.Mock(side_effect=RuntimeError("x")))
+        with mock.patch.object(ml_worker, "onnx_inference_providers", return_value=["CPUExecutionProvider"]), \
+                mock.patch.object(ml_worker, "onnx_cache_dir", return_value=Path(self.enterContext(_tempdir()))), \
+                mock.patch.dict(sys.modules, {"rfdetr": types.SimpleNamespace(__version__="1.11.2")}), \
+                mock.patch.object(ml_worker, "emit"), mock.patch.object(ml_worker, "gpu_fallback") as fallback:
+            ml_worker.accelerated_model(model, None, "nano", "en")
+        fallback.assert_not_called()
+
+    def test_vlm_restart_on_the_cpu_is_signalled(self):
+        server = types.SimpleNamespace(on_cpu=True, gpu_error=RuntimeError("vk::DeviceLostError"))
+        with mock.patch.object(ml_worker, "emit"), mock.patch.object(ml_worker, "gpu_fallback") as fallback:
+            ml_worker.report_vlm_fallback(server)
+            ml_worker.report_vlm_fallback(types.SimpleNamespace(on_cpu=False, gpu_error=None))
+        fallback.assert_called_once()
+        self.assertIn("DeviceLostError", fallback.call_args.args[0])
+
+
+class DiagnosisReportTests(unittest.TestCase):
+    def setUp(self):
+        import gpu_diagnosis
+        self.diagnosis = gpu_diagnosis
+
+    def test_two_onnx_runtimes_at_once_fail_the_package_check(self):
+        versions = {"onnxruntime": "1.24.4", "onnxruntime-directml": "1.24.4"}
+
+        def version(name):
+            if name in versions:
+                return versions[name]
+            raise importlib.metadata.PackageNotFoundError(name)
+        step = self.diagnosis.Step("packages", "Python packages")
+        with mock.patch.object(self.diagnosis.importlib.metadata, "version", side_effect=version):
+            self.diagnosis.step_packages(step)
+        self.assertEqual(step.status, "failed")
+        self.assertIn("onnxruntime, onnxruntime-directml", step.summary)
+
+    def test_a_crashing_step_is_recorded_and_the_rest_still_runs(self):
+        folder = Path(self.enterContext(_tempdir()))
+        worker = types.SimpleNamespace(emit=lambda _message: None)
+
+        def broken(_step):
+            raise OSError("DirectML.dll could not be loaded")
+        with mock.patch.object(self.diagnosis, "step_system", side_effect=lambda step, _version: setattr(step, "summary", "Windows 11")), \
+                mock.patch.object(self.diagnosis, "step_graphics", side_effect=lambda step: setattr(step, "summary", RADEON["name"])), \
+                mock.patch.object(self.diagnosis, "step_dxdiag"), mock.patch.object(self.diagnosis, "step_packages"), \
+                mock.patch.object(self.diagnosis, "step_torch"), \
+                mock.patch.object(self.diagnosis, "step_onnxruntime", side_effect=broken), \
+                mock.patch.object(self.diagnosis, "step_vulkan") as vulkan:
+            summary = self.diagnosis.run_diagnosis(worker, folder, None, {"trigger": "test", "log": ["setup line"]}, "0.29.0")
+        vulkan.assert_called_once()
+        self.assertFalse(summary["ok"])
+        failed = [step for step in summary["steps"] if step["status"] == "failed"]
+        self.assertEqual([step["key"] for step in failed], ["onnxruntime"])
+        report = Path(summary["reportPath"]).read_text(encoding="utf-8")
+        self.assertIn("[FAIL] ONNX Runtime providers", report)
+        self.assertIn("OSError: DirectML.dll could not be loaded", report)
+        self.assertIn("Traceback", report)
+        self.assertIn("setup line", report)
+        self.assertTrue(Path(summary["reportPath"]).with_suffix(".json").is_file())
 
 
 class _tempdir:

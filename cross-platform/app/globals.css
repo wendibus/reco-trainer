@@ -507,3 +507,18 @@ button:disabled[data-hint] { pointer-events:none; }
 .local-frame-canvas .suggest-remove { fill:rgba(220, 50, 50, .18); stroke:#e03b3b; stroke-width:3; stroke-dasharray:8 5; pointer-events:none; vector-effect:non-scaling-stroke; }
 .local-frame-canvas .suggest-add rect { fill:rgba(47, 174, 107, .12); stroke:#2fae6b; stroke-width:3; stroke-dasharray:8 5; pointer-events:none; vector-effect:non-scaling-stroke; }
 .local-frame-canvas .suggest-add text { fill:#2fae6b; font-size:16px; font-weight:700; pointer-events:none; paint-order:stroke; stroke:#fff; stroke-width:3px; }
+/* AMD/Intel graphics: question and diagnosis report */
+.gpu-dialog { width:min(680px,100%); }
+.gpu-problem { padding:9px 11px; border-radius:8px; background:#fff4e5; color:#7a4a00 !important; }
+.gpu-steps { margin:0; padding:0; list-style:none; display:grid; gap:5px; font-size:12px; }
+.gpu-step { display:grid; grid-template-columns:74px 1fr; gap:8px; align-items:start; }
+.gpu-step small { display:block; color:#a32020; overflow-wrap:anywhere; }
+.gpu-step-status { padding:2px 6px; border-radius:6px; font-size:10px; font-weight:800; text-align:center; background:#eef2f7; color:#45536a; }
+.gpu-step.ok .gpu-step-status { background:#e6f6ec; color:#1d7a3e; }
+.gpu-step.failed .gpu-step-status { background:#fde8e8; color:#a32020; }
+.gpu-step.warning .gpu-step-status { background:#fff4e5; color:#7a4a00; }
+.gpu-report { display:grid; gap:6px; font-size:12px; }
+.gpu-report summary { cursor:pointer; font-weight:700; }
+.gpu-report textarea { width:100%; min-height:220px; box-sizing:border-box; font:11px/1.4 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; border:1px solid #c8d1dd; border-radius:7px; padding:8px; resize:vertical; }
+.gpu-report code { overflow-wrap:anywhere; }
+.gpu-actions { flex-wrap:wrap; }

@@ -623,6 +623,7 @@ class OnnxRfdetrModel:
         import onnxruntime
         self.torch_model = torch_model
         self.np = numpy
+        self.onnx_path = onnx_path
         self.session = onnxruntime.InferenceSession(str(onnx_path), providers=providers)
         self.providers = self.session.get_providers()
         model_input = self.session.get_inputs()[0]
@@ -672,8 +673,17 @@ class OnnxRfdetrModel:
         except Exception as error:  # noqa: BLE001 - a provider that cannot run the graph falls back to PyTorch
             self.fallback_reason = str(error).strip().splitlines()[0][:200] if str(error).strip() else type(error).__name__
             emit(f"ONNX Runtime ({self.providers[0]}) failed, continuing with PyTorch on the CPU: {self.fallback_reason}")
+            gpu_fallback(f"ONNX Runtime ({self.providers[0]}) failed while detecting: {self.fallback_reason}", error)
             return self.torch_model.predict(images, threshold=threshold)
         return results[0] if single else results
+
+
+def gpu_fallback(reason: str, error: BaseException | None = None) -> None:
+    """Tell local_worker.py that the AMD/Intel graphics card failed and the job went on without it
+    (one JSON line after the RECO_GPU_FALLBACK tag); the app then offers a diagnosis report."""
+    import traceback
+    detail = "".join(traceback.format_exception(type(error), error, error.__traceback__))[-4000:] if error is not None else ""
+    print("RECO_GPU_FALLBACK " + json.dumps({"reason": reason[:500], "traceback": detail}), flush=True)
 
 
 def onnx_cache_dir() -> Path:
@@ -728,6 +738,8 @@ def accelerated_model(model: Any, weights: Path | None, size: str, language: str
             f"Grafikkarte über ONNX Runtime nicht nutzbar ({reason}) - Erkennung läuft mit PyTorch auf der CPU.",
             f"Graphics card not usable through ONNX Runtime ({reason}) - detection runs with PyTorch on the CPU.",
         ))
+        if providers[0] in ONNX_GPU_PROVIDERS:
+            gpu_fallback(f"ONNX Runtime ({providers[0]}) could not prepare the model: {reason}", error)
         return model
 
 
@@ -2437,6 +2449,27 @@ def prepare_vlm(project_root: Path, model_id: str, language: str):
     return binary, folder / entry["model"], folder / entry["mmproj"], entry.get("coordinates", "relative-1000")
 
 
+def report_vlm_fallback(server: Any) -> None:
+    """The Vulkan build restarts on the CPU by itself when the graphics card fails; say so."""
+    if getattr(server, "on_cpu", False) and getattr(server, "gpu_error", None):
+        emit(f"VLM: the graphics card (Vulkan) failed, the VLM runs on the CPU: {str(server.gpu_error)[:300]}")
+        gpu_fallback(f"VLM on Vulkan failed, restarted on the CPU: {server.gpu_error}")
+
+
+def gpu_diagnose(args: argparse.Namespace) -> None:
+    """AMD/Intel graphics report (see gpu_diagnosis.py); the summary is the last JSON line."""
+    import gpu_diagnosis
+    context: dict[str, Any] = {}
+    if args.context:
+        try:
+            context = json.loads(Path(args.context).read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            context = {}
+    project_root = Path(args.project).resolve() if args.project else None
+    summary = gpu_diagnosis.run_diagnosis(sys.modules[__name__], Path(args.out), project_root, context, args.app_version)
+    print(json.dumps(summary), flush=True)
+
+
 def consistency_check(args: argparse.Namespace) -> None:
     import random
     import vlm
@@ -2482,6 +2515,7 @@ def consistency_check(args: argparse.Namespace) -> None:
         binary, model, mmproj, coordinates = prepare_vlm(project_root, args.vlm_model, args.language)
         emit(localized(args.language, f"Starte den lokalen VLM-Server ({args.vlm_model}) …", f"Starting the local VLM server ({args.vlm_model}) …"))
         with vlm.LlamaServer(binary, model, mmproj) as server:
+            report_vlm_fallback(server)
             for index, frame in enumerate(targets, start=1):
                 print(f"RECO_PROGRESS {index} {len(targets)}", file=sys.stderr, flush=True)
                 image = project_root / frame["relativePath"]
@@ -2945,6 +2979,7 @@ def export_dataset(args: argparse.Namespace) -> None:
                 import vlm
                 binary, model, mmproj, _coordinates = prepare_vlm(project_root, args.vlm_model, args.language)
                 vlm_server = vlm.LlamaServer(binary, model, mmproj).start()
+                report_vlm_fallback(vlm_server)
                 used_models.append(registry_model(args.vlm_model))
             if args.detect_people:
                 step("people", localized(args.language, "Personendetektor laden", "Load people detector"))
@@ -5452,6 +5487,14 @@ def build_parser() -> argparse.ArgumentParser:
 
     doctor_parser = commands.add_parser("doctor")
     doctor_parser.set_defaults(func=doctor)
+
+    gpu_parser = commands.add_parser("gpu-diagnose")
+    gpu_parser.add_argument("--out", required=True)
+    gpu_parser.add_argument("--project")
+    gpu_parser.add_argument("--context")
+    gpu_parser.add_argument("--app-version", default="")
+    gpu_parser.add_argument("--language", default="de", choices=["de", "en", "es", "fr"])
+    gpu_parser.set_defaults(func=gpu_diagnose)
 
     label_parser = commands.add_parser("autolabel")
     label_parser.add_argument("--project", required=True)
