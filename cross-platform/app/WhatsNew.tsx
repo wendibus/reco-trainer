@@ -8,6 +8,31 @@ type Item = { title: string; text: string };
  *  number in the header opens it again. Add the next version's entry at the top. */
 export const WHATS_NEW: { version: string; items: Record<Language, Item[]> }[] = [
   {
+    version: '0.30.3',
+    items: {
+      de: [
+        { title: 'Vorschläge auch für Testbilder', text: '„Vorschläge berechnen“ in der Konsistenzprüfung nimmt jetzt dieselben markierten Bilder wie die Prüfliste, auch die des unabhängigen Testsets. Vorher kam „Keine markierten Bilder“.' },
+        { title: 'Klare Meldungen statt Diagnosebericht', text: 'Hinweise wie „Keine markierten Bilder“ erscheinen jetzt als solche statt als „mit Code 1 beendet“ und starten keinen Grafikkarten-Diagnosebericht mehr.' },
+        { title: 'AMD-Training testen (Windows)', text: 'Im Ordner tools liegt „Test AMD Training.bat“. Es prüft in einem eigenen Ordner, ob deine AMD-Karte mit AMDs ROCm-PyTorch RF-DETR trainieren kann, und schreibt einen Bericht auf den Desktop.' },
+      ],
+      en: [
+        { title: 'Suggestions for test images too', text: '“Compute suggestions” in the consistency review now takes the same flagged images as the review list, including those of the independent test set. Before, it said “No flagged images”.' },
+        { title: 'Clear messages instead of a diagnosis report', text: 'Notes such as “No flagged images” now appear as they are instead of “exited with code 1”, and no longer start a graphics card diagnosis.' },
+        { title: 'Test AMD training (Windows)', text: 'The tools folder contains “Test AMD Training.bat”. In a separate folder it checks whether your AMD card can train RF-DETR with AMD’s ROCm build of PyTorch and writes a report to the desktop.' },
+      ],
+      es: [
+        { title: 'Sugerencias también para imágenes de prueba', text: '«Calcular sugerencias» en la revisión de coherencia usa ahora las mismas imágenes marcadas que la lista de revisión, también las del conjunto de prueba independiente. Antes decía «No hay imágenes marcadas».' },
+        { title: 'Mensajes claros en lugar de informe', text: 'Avisos como «No hay imágenes marcadas» aparecen ahora tal cual en lugar de «terminó con el código 1» y ya no inician un diagnóstico de la gráfica.' },
+        { title: 'Probar el entrenamiento con AMD (Windows)', text: 'La carpeta tools contiene «Test AMD Training.bat». En una carpeta aparte comprueba si tu tarjeta AMD puede entrenar RF-DETR con PyTorch ROCm de AMD y deja un informe en el escritorio.' },
+      ],
+      fr: [
+        { title: 'Suggestions aussi pour les images de test', text: '« Calculer les suggestions » dans la revue de cohérence prend maintenant les mêmes images signalées que la liste de revue, y compris celles du jeu de test indépendant. Avant, le message était « Aucune image signalée ».' },
+        { title: 'Messages clairs au lieu d’un rapport', text: 'Des messages comme « Aucune image signalée » apparaissent tels quels au lieu de « terminé avec le code 1 » et ne lancent plus de diagnostic de la carte graphique.' },
+        { title: 'Tester l’entraînement AMD (Windows)', text: 'Le dossier tools contient « Test AMD Training.bat ». Dans un dossier séparé, il vérifie si votre carte AMD peut entraîner RF-DETR avec PyTorch ROCm d’AMD et écrit un rapport sur le bureau.' },
+      ],
+    },
+  },
+  {
     version: '0.30.2',
     items: {
       de: [

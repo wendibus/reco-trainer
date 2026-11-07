@@ -1,5 +1,13 @@
 # Änderungen
 
+## 0.30.3
+
+Nach dem zweiten Bericht von der RX 7800 XT: kein Grafikproblem, sondern zwei Fehler in der Konsistenzprüfung. Dazu ein Test für AMD-Training.
+
+- Behoben: „Vorschläge berechnen“ meldete „Keine markierten Bilder“, obwohl die Prüfliste markierte Bilder zeigte. Die App zählt markierte Bilder des unabhängigen Testsets mit, der Worker ließ sie weg. Jetzt nehmen beide dieselben Bilder (markiert, kein Kandidat, Testbilder eingeschlossen). Der zweite Detektor ist ein untrainiertes COCO-Modell, Testbilder fließen also nicht ins Training.
+- Behoben: Hinweise des ML-Workers (`SystemExit` mit Text, z. B. „Keine markierten Bilder“) endeten mit Code 1. Die App zeigte „mit Code 1 beendet“ und startete bei eingeschalteter AMD-/Intel-Grafik einen Diagnosebericht. Jetzt gibt der Worker solche Hinweise als `RECO_USER_ERROR` mit Code 3 aus, die App zeigt den Text und startet keine Diagnose.
+- Neu: `tools/Test AMD Training.bat` (Windows). Installiert AMDs ROCm 7.2.1 mit PyTorch 2.9.1 (Python 3.12) und RF-DETR in einen eigenen Ordner (`%LOCALAPPDATA%\Reco Trainer\amd-training-probe`), trainiert RF-DETR Nano eine Epoche auf 64 erzeugten Bildern auf Karte und CPU und legt `amd-training-report.txt` auf den Desktop. Die ML-Umgebung der App bleibt unberührt. Grundlage für AMD-Training in einer späteren Version.
+
 ## 0.30.2
 
 Spielfeldgrenze entfernen (Wunsch eines Testers).
