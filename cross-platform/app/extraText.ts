@@ -4,7 +4,7 @@ export type ExtraText = {
   refine: string;
   onnx: string; coreml: string;
   fieldSet: string; fieldEdit: string; fieldNudge: string; notNow: string;
-  fieldVideo: (video: string) => string; fieldApplyAll: (count: number) => string; fieldPerVideo: string;
+  fieldVideo: (video: string) => string; fieldRemove: string; fieldRemoveConfirm: string; fieldApplyAll: (count: number) => string; fieldPerVideo: string;
   showFolder: string;
   exportDataset: string;
   anonTrain: string; anonTrainHint: string; anonTrainOff: string;
@@ -21,6 +21,7 @@ export const extraText: Record<ExtraLanguage, ExtraText> = {
     refine: 'Boxen mit OpenCV verfeinern',
     onnx: 'CPU-Modell (ONNX)', coreml: 'Apple-Modell (Core ML)',
     fieldSet: 'Spielfeld festlegen', fieldEdit: 'Spielfeld bearbeiten',
+    fieldRemove: 'Spielfeldgrenze entfernen', fieldRemoveConfirm: 'Wirklich entfernen?',
     fieldVideo: (video) => `Gilt für das Video „${video || 'ohne Namen'}“`, fieldApplyAll: (count) => `Für alle ${count} Videos übernehmen`, fieldPerVideo: 'Jedes Video (jede Kameraposition) hat eine eigene Spielfeldgrenze.', fieldNudge: 'Für dieses Video ist noch kein Spielfeld markiert. Markieren, damit automatisches Markieren nur Personen auf dem Feld berücksichtigt.', notNow: 'Nicht jetzt',
     showFolder: 'Trainingsordner anzeigen',
     exportDataset: 'Datensatz exportieren',
@@ -39,6 +40,7 @@ export const extraText: Record<ExtraLanguage, ExtraText> = {
     refine: 'Refine boxes with OpenCV',
     onnx: 'CPU model (ONNX)', coreml: 'Apple model (Core ML)',
     fieldSet: 'Set field boundaries', fieldEdit: 'Edit field boundaries',
+    fieldRemove: 'Remove field boundary', fieldRemoveConfirm: 'Really remove?',
     fieldVideo: (video) => `Applies to the video “${video || 'without a name'}”`, fieldApplyAll: (count) => `Use for all ${count} videos`, fieldPerVideo: 'Every video (every camera position) has its own field boundary.', fieldNudge: 'No field is marked for this video yet. Mark it so auto-label only considers people standing on the field.', notNow: 'Not now',
     showFolder: 'Show training folder',
     exportDataset: 'Export dataset',
@@ -57,6 +59,7 @@ export const extraText: Record<ExtraLanguage, ExtraText> = {
     refine: 'Refinar cuadros con OpenCV',
     onnx: 'Modelo CPU (ONNX)', coreml: 'Modelo Apple (Core ML)',
     fieldSet: 'Definir el campo', fieldEdit: 'Editar el campo',
+    fieldRemove: 'Eliminar límite del campo', fieldRemoveConfirm: '¿Eliminar de verdad?',
     fieldVideo: (video) => `Se aplica al vídeo «${video || 'sin nombre'}»`, fieldApplyAll: (count) => `Usar para los ${count} vídeos`, fieldPerVideo: 'Cada vídeo (cada posición de cámara) tiene su propio límite de campo.', fieldNudge: 'Este vídeo aún no tiene campo marcado. Márcalo para que el marcado automático solo considere a personas dentro del campo.', notNow: 'Ahora no',
     showFolder: 'Mostrar carpeta de entrenamiento',
     exportDataset: 'Exportar conjunto de datos',
@@ -75,6 +78,7 @@ export const extraText: Record<ExtraLanguage, ExtraText> = {
     refine: 'Affiner les boîtes avec OpenCV',
     onnx: 'Modèle CPU (ONNX)', coreml: 'Modèle Apple (Core ML)',
     fieldSet: 'Définir le terrain', fieldEdit: 'Modifier le terrain',
+    fieldRemove: 'Supprimer la limite du terrain', fieldRemoveConfirm: 'Vraiment supprimer ?',
     fieldVideo: (video) => `S’applique à la vidéo « ${video || 'sans nom'} »`, fieldApplyAll: (count) => `Utiliser pour les ${count} vidéos`, fieldPerVideo: 'Chaque vidéo (chaque position de caméra) a sa propre limite de terrain.', fieldNudge: 'Aucun terrain n’est encore marqué pour cette vidéo. Marquez-le pour que le marquage automatique ne prenne en compte que les personnes sur le terrain.', notNow: 'Pas maintenant',
     showFolder: 'Afficher le dossier d’entraînement',
     exportDataset: 'Exporter le jeu de données',

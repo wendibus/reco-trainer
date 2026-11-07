@@ -87,6 +87,21 @@ class WorkerTests(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             local_worker.save_field_geometry({"corners": LEFT, "video": "unknown.mp4"})
 
+    def test_removes_the_outline_of_one_video_or_all_with_a_backup(self):
+        self._open(old_project())
+        local_worker.save_field_geometry({"remove": True, "video": "links.mp4"})
+        stored = json.loads((self.root / "project.json").read_text())
+        self.assertEqual(stored["fieldGeometries"], {"rechts.mp4": OLD})
+        self.assertIsNone(field_geometry.geometry_for(stored, "links.mp4"), "no fallback to the old single outline")
+        self.assertEqual(len(list((self.root / "backups").glob("project-*spielfeld-entfernt.json"))), 1)
+        local_worker.save_field_geometry({"remove": True, "video": "links.mp4", "applyToAll": True})
+        stored = json.loads((self.root / "project.json").read_text())
+        self.assertEqual(stored["fieldGeometries"], {})
+        self.assertNotIn("fieldGeometry", stored)
+        self.assertFalse(ml_worker.field_membership_by_video(stored)[1], "auto-label no longer filters")
+        with self.assertRaises(RuntimeError):
+            local_worker.save_field_geometry({"remove": True, "video": "unknown.mp4"})
+
 
 class AutoLabelFilterTests(unittest.TestCase):
     @unittest.skipUnless(ml_worker.field_membership_checker({"corners": LEFT}) is not None, "needs OpenCV")

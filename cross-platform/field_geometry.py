@@ -70,3 +70,18 @@ def set_geometry(project: dict[str, Any], videos: list[str], geometry: dict[str,
     for video in videos:
         per_video[video] = copy.deepcopy(geometry)
     project[KEY] = per_video
+
+
+def clear_geometry(project: dict[str, Any], videos: list[str] | None) -> None:
+    """Remove the outline of `videos` (None: of every video and the default for new ones).
+    Frames of a video without an outline are not filtered by auto-label."""
+    migrate(project)
+    if videos is None:
+        project.pop(LEGACY_KEY, None)
+        if KEY in project:
+            project[KEY] = {}
+        return
+    per_video = geometries(project)
+    for video in videos:
+        per_video.pop(video, None)
+    project[KEY] = per_video

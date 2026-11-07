@@ -13,6 +13,8 @@ type Props = {
   /** Number of videos in the project; from two on, the outline can be used for all of them. */
   videoCount: number;
   onSave: (geometry: FieldGeometry, applyToAll: boolean) => Promise<void>;
+  /** Deletes the stored outline (this video, or all with applyToAll). */
+  onRemove: (applyToAll: boolean) => Promise<void>;
   onCancel: () => void;
 };
 
@@ -38,13 +40,14 @@ export function outlineCrosses(points: number[][]): boolean {
 /// lines join them into a closed outline. Points on the image edge cover a field that
 /// leaves the frame. Points can be dragged and the last one removed. They are stored as
 /// fractions (0..1) of the frame, the shape ml_worker.py's field_membership_checker() reads.
-export default function FieldGeometryEditor({ language, api, frame, existing, videoCount, onSave, onCancel }: Props) {
+export default function FieldGeometryEditor({ language, api, frame, existing, videoCount, onSave, onRemove, onCancel }: Props) {
   const t = extraText[language];
   const [corners, setCorners] = useState<number[][]>(existing?.corners ?? []);
   const [saving, setSaving] = useState(false);
   const [applyToAll, setApplyToAll] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [imageFailed, setImageFailed] = useState(false);
+  const [confirmRemove, setConfirmRemove] = useState(false);
   const imageRef = useRef<HTMLImageElement>(null);
   const dragIndex = useRef<number | null>(null);
 
@@ -92,6 +95,20 @@ export default function FieldGeometryEditor({ language, api, frame, existing, vi
     }
   }
 
+  async function remove() {
+    // Two clicks instead of a browser confirm(): the first arms the button, the second deletes.
+    if (!confirmRemove) { setConfirmRemove(true); return; }
+    setSaving(true);
+    setError(null);
+    try {
+      await onRemove(applyToAll);
+    } catch (failure) {
+      setError(failure instanceof Error ? failure.message : String(failure));
+      setSaving(false);
+      setConfirmRemove(false);
+    }
+  }
+
   const points = corners.map(([x, y]) => `${x},${y}`).join(' ');
   const statusText = count < 4 ? t.pointPrompt(count + 1) : crosses ? `⚠ ${t.crossing}` : `✓ ${t.pointCount(count)}`;
 
@@ -129,6 +146,7 @@ export default function FieldGeometryEditor({ language, api, frame, existing, vi
       </div>
       {error && <div className="benchmark-error">{error}</div>}
       <div className="field-editor-actions">
+        {existing && <button data-hint={hintText[language].removeField} type="button" className={`secondary-button field-editor-remove${confirmRemove ? ' armed' : ''}`} onClick={() => void remove()} onBlur={() => setConfirmRemove(false)} disabled={saving}>{confirmRemove ? t.fieldRemoveConfirm : t.fieldRemove}</button>}
         {videoCount > 1 && <label className="cuda-toggle field-editor-all" data-hint={t.fieldPerVideo}><input type="checkbox" checked={applyToAll} onChange={(event) => setApplyToAll(event.target.checked)} />{t.fieldApplyAll(videoCount)}</label>}
         <button data-hint={hintText[language].cancel} type="button" className="secondary-button" onClick={onCancel}>{t.cancel}</button>
         <button data-hint={hintText[language].saveField} type="button" className="primary-button" onClick={() => void save()} disabled={!canSave}>{t.save}</button>

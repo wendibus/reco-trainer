@@ -105,6 +105,16 @@ class AppVersionTests(unittest.TestCase):
         self.assertIn("--exclude '/runs'", script)
 
 
+class WindowsMemoryTests(unittest.TestCase):
+    def test_memory_is_read_without_sysconf_on_windows(self):
+        import gpu_diagnosis
+        with mock.patch.object(local_worker.os, "sysconf", side_effect=AttributeError, create=True), \
+                mock.patch.object(local_worker.os, "name", "nt"), \
+                mock.patch.object(gpu_diagnosis, "windows_memory_bytes", return_value=32 * 1024 ** 3):
+            self.assertEqual(local_worker.hardware_summary()["memoryGB"], 32)
+            self.assertEqual(ml_worker.total_memory_bytes(), 32 * 1024 ** 3)
+
+
 class WorkerIntegrationTests(unittest.TestCase):
     def test_train_accepts_yolo_variants(self):
         parser = ml_worker.build_parser() if hasattr(ml_worker, "build_parser") else None

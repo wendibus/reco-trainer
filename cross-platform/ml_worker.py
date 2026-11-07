@@ -148,7 +148,12 @@ def total_memory_bytes() -> int:
     try:
         return int(os.sysconf("SC_PHYS_PAGES")) * int(os.sysconf("SC_PAGE_SIZE"))
     except (AttributeError, OSError, TypeError, ValueError):
-        return 0
+        pass
+    if os.name == "nt":  # no sysconf on Windows: the hardware line showed "? GB"
+        import gpu_diagnosis  # standard library only
+
+        return gpu_diagnosis.windows_memory_bytes()
+    return 0
 
 
 def training_profile(

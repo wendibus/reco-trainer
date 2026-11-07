@@ -385,3 +385,7 @@ select { height: 30px; padding: 0 8px; }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) .hints-toggle.active { background: color-mix(in srgb, var(--accent) 30%, transparent); color: #fff; }
 }
+
+/* Remove field boundary: sits left in the action row, turns red when armed. */
+.field-editor-actions .field-editor-remove { margin-right: auto; color: var(--sys-red); }
+.field-editor-actions .field-editor-remove.armed { background: var(--sys-red); border-color: var(--sys-red); color: #fff; }

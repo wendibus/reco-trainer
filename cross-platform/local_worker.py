@@ -122,7 +122,10 @@ def hardware_summary() -> dict:
     try:
         memory = int(os.sysconf("SC_PHYS_PAGES")) * int(os.sysconf("SC_PAGE_SIZE"))
     except (AttributeError, OSError, TypeError, ValueError):
-        pass
+        if os.name == "nt":  # no sysconf on Windows: the hardware line showed "? GB"
+            import gpu_diagnosis  # standard library only
+
+            memory = gpu_diagnosis.windows_memory_bytes()
     machine = platform.machine()
     return {
         "machine": machine,
@@ -2788,6 +2791,9 @@ def save_field_geometry(payload: dict) -> None:
     project = STATE.project
     if root is None or project is None:
         raise RuntimeError(localized("Kein lokales Projekt geöffnet.", "No local project is open.", "No hay ningún proyecto local abierto.", "Aucun projet local n’est ouvert."))
+    if payload.get("remove"):
+        remove_field_geometry(root, project, payload)
+        return
     invalid = localized("Ungültige Spielfeld-Angaben.", "Invalid field boundaries.", "Límites del campo no válidos.", "Limites du terrain non valides.")
     try:
         corners = [[float(point[0]), float(point[1])] for point in payload.get("corners") or []]
@@ -2817,6 +2823,19 @@ def save_field_geometry(payload: dict) -> None:
     project["updatedAt"] = utc_now()
     atomic_json(root / "project.json", project)
     STATE.update(project=project, message=localized("Spielfeld lokal gespeichert.", "Field boundaries saved locally.", "Límites del campo guardados localmente.", "Limites du terrain enregistrées localement."))
+
+
+def remove_field_geometry(root: Path, project: dict, payload: dict) -> None:
+    """Delete the field outline of one video, or of all with applyToAll (backup first)."""
+    videos = field_geometry.project_videos(project)
+    video = payload.get("video")
+    if videos and not payload.get("applyToAll") and video is not None and str(video) not in videos:
+        raise RuntimeError(localized("Unbekanntes Video.", "Unknown video.", "Vídeo desconocido.", "Vidéo inconnue."))
+    backup_project(root, "spielfeld-entfernt")
+    field_geometry.clear_geometry(project, None if not videos or payload.get("applyToAll") or video is None else [str(video)])
+    project["updatedAt"] = utc_now()
+    atomic_json(root / "project.json", project)
+    STATE.update(project=project, message=localized("Spielfeldgrenze entfernt.", "Field boundary removed.", "Límite del campo eliminado.", "Limite du terrain supprimée."))
 
 
 def reveal_training_folder(export_name: str | None = None) -> None:
