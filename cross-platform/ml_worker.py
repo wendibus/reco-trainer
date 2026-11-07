@@ -2596,7 +2596,10 @@ def consistency_suggest(args: argparse.Namespace) -> None:
     before suggestions were stored, or after labels were edited."""
     project_root = Path(args.project).resolve()
     document = require_project(project_root, args.language)
-    frames = [frame for frame in document.get("frames", []) if frame.get("reviewFlags") and not frame.get("heldOut")]
+    # The same frames the app lists for review (page.tsx flaggedFrames): flagged and not a
+    # candidate, held-out test frames included. The second detector is an untrained COCO model,
+    # so suggestions for test frames do not leak anything into training.
+    frames = [frame for frame in document.get("frames", []) if frame.get("reviewFlags") and frame.get("reviewStatus") != "candidate"]
     if not frames:
         raise SystemExit(localized(args.language, "Keine markierten Bilder. Zuerst „Konsistenz prüfen“ ausführen.", "No flagged images. Run “Check consistency” first."))
     tier = hardware_tier(getattr(args, "tier", None))
@@ -5904,6 +5907,10 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+USER_ERROR_PREFIX = "RECO_USER_ERROR "
+USER_ERROR_EXIT = 3
+
+
 def stage(index: int, count: int, label: str) -> None:
     """Announce a step of a multi-step command; local_worker.py shows "Step 2/5: label"."""
     print(f"RECO_STAGE {index} {count} {label}", flush=True)
@@ -5915,7 +5922,15 @@ def main() -> None:
     # lets every finally/except block run, so staging folders and partial files are removed.
     signal.signal(signal.SIGTERM, lambda _signum, _frame: sys.exit(143))
     args = build_parser().parse_args()
-    args.func(args)
+    try:
+        args.func(args)
+    except SystemExit as stop:
+        if isinstance(stop.code, str):
+            # A message for the user ("no flagged images", "no model yet"), not a crash: the app
+            # shows it as it is and does not start a graphics card diagnosis.
+            print(USER_ERROR_PREFIX + " ".join(stop.code.split()), flush=True)
+            sys.exit(USER_ERROR_EXIT)
+        raise
 
 
 if __name__ == "__main__":

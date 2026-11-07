@@ -437,6 +437,14 @@ class OperationCancelled(Exception):
     pass
 
 
+class WorkerUserError(RuntimeError):
+    """ml_worker stopped with a message for the user (exit code 3), not a crash."""
+
+
+# The last such message, so record_job_failure does not treat it as a graphics card failure.
+LAST_USER_ERROR: dict[str, str | None] = {"message": None}
+
+
 def raise_if_cancelled() -> None:
     if CANCEL_REQUESTED.is_set():
         raise OperationCancelled()
@@ -577,6 +585,7 @@ class JobManager:
             job.update(status="running", startedAt=time.time())
             self.current = job
         CANCEL_REQUESTED.clear()
+        LAST_USER_ERROR["message"] = None
         STATE.update(busy=True, error=None, stage=None, detail=None, progress=0.0, result=None)
         threading.Thread(target=self._run, args=(job, target, args, kwargs), daemon=True).start()
 
@@ -1803,6 +1812,7 @@ def run_logged(command: list[str]) -> dict | None:
     assert process.stdout is not None
     last_json: dict | None = None
     error_line: str | None = None
+    user_error: str | None = None
     try:
         for line in process.stdout:
             if EXCEPTION_LINE.match(line.strip()):
@@ -1814,6 +1824,10 @@ def run_logged(command: list[str]) -> dict | None:
                     continue
                 except ValueError:
                     pass
+            if line.startswith("RECO_USER_ERROR "):
+                user_error = line.removeprefix("RECO_USER_ERROR ").strip()
+                STATE.append_log(user_error)
+                continue
             if line.startswith("RECO_GPU_FALLBACK "):
                 record_gpu_problem(line.removeprefix("RECO_GPU_FALLBACK ").strip())
                 continue
@@ -1847,6 +1861,9 @@ def run_logged(command: list[str]) -> dict | None:
             process.stdout.close()
     if CANCEL_REQUESTED.is_set():
         raise OperationCancelled()
+    if code == 3 and user_error:
+        LAST_USER_ERROR["message"] = user_error
+        raise WorkerUserError(user_error)
     if code != 0:
         # The bare exit code tells a remote tester nothing; name the last exception the
         # worker printed so the error dialog already points at the cause.
@@ -1903,6 +1920,10 @@ def run_json(command: list[str], on_progress: Callable[[int, int], None] | None 
             process.stdout.close()
     if CANCEL_REQUESTED.is_set():
         raise OperationCancelled()
+    user_error = next((line.removeprefix("RECO_USER_ERROR ").strip() for line in stdout.splitlines() if line.startswith("RECO_USER_ERROR ")), None)
+    if returncode == 3 and user_error:
+        LAST_USER_ERROR["message"] = user_error
+        raise WorkerUserError(user_error)
     if returncode != 0:
         raise RuntimeError("".join(stderr_lines).strip() or stdout.strip() or localized(f"Lokaler ML-Worker wurde mit Code {returncode} beendet.", f"The local ML worker exited with code {returncode}.", f"El proceso local de ML terminó con el código {returncode}.", f"Le processus ML local s’est terminé avec le code {returncode}."))
     # RF-DETR/PyTorch can print their own notices to stdout while loading the
@@ -2302,6 +2323,8 @@ def record_job_failure(kind: str, error: str | None) -> None:
     diagnosis report is started from here instead."""
     if kind in GPU_JOB_KINDS or STATE.gpu_diagnosing or amd_choice() != "yes":
         return
+    if LAST_USER_ERROR["message"] and error and LAST_USER_ERROR["message"] in error:
+        return  # a message for the user (for example "no flagged images"), not a crash
     record_gpu_problem(json.dumps({"reason": error or kind, "traceback": ""}), crashed=kind)
 
 
