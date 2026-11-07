@@ -1,5 +1,20 @@
 # Änderungen
 
+## 0.29.0
+
+Annotieren von sehr kleinen Bällen (viel Zoomen und Verschieben) und eine Diagnose für AMD-/Intel-Grafik.
+
+- Neu: Das Bildfenster nutzt auf Laptops fast die ganze Höhe (1366×768: 537 statt 204 px hoch, 1440×900: 669 statt 277 px). Seitenleiste und Kopfzeile drücken es nicht mehr zusammen; der Trainingsbereich liegt darunter, die Seite scrollt. Auch für Monitore im Hochformat angepasst.
+- Neu: Tastenkürzel. Leertaste gedrückt halten = verschieben, beim Loslassen ist das vorherige Werkzeug (z. B. „Neue Box“) wieder aktiv. B = Neue Box, 1–9 = Klasse 1–9 in der Reihenfolge der Klassenliste, ←/→ wie bisher = Bild wechseln. Kein Kürzel löst aus, solange ein Eingabefeld, eine Liste oder ein Dialog den Fokus hat. Die Kürzel stehen an den Werkzeug-Knöpfen, in der Klassenliste („Ball (1)“), in den Hinweisen und unter dem Bild.
+- Neu: Das Mausrad zoomt zu dem Punkt unter dem Mauszeiger statt zur Bildmitte; der Bildpunkt unter dem Cursor bleibt stehen. Das gilt in jedem Werkzeug, auch während „Neue Box“ aktiv ist. Das Mausrad scrollt dabei nicht mehr die Seite.
+- Neu: Maximaler Zoom 20× statt 5×, in gleichmäßigen, multiplikativen Schritten (drei Klicks verdoppeln). Ab etwa 3× werden die echten Bildpunkte gezeigt.
+- Neu: Box-Rahmen (1,5 px, ausgewählt 2,5 px), Anfasser und Beschriftungen haben bei jedem Zoom dieselbe Größe auf dem Bildschirm. Bild und Boxen liegen dafür in einem SVG mit Ausschnitt (viewBox) statt in einer per CSS skalierten Ebene. Die gespeicherten Box-Koordinaten ändern sich nicht; Tests belegen, dass dieselbe Box bei jedem Zoom dieselben Koordinaten bekommt.
+- Neu: Spielfeldgrenze pro Video bzw. Kameraposition. Der Editor nennt das Video und kann die Grenze „für alle Videos übernehmen“. Bestehende Projekte übernehmen die bisherige globale Grenze beim Öffnen automatisch für alle ihre Videos (vorher Sicherung in `backups/`, der alte Wert bleibt als `fieldGeometryBeforePerVideo` erhalten). Automatisch markieren prüft jedes Bild gegen die Grenze seines Videos. Geprüft an einer Kopie eines echten Projekts (2493 Bilder, 41 Videos): Bilder unverändert, 49.860 Filterentscheidungen vorher und nachher identisch. Die Grenze wird weiterhin nur beim automatischen Markieren genutzt.
+- Neu: „Modelle testen“ sagt, warum der Vergleich noch nicht geht (keine Bilder, ungeprüfte Auto-Vorschläge, noch kein bestätigtes Testset, noch kein trainiertes Modell für die Sportart, anderer Vorgang läuft) und was als Nächstes zu tun ist. Deaktivierte Knöpfe nennen den Grund als Tooltip.
+- Neu: AMD-/Intel-Grafik (Windows, experimentell): Ohne NVIDIA-GPU fragt Reco Trainer, ob die Grafikkarte versucht werden soll; bis zum Ja läuft alles auf der CPU. Nach dem Ja installiert ein Test `onnxruntime-directml` und prüft die Karte. Scheitert sie (Rückfall auf die CPU oder ein abgestürzter Job), öffnet sich ein Diagnosebericht (System, Treiber, DirectX, Pakete, DirectML-Minimaltest, RF-DETR auf Karte und CPU, Vulkan) zum Kopieren oder Speichern.
+- Neu: „Was ist neu“ erscheint nach einem Update einmal; ein Klick auf die Versionsnummer öffnet es wieder.
+- Behoben: „Der lokale ML-Worker wurde mit Code 1 beendet“ nennt jetzt die letzte Fehlermeldung des Workers (z. B. eine fehlende DLL).
+
 ## 0.28.0
 
 AMD- und Intel-Grafik sind **experimentell**: noch nicht auf echter AMD-/Intel-Hardware getestet; bei Problemen läuft alles wie bisher auf der CPU.

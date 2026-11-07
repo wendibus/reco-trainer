@@ -134,7 +134,23 @@ Checks run before 0.27 did not store the second detector's boxes. **Compute sugg
 
 ### More room for labeling and changing an existing class
 
-Use the collapse button above the training controls to hide training and model management below the image. The preview grows into the available space; click again to restore the controls. This preference stays saved on the computer. Training settings and models are preserved while collapsed.
+The frame viewer takes almost the full window height, also on laptops (1366×768, 1440×900) and portrait monitors; training and model management sit below it, and the page scrolls to them. Use the collapse button above the training controls to fold them away; click again to restore them. This preference stays saved on the computer. Training settings and models are preserved while collapsed.
+
+**Zoom and pan.** The mouse wheel (or a trackpad pinch) zooms to the point under the mouse, in every tool, up to 20×; the − and + buttons zoom around the centre in even steps (three clicks double the zoom). From about 3× the image shows its real pixels, which helps with a small ball. Box outlines, handles and labels keep the same thin size on screen at every zoom; zooming never changes a box's stored coordinates. **Reset view** returns to the whole frame.
+
+**Keyboard shortcuts** (not while a text field, number field or list has the focus):
+
+| Key | Action |
+|---|---|
+| Hold **Space** | Pan while held; on release the previous tool (for example **New box**) is active again |
+| **B** | New box |
+| **1**–**9** | Class 1–9 in the order of the class list (changes the selected box's class) |
+| **←** / **→** | Previous / next frame |
+| **Delete** / **Backspace** | Delete the selected box |
+| **⌘/Ctrl+Z**, **⌘/Ctrl+Shift+Z** | Undo / redo |
+| **Esc** | Deselect |
+
+The class list shows each class with its key, e.g. "Ball (1)".
 
 Click an existing box (or focus it and press Enter or Space). The class selector above the image now shows that box's class. Choose another class to save the correction, for example player to referee. The box keeps its position and size, becomes a manual label, and no longer shows the old model confidence. Undo and redo also apply to class changes. Use **New box** to return to drawing without changing the selected label. In **Pan** mode, dragging over a box still pans the view.
 
@@ -151,6 +167,7 @@ Training runs entirely on your machine, using your GPU if you have one and your 
 
 **Which graphics cards are used.** On a Mac with Apple silicon, everything runs on the built-in GPU. On Windows and Linux, training uses an NVIDIA GPU through CUDA; without one it runs on the CPU. AMD and Intel graphics help with the other jobs:
 
+- **Asked first (Windows).** On a Windows PC without an NVIDIA GPU, Reco Trainer asks once whether to try the AMD or Intel graphics card (experimental); until you say yes, everything runs on the CPU. **Test graphics card (AMD/Intel)** next to **Set up ML** asks again. After a yes, a quick test runs. If the card fails then or in any later job, a diagnosis report opens (system, driver, DirectX, packages, a minimal DirectML test, the RF-DETR model on card and CPU, Vulkan) with **Copy report**, **Save as file**, **Test again** and **Use the CPU only** — please send that report when you report a problem.
 - **Detection on Windows** (auto-labeling, the consistency check's second detector, benchmarks, the ball-tracking simulation) runs on any DirectX 12 graphics card through ONNX Runtime with DirectML. **Set up ML** installs it automatically when there is no NVIDIA GPU; the hardware line then reads "Training on the CPU · detection on the graphics card (DirectML)". The first detection with each model converts it once (a few seconds). If the graphics card fails, detection simply continues on the CPU. Set `RECO_ONNX_INFERENCE=off` to switch this off. The job log names the provider and the card (for example "Detection runs through ONNX Runtime (DmlExecutionProvider, AMD Radeon RX 7800 XT, 16 GB)"); "failed, continuing with PyTorch on the CPU" means the card could not run the model. An AMD or Intel card with 8 GB of its own memory puts the computer in the **medium** hardware tier (larger suggestion model, VLM available); integrated graphics stay **weak**.
 - **The VLM of the consistency check** uses the Vulkan build of llama.cpp on every Windows or Linux x64 computer without an NVIDIA GPU. It runs on AMD and Intel graphics with a Vulkan driver, otherwise on the CPU, and if the graphics card cannot load the model it retries on the CPU by itself. `RECO_VLM_RUNTIME=cpu` forces the CPU build.
 
@@ -170,6 +187,8 @@ If you only ever test on your training footage, you're not measuring how good yo
 
 Once you have more than one model (say, an older and a newer version, or two models trained on different footage), the benchmark screen runs both against your independent test set and lays out precision, recall, mAP, and per-category breakdowns side by side. Look at the per-category numbers, not just the overall score — a model can look great overall while being genuinely bad at, say, detecting the referee, if referees are rare in your footage.
 
+If the comparison cannot run yet, a box above the steps says what is missing (no images, unreviewed auto suggestions, no confirmed test set, no trained model for the sport, another job running) and what to do next; disabled buttons show the reason when you point at them.
+
 A model with a different set of categories than your current one isn't automatically flagged as "worse" just because its overall score is lower — the scores aren't directly comparable in that case, and the comparison points you to the per-category view instead.
 
 ### Creating a combined model
@@ -186,7 +205,7 @@ This panel plays back a short clip frame by frame, running the active model's ba
 
 ### Field geometry editor
 
-Click the outline of the playing surface on a reference frame once per project: at least four points, in order along the edge (up to 32); straight lines join them. For a fully visible rectangular field its four corners are enough. If the field leaves the frame, put points on the image edge where it does - any shape is possible. No measurements are needed. Drag a point to move it, or remove the last point if you misclicked; an outline whose edges cross cannot be saved. Auto-label then only adds players, referees and goalkeepers whose feet are on the field, so spectators, the bench and staff next to the court are ignored. Reco Trainer suggests this as soon as frames are ready; you can skip it, and you can change it at any time with **Edit field boundaries**. It is available in the Mac app and in the Windows, Linux and Docker interface.
+Each video (each camera position) has its own outline, because a left and a right camera see the field in different places. The editor names the video it is editing (the one of the selected frame); **Use for all videos** stores the same outline for every video of the project. Projects from 0.28 or earlier copy their single outline to all their videos the first time they are opened (after a backup in `backups/`; the old value stays in `project.json` as `fieldGeometryBeforePerVideo`), so nothing changes for them. Auto-label filters each frame with the outline of its own video; a video without an outline is not filtered. Click the outline of the playing surface on a reference frame: at least four points, in order along the edge (up to 32); straight lines join them. For a fully visible rectangular field its four corners are enough. If the field leaves the frame, put points on the image edge where it does - any shape is possible. No measurements are needed. Drag a point to move it, or remove the last point if you misclicked; an outline whose edges cross cannot be saved. Auto-label then only adds players, referees and goalkeepers whose feet are on the field, so spectators, the bench and staff next to the court are ignored. Reco Trainer suggests this when the selected frame's video has no outline yet; you can skip it, and you can change it at any time with **Edit field boundaries**. It is available in the Mac app and in the Windows, Linux and Docker interface.
 
 ### Model packages (`.recomodel`)
 
