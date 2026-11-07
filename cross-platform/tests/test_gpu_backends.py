@@ -380,6 +380,21 @@ class FallbackSignalTests(unittest.TestCase):
         self.assertIn("DeviceLostError", fallback.call_args.args[0])
 
 
+class DxdiagTests(unittest.TestCase):
+    def test_unknown_driver_problem_code_is_not_a_warning(self):
+        # Real report from a working RX 7800 XT on Windows 11.
+        text = "  Card name: AMD Radeon RX 7800 XT\n  Device Problem Code: No Problem\n  Driver Problem Code: Unknown\n  Feature Levels: 12_2,12_1\n"
+        import gpu_diagnosis
+        status, summary, details = gpu_diagnosis.read_dxdiag(text)
+        self.assertEqual((status, summary), ("ok", "Feature Levels: 12_2,12_1"))
+        self.assertEqual(len(details["lines"]), 4)
+
+    def test_a_real_problem_code_is_reported(self):
+        import gpu_diagnosis
+        status, summary, _ = gpu_diagnosis.read_dxdiag("Device Problem Code: 43\nDriver Problem Code: No Problem\n")
+        self.assertEqual((status, summary), ("warning", "Device Problem Code: 43"))
+
+
 class DiagnosisReportTests(unittest.TestCase):
     def setUp(self):
         import gpu_diagnosis

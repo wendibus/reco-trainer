@@ -81,6 +81,30 @@ class YoloSettingsTests(unittest.TestCase):
         self.assertLess(yolo_training.batch_size("yolo-small", "cpu", 640), yolo_training.batch_size("yolo-small", "mps", 640))
 
 
+class EvaluationFolderTests(unittest.TestCase):
+    def test_validation_output_stays_inside_the_run(self):
+        run_dir = Path("/projects/demo/runs/yolo-nano")
+        options = yolo_training.eval_folder(run_dir, "test")
+        self.assertEqual(Path(options["project"]), run_dir)
+        self.assertEqual(options["name"], "eval-test")
+        source = (ROOT / "yolo_training.py").read_text(encoding="utf-8")
+        self.assertEqual(source.count(".val("), source.count("**eval_folder(run_dir"))
+
+
+class AppVersionTests(unittest.TestCase):
+    def test_packaged_version_file_is_read_when_package_json_is_gone(self):
+        with tempfile.TemporaryDirectory() as folder:
+            (Path(folder) / "version.json").write_text('{"version": "9.9.9"}')
+            with mock.patch.object(local_worker, "BASE_DIR", Path(folder)):
+                self.assertEqual(local_worker.app_version(), "9.9.9")
+
+    def test_packaging_writes_the_version_file_for_windows_and_linux(self):
+        script = (ROOT / "scripts" / "package-platforms.sh").read_text(encoding="utf-8")
+        self.assertIn('> "$WINDOWS_DIR/version.json"', script)
+        self.assertIn('> "$LINUX_DIR/version.json"', script)
+        self.assertIn("--exclude '/runs'", script)
+
+
 class WorkerIntegrationTests(unittest.TestCase):
     def test_train_accepts_yolo_variants(self):
         parser = ml_worker.build_parser() if hasattr(ml_worker, "build_parser") else None

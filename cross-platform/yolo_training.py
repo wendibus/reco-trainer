@@ -164,6 +164,11 @@ def metrics_from(values: dict[str, Any], prefix: str) -> dict[str, float]:
     return result
 
 
+def eval_folder(run_dir: Path, split: str) -> dict[str, Any]:
+    """Ultralytics writes val() output to ./runs/detect/val* unless told otherwise; keep it in the run."""
+    return {"project": str(run_dir), "name": f"eval-{split}", "exist_ok": True}
+
+
 def train(
     variant: str,
     start_weights: Path,
@@ -204,11 +209,11 @@ def train(
     if not best.is_file():
         best = run_dir / "weights" / "last.pt"
     trained = YOLO(str(best))
-    validation = trained.val(data=str(data_yaml), split="val", imgsz=int(image_size), device=device, plots=False, verbose=False)
+    validation = trained.val(data=str(data_yaml), split="val", imgsz=int(image_size), device=device, plots=False, verbose=False, **eval_folder(run_dir, "val"))
     validation_metrics = metrics_from(getattr(validation, "results_dict", {}) or {}, "val")
     test_metrics: dict[str, float] = {}
     if "test: images/test" in data_yaml.read_text(encoding="utf-8"):
-        test = trained.val(data=str(data_yaml), split="test", imgsz=int(image_size), device=device, plots=False, verbose=False)
+        test = trained.val(data=str(data_yaml), split="test", imgsz=int(image_size), device=device, plots=False, verbose=False, **eval_folder(run_dir, "test"))
         test_metrics = metrics_from(getattr(test, "results_dict", {}) or {}, "test")
     # NMS inside the graph -> output 1 x 300 x 6 (x1, y1, x2, y2, confidence, class id), what
     # OnnxYoloModel reads. A low conf keeps weak boxes for the confidence sweep and auto-label.

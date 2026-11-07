@@ -260,8 +260,9 @@ def non_apple_accelerator() -> dict:
 
 
 def app_version() -> str:
-    """Version of this worker: payload.json (Mac payload) or package.json (Windows/Linux/Docker)."""
-    for name in ("payload.json", "package.json"):
+    """Version of this worker: payload.json (Mac payload), version.json (Windows/Linux packages)
+    or package.json (Docker, source checkout)."""
+    for name in ("payload.json", "version.json", "package.json"):
         try:
             return str(json.loads((BASE_DIR / name).read_text(encoding="utf-8"))["version"])
         except (OSError, ValueError, KeyError):

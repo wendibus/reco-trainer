@@ -4,8 +4,10 @@ set -euo pipefail
 PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 OUTPUT_DIR="${1:-$(cd "$PROJECT_DIR/.." && pwd)}"
 ML_WORKER="$PROJECT_DIR/ml_worker.py"
-VERSION="0.30.0"
+VERSION="0.30.1"
 STAGE_DIR="$(mktemp -d)"
+PACKAGE_VERSION="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["version"])' "$PROJECT_DIR/package.json")"
+[ "$PACKAGE_VERSION" = "$VERSION" ] || { echo "package.json is $PACKAGE_VERSION, script is $VERSION" >&2; exit 1; }
 
 # Build the web interface once; Windows/Linux packages ship it prebuilt in ui/,
 # so end users need Python only (no Node.js, no npm). The Docker package builds
@@ -33,6 +35,7 @@ copy_common() {
     --exclude 'dist' \
     --exclude '/ui' \
     --exclude 'node_modules' \
+    --exclude '/runs' \
     --exclude '__pycache__' \
     --exclude '*.pyc' \
     "$PROJECT_DIR/" "$destination/"
@@ -45,6 +48,7 @@ mv "$WINDOWS_DIR/Start Reco Preview Windows.bat" "$WINDOWS_DIR/Start Reco Traine
 rm -f "$WINDOWS_DIR/Start Reco Preview.command" "$WINDOWS_DIR/Start Reco Trainer.command" "$WINDOWS_DIR/Stop Reco Preview.command" "$WINDOWS_DIR/start-preview-linux.sh"
 rm -rf "$WINDOWS_DIR/ui" && cp -R "$PROJECT_DIR/ui" "$WINDOWS_DIR/ui"
 (cd "$WINDOWS_DIR" && rm -rf "${DEV_FILES[@]}")
+printf '{"version": "%s"}\n' "$VERSION" > "$WINDOWS_DIR/version.json"
 rm -rf "$WINDOWS_DIR/docker" "$WINDOWS_DIR/scripts" "$WINDOWS_DIR/.openai"
 rm -f "$WINDOWS_DIR/Dockerfile" "$WINDOWS_DIR/.dockerignore" "$WINDOWS_DIR/docker-compose.yml" "$WINDOWS_DIR/frame_extractor.swift"
 xattr -cr "$WINDOWS_DIR"
@@ -58,6 +62,7 @@ chmod +x "$LINUX_DIR/Start Reco Trainer Linux.sh" "$LINUX_DIR/docker/start-conta
 rm -f "$LINUX_DIR/Start Reco Preview.command" "$LINUX_DIR/Start Reco Trainer.command" "$LINUX_DIR/Stop Reco Preview.command" "$LINUX_DIR/Start Reco Preview Windows.bat"
 rm -rf "$LINUX_DIR/ui" && cp -R "$PROJECT_DIR/ui" "$LINUX_DIR/ui"
 (cd "$LINUX_DIR" && rm -rf "${DEV_FILES[@]}")
+printf '{"version": "%s"}\n' "$VERSION" > "$LINUX_DIR/version.json"
 rm -rf "$LINUX_DIR/docker" "$LINUX_DIR/scripts" "$LINUX_DIR/.openai"
 rm -f "$LINUX_DIR/Dockerfile" "$LINUX_DIR/.dockerignore" "$LINUX_DIR/docker-compose.yml" "$LINUX_DIR/frame_extractor.swift"
 xattr -cr "$LINUX_DIR"

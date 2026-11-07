@@ -36,6 +36,8 @@ DXDIAG_KEYS = (
     "Feature Levels", "DDI Version", "WDDM", "Hardware Scheduling", "Vendor ID", "Device ID", "SubSys ID",
     "Operating System", "DirectX Version", "DxDiag Version",
 )
+# dxdiag prints "Unknown" when the driver reports no code at all (seen on a working RX 7800 XT).
+DXDIAG_OK_CODES = ("No Problem", "Kein Problem", ": 0", "Unknown", "Unbekannt")
 
 
 class Step:
@@ -204,11 +206,14 @@ def step_dxdiag(step: Step) -> None:
             step.status, step.summary, step.details = "warning", "dxdiag wrote no report", result
             return
         text = target.read_text(encoding="utf-8", errors="replace")
+    step.status, step.summary, step.details = read_dxdiag(text)
+
+
+def read_dxdiag(text: str) -> tuple[str, str, dict[str, Any]]:
     lines = [line.strip() for line in text.splitlines() if any(line.strip().startswith(key + ":") for key in DXDIAG_KEYS)]
-    step.details = {"lines": lines[:80]}
-    problems = [line for line in lines if re.match(r"(Device|Driver) Problem Code:", line) and not line.endswith(("No Problem", "Kein Problem", ": 0"))]
-    step.status = "warning" if problems else "ok"
-    step.summary = "; ".join(problems) if problems else next((line for line in lines if line.startswith("Feature Levels:")), "read")
+    problems = [line for line in lines if re.match(r"(Device|Driver) Problem Code:", line) and not line.endswith(DXDIAG_OK_CODES)]
+    summary = "; ".join(problems) if problems else next((line for line in lines if line.startswith("Feature Levels:")), "read")
+    return ("warning" if problems else "ok"), summary, {"lines": lines[:80]}
 
 
 def step_packages(step: Step) -> None:
