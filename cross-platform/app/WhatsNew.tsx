@@ -8,6 +8,27 @@ type Item = { title: string; text: string };
  *  number in the header opens it again. Add the next version's entry at the top. */
 export const WHATS_NEW: { version: string; items: Record<Language, Item[]> }[] = [
   {
+    version: '0.30.1',
+    items: {
+      de: [
+        { title: 'AMD-Grafik bestätigt', text: 'Ein Tester hat die Erkennung auf einer AMD Radeon RX 7800 XT unter Windows 11 geprüft: 6,7 ms statt 110,7 ms pro Bild auf der CPU, also etwa 16-mal schneller, mit denselben Boxen. Training läuft auf AMD weiterhin auf der CPU.' },
+        { title: 'Genauerer Diagnosebericht', text: 'Der Bericht warnt nicht mehr fälschlich, wenn dxdiag „Driver Problem Code: Unknown“ meldet, und nennt unter Windows und Linux die Reco-Trainer-Version. Nach einem YOLO-Training bleibt kein leerer Ordner „runs“ mehr zurück.' },
+      ],
+      en: [
+        { title: 'AMD graphics confirmed', text: 'A tester checked detection on an AMD Radeon RX 7800 XT with Windows 11: 6.7 ms instead of 110.7 ms per image on the CPU, about 16 times faster, with the same boxes. Training on AMD still runs on the CPU.' },
+        { title: 'More accurate diagnosis report', text: 'The report no longer warns by mistake when dxdiag says “Driver Problem Code: Unknown”, and it names the Reco Trainer version on Windows and Linux. YOLO training no longer leaves an empty “runs” folder behind.' },
+      ],
+      es: [
+        { title: 'Gráficos AMD confirmados', text: 'Un probador comprobó la detección en una AMD Radeon RX 7800 XT con Windows 11: 6,7 ms en lugar de 110,7 ms por imagen en la CPU, unas 16 veces más rápido, con las mismas cajas. El entrenamiento en AMD sigue en la CPU.' },
+        { title: 'Informe de diagnóstico más preciso', text: 'El informe ya no avisa por error cuando dxdiag indica «Driver Problem Code: Unknown» y muestra la versión de Reco Trainer en Windows y Linux. El entrenamiento YOLO ya no deja una carpeta «runs» vacía.' },
+      ],
+      fr: [
+        { title: 'Carte AMD confirmée', text: 'Un testeur a vérifié la détection sur une AMD Radeon RX 7800 XT sous Windows 11 : 6,7 ms au lieu de 110,7 ms par image sur le CPU, environ 16 fois plus rapide, avec les mêmes boîtes. L’entraînement sur AMD reste sur le CPU.' },
+        { title: 'Rapport de diagnostic plus précis', text: 'Le rapport n’avertit plus à tort quand dxdiag indique « Driver Problem Code: Unknown » et affiche la version de Reco Trainer sous Windows et Linux. L’entraînement YOLO ne laisse plus de dossier « runs » vide.' },
+      ],
+    },
+  },
+  {
     version: '0.30.0',
     items: {
       de: [

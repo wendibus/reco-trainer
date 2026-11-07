@@ -211,7 +211,7 @@ Please **do not** attach private match footage, extracted frames, datasets, `.re
 ## Current limitations
 
 - Windows, Linux and Docker still need broader real-system testing.
-- Training uses Apple silicon or an NVIDIA GPU when available; AMD GPUs are not accelerated, and Docker runs on the CPU.
+- Training uses Apple silicon or an NVIDIA GPU when available; AMD GPUs do not accelerate training yet, and Docker runs on the CPU. Detection on AMD graphics (Windows, DirectML) is confirmed on a Radeon RX 7800 XT: about 16 times faster than the CPU.
 - The Mac app is signed and Apple-notarized from 0.19.1 on (0.17.2 as well); older releases are signed only and need **Open** from the context menu on first launch.
 - Automatic labels are suggestions and must be reviewed.
 - Benchmark results are only meaningful with accurate, representative and previously unseen test data.

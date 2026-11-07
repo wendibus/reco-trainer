@@ -1,5 +1,14 @@
 # Änderungen
 
+## 0.30.1
+
+Kleines Bugfix-Release nach dem ersten Bericht von einer AMD-Karte.
+
+- Bestätigt: Erkennung auf AMD-Grafik unter Windows. Auf einer Radeon RX 7800 XT (Windows 11, 16 GB) läuft RF-DETR Nano per DirectML in 6,7 ms statt 110,7 ms auf der CPU (etwa 16-mal schneller), größte Box-Abweichung 0,00018. Vulkan sieht die Karte ebenfalls. Training läuft auf AMD weiterhin auf der CPU.
+- Behoben: Der Diagnosebericht warnte, wenn dxdiag „Driver Problem Code: Unknown“ (bzw. „Unbekannt“) meldet. Das heißt nur, dass der Treiber keinen Code liefert, und gilt jetzt als in Ordnung.
+- Behoben: Unter Windows und Linux stand im Bericht „recoTrainer: unknown“. Die Pakete enthalten jetzt eine `version.json`; das Paketskript bricht ab, wenn seine Version nicht zu `package.json` passt.
+- Behoben: Nach einem YOLO-Training blieben leere Ordner `runs/detect/val*` im Arbeitsordner zurück (auch in den 0.30.0-Paketen für Windows/Linux/Docker). Die Auswertung landet jetzt im Trainingslauf (`runs/<Größe>/eval-val`, `eval-test`), und das Paketskript lässt `runs/` aus.
+
 ## 0.30.0
 
 Neuer Look und optionales YOLO-Training.
