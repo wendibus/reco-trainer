@@ -390,7 +390,8 @@ export default function Home() {
   }, [api]);
 
   useEffect(() => {
-    if (activeModel?.modelSize) setModelSize(activeModel.modelSize);
+    // A YOLO model (modelSize yolo-…) keeps the RF-DETR size choice as it is.
+    if (activeModel?.modelSize && (['nano', 'small', 'medium', 'large'] as string[]).includes(activeModel.modelSize)) setModelSize(activeModel.modelSize);
   }, [activeModel?.packageID, activeModel?.modelSize]);
 
   useEffect(() => { setSelectedAnnotationID(null); setGesture(null); setHistory([]); setFuture([]); }, [selectedFrameID]);

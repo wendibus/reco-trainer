@@ -37,6 +37,7 @@ from pathlib import Path
 from typing import Any
 
 import field_geometry  # standard library only: field outline per video
+import yolo_training  # standard library only at import; Ultralytics is optional (AGPL-3.0)
 
 # Sibling modules (teachers.py, anonymize.py) must import however this file is loaded -
 # as a script, from the payload, or by tests from another folder.
@@ -3537,6 +3538,9 @@ def train(args: argparse.Namespace) -> None:
     project_root = Path(args.project).resolve()
     document = require_project(project_root, args.language)
     keep_awake()
+    if yolo_training.is_variant(args.model):
+        train_yolo(args, project_root, document)
+        return
     auto_epochs = bool(getattr(args, "auto_epochs", False))
     if auto_epochs:
         args.epochs = AUTO_EPOCH_LIMIT
@@ -3821,58 +3825,211 @@ def train(args: argparse.Namespace) -> None:
         if hub_parent:
             manifest["parent"] = hub_parent[1]["hub"]["lineage"]
             atomic_json(manifest_path, manifest)
-        active_path = project_root / "models" / "active.json"
-        current_manifest: dict[str, Any] | None = None
-        if active_path.is_file():
-            try:
-                active_id = str(load_json(active_path).get("packageID", ""))
-                current_manifest = next(
-                    (item for _, item in library_manifests(project_root) if item.get("packageID") == active_id),
-                    None,
-                )
-            except (OSError, ValueError, TypeError, json.JSONDecodeError):
-                current_manifest = None
-        new_score = manifest_comparison_score(manifest)
-        current_score = manifest_comparison_score(current_manifest)
-        # Aggregate quality scores average over a model's own classes, so a ball-only
-        # model and a ball+player+referee model are not comparable - never let the
-        # score alone swap between them; per-class comparison (Modellvergleich) decides.
-        comparable = current_manifest is None or (
-            {str(item) for item in manifest.get("classes", [])}
-            == {str(item) for item in current_manifest.get("classes", [])}
-        )
-        promote = current_manifest is None or (
-            comparable and new_score is not None and (current_score is None or new_score > current_score)
-        )
-        if promote:
-            activate_library_model(project_root, manifest_path, manifest)
-            emit(localized(
-                args.language,
-                f"Neuer bester Modellstand aktiviert: {manifest['displayName']}",
-                f"New best model revision activated: {manifest['displayName']}",
-            ))
-        elif not comparable:
-            current_classes = ", ".join(sorted(str(item) for item in (current_manifest or {}).get("classes", [])))
-            new_classes = ", ".join(sorted(str(item) for item in manifest.get("classes", [])))
-            emit(localized(
-                args.language,
-                f"Modellstand archiviert, aber nicht automatisch aktiviert: Das aktive Modell kennt andere Klassen ({current_classes}) als das neue ({new_classes}); die Qualitätswerte sind nicht vergleichbar. Im Modellvergleich pro Kategorie prüfen und ggf. ein kombiniertes Modell erstellen.",
-                f"Model revision archived but not automatically activated: the active model knows different classes ({current_classes}) than the new one ({new_classes}), so their quality scores are not comparable. Compare per category in the model comparison and, if useful, create a combined model.",
-                f"Revisión del modelo archivada pero no activada automáticamente: el modelo activo conoce otras clases ({current_classes}) que el nuevo ({new_classes}), por lo que sus puntuaciones no son comparables. Compáralos por categoría en la comparación de modelos y, si conviene, crea un modelo combinado.",
-                f"Révision du modèle archivée mais non activée automatiquement : le modèle actif connaît d’autres classes ({current_classes}) que le nouveau ({new_classes}), leurs scores ne sont donc pas comparables. Comparez par catégorie dans la comparaison de modèles et créez au besoin un modèle combiné.",
-            ))
-        else:
-            emit(localized(
-                args.language,
-                f"Modellstand archiviert, aber nicht aktiviert (Qualität {new_score or 0:.4f}; bisher {current_score or 0:.4f}).",
-                f"Model revision archived but not activated (quality {new_score or 0:.4f}; current {current_score or 0:.4f}).",
-            ))
+        promote_if_better(project_root, manifest_path, manifest, args.language)
     if hub_parent and trained_checkpoint is not None:
         compare_with_hub_parent(project_root, args.model, hub_parent, hub_before, trained_checkpoint, args.language)
     emit(localized(
         args.language,
         f"Training abgeschlossen. Modell liegt in {output_dir}",
         f"Training completed. The model is stored in {output_dir}",
+    ))
+
+
+def promote_if_better(project_root: Path, manifest_path: Path, manifest: dict[str, Any], language: str) -> None:
+    """Activate a freshly trained library model when it beats the active one on the same classes."""
+    active_path = project_root / "models" / "active.json"
+    current_manifest: dict[str, Any] | None = None
+    if active_path.is_file():
+        try:
+            active_id = str(load_json(active_path).get("packageID", ""))
+            current_manifest = next(
+                (item for _, item in library_manifests(project_root) if item.get("packageID") == active_id),
+                None,
+            )
+        except (OSError, ValueError, TypeError, json.JSONDecodeError):
+            current_manifest = None
+    new_score = manifest_comparison_score(manifest)
+    current_score = manifest_comparison_score(current_manifest)
+    # Aggregate quality scores average over a model's own classes, so a ball-only
+    # model and a ball+player+referee model are not comparable - never let the
+    # score alone swap between them; per-class comparison (Modellvergleich) decides.
+    comparable = current_manifest is None or (
+        {str(item) for item in manifest.get("classes", [])}
+        == {str(item) for item in current_manifest.get("classes", [])}
+    )
+    promote = current_manifest is None or (
+        comparable and new_score is not None and (current_score is None or new_score > current_score)
+    )
+    if promote:
+        activate_library_model(project_root, manifest_path, manifest)
+        emit(localized(
+            language,
+            f"Neuer bester Modellstand aktiviert: {manifest['displayName']}",
+            f"New best model revision activated: {manifest['displayName']}",
+        ))
+    elif not comparable:
+        current_classes = ", ".join(sorted(str(item) for item in (current_manifest or {}).get("classes", [])))
+        new_classes = ", ".join(sorted(str(item) for item in manifest.get("classes", [])))
+        emit(localized(
+            language,
+            f"Modellstand archiviert, aber nicht automatisch aktiviert: Das aktive Modell kennt andere Klassen ({current_classes}) als das neue ({new_classes}); die Qualitätswerte sind nicht vergleichbar. Im Modellvergleich pro Kategorie prüfen und ggf. ein kombiniertes Modell erstellen.",
+            f"Model revision archived but not automatically activated: the active model knows different classes ({current_classes}) than the new one ({new_classes}), so their quality scores are not comparable. Compare per category in the model comparison and, if useful, create a combined model.",
+            f"Revisión del modelo archivada pero no activada automáticamente: el modelo activo conoce otras clases ({current_classes}) que el nuevo ({new_classes}), por lo que sus puntuaciones no son comparables. Compáralos por categoría en la comparación de modelos y, si conviene, crea un modelo combinado.",
+            f"Révision du modèle archivée mais non activée automatiquement : le modèle actif connaît d’autres classes ({current_classes}) que le nouveau ({new_classes}), leurs scores ne sont donc pas comparables. Comparez par catégorie dans la comparaison de modèles et créez au besoin un modèle combiné.",
+        ))
+    else:
+        emit(localized(
+            language,
+            f"Modellstand archiviert, aber nicht aktiviert (Qualität {new_score or 0:.4f}; bisher {current_score or 0:.4f}).",
+            f"Model revision archived but not activated (quality {new_score or 0:.4f}; current {current_score or 0:.4f}).",
+        ))
+
+
+def yolo_unavailable_message(language: str) -> str:
+    return localized(
+        language,
+        "YOLO (Ultralytics) ist nicht installiert. Im Trainingsdialog YOLO wählen und der AGPL-3.0-Lizenz zustimmen; die App installiert es dann.",
+        "YOLO (Ultralytics) is not installed. Choose YOLO in the training dialog and accept the AGPL-3.0 license; the app then installs it.",
+        "YOLO (Ultralytics) no está instalado. Elige YOLO en el diálogo de entrenamiento y acepta la licencia AGPL-3.0; la app lo instalará.",
+        "YOLO (Ultralytics) n’est pas installé. Choisissez YOLO dans la boîte d’entraînement et acceptez la licence AGPL-3.0 ; l’app l’installera.",
+    )
+
+
+def yolo_base_weights(variant: str, language: str) -> Path:
+    """COCO-pretrained YOLO26 weights, downloaded once per computer and checked by SHA-256."""
+    entry = yolo_training.VARIANTS[variant]
+    target = Path(sys.prefix).parent / "yolo-weights" / entry["file"]
+    if target.is_file() and sha256_file(target) == entry["sha256"]:
+        return target
+    emit(localized(language, f"Lade Basismodell {entry['title']} (AGPL-3.0) …", f"Downloading base model {entry['title']} (AGPL-3.0) …", f"Descargando el modelo base {entry['title']} (AGPL-3.0) …", f"Téléchargement du modèle de base {entry['title']} (AGPL-3.0) …"))
+    fetch_verified(entry, entry["url"], entry["sha256"], int(entry["bytes"]), target, language)
+    return target
+
+
+def yolo_library_parent(project_root: Path, variant: str) -> tuple[Path, dict[str, Any]] | None:
+    """The YOLO model of this size to continue from: the active one if it is that size, else the newest."""
+    candidates = [
+        (path, manifest) for path, manifest in library_manifests(project_root)
+        if manifest.get("yoloVariant") == variant and (path.parent / str(manifest.get("trainWeights", ""))).is_file()
+    ]
+    if not candidates:
+        return None
+    found = active_library_manifest(project_root)
+    if found is not None:
+        for path, manifest in candidates:
+            if manifest.get("packageID") == found[1].get("packageID"):
+                return path, manifest
+    return max(candidates, key=lambda item: str(item[1].get("createdAt", "")))
+
+
+def train_yolo(args: argparse.Namespace, project_root: Path, document: dict[str, Any]) -> None:
+    variant = str(args.model)
+    entry = yolo_training.VARIANTS[variant]
+    if not yolo_training.installed():
+        raise SystemExit(yolo_unavailable_message(args.language))
+    yolo_training.configure_environment(Path(sys.prefix).parent / "ultralytics-settings")
+    auto_epochs = bool(getattr(args, "auto_epochs", False))
+    epochs = AUTO_EPOCH_LIMIT if auto_epochs else max(1, int(args.epochs))
+    patience = int(args.patience) if getattr(args, "patience", None) else (10 if auto_epochs else max(8, min(20, math.ceil(epochs * 0.5))))
+    image_size = int(getattr(args, "image_size", 640) or 640)
+    if image_size not in yolo_training.IMAGE_SIZES:
+        image_size = 640
+    training_categories = list(dict.fromkeys(args.category)) if getattr(args, "category", None) else None
+    stage(1, 3, localized(args.language, "Datensatz vorbereiten", "Prepare dataset", "Preparar el conjunto de datos", "Préparer le jeu de données"))
+    dataset_root = build_dataset(project_root, args.language, categories=training_categories, anonymize_fraction=float(getattr(args, "anonymize_fraction", 0.0) or 0.0))
+    try:
+        data_yaml, class_names = yolo_training.coco_to_yolo(dataset_root, dataset_root.parent / "dataset-yolo")
+    except ValueError as error:
+        raise SystemExit(localized(args.language, "Für YOLO braucht es Trainings- und Validierungsbilder.", "YOLO needs training and validation images.", "YOLO necesita imágenes de entrenamiento y de validación.", "YOLO a besoin d’images d’entraînement et de validation.")) from error
+    device = detect_device()
+    parent = None if getattr(args, "fresh_start", False) else yolo_library_parent(project_root, variant)
+    if parent is not None:
+        start_weights = parent[0].parent / str(parent[1]["trainWeights"])
+        emit(localized(args.language, f"Neuer Feinabstimmungslauf mit {parent[1].get('displayName')}", f"Starting a new fine-tuning cycle from {parent[1].get('displayName')}", f"Nuevo ajuste fino desde {parent[1].get('displayName')}", f"Nouveau cycle d’ajustement à partir de {parent[1].get('displayName')}"))
+    else:
+        start_weights = yolo_base_weights(variant, args.language)
+    emit(localized(
+        args.language,
+        f"Training startet auf {device.upper()} mit {entry['title']} (Ultralytics, AGPL-3.0), Bildgröße {image_size} px.",
+        f"Training starts on {device.upper()} with {entry['title']} (Ultralytics, AGPL-3.0), image size {image_size} px.",
+        f"El entrenamiento comienza en {device.upper()} con {entry['title']} (Ultralytics, AGPL-3.0), tamaño de imagen {image_size} px.",
+        f"L’entraînement démarre sur {device.upper()} avec {entry['title']} (Ultralytics, AGPL-3.0), taille d’image {image_size} px.",
+    ))
+    stage(2, 3, localized(args.language, "Trainieren", "Train", "Entrenar", "Entraîner"))
+
+    def on_epoch(done: int, total: int, metrics: dict[str, float]) -> None:
+        score = metrics.get("val/mAP_50")
+        suffix = f" · mAP50 {score:.3f}" if score is not None else ""
+        if auto_epochs:
+            emit(localized(args.language, f"Epoche {done} (automatisch){suffix}", f"Epoch {done} (automatic){suffix}", f"Época {done} (automático){suffix}", f"Époque {done} (automatique){suffix}"))
+            print(f"RECO_PROGRESS {done} {done + patience}", file=sys.stderr, flush=True)
+        else:
+            emit(localized(args.language, f"Epoche {done} von {total}{suffix}", f"Epoch {done} of {total}{suffix}", f"Época {done} de {total}{suffix}", f"Époque {done} sur {total}{suffix}"))
+            print(f"RECO_PROGRESS {done} {total}", file=sys.stderr, flush=True)
+
+    run_dir = project_root / "runs" / variant
+    result = yolo_training.train(variant, start_weights, data_yaml, run_dir, device, epochs, patience, image_size, parent is not None, on_epoch)
+    stage(3, 3, localized(args.language, "Modell exportieren und einordnen", "Export and file the model", "Exportar y archivar el modelo", "Exporter et classer le modèle"))
+    atomic_json(run_dir / "reco-yolo.json", {"classNames": class_names, "inputSize": image_size, "onnx": str(Path(result["onnx"]).relative_to(run_dir))})
+
+    refreshed = require_project(project_root, args.language)
+    frames = [frame for frame in refreshed.get("frames", []) if frame.get("reviewStatus") != "candidate"]
+    splits, _ = split_frames(frames, args.language)
+    annotations = [annotation for frame in frames for annotation in frame.get("annotations", [])]
+    training_result = {
+        "completedAt": datetime.now(timezone.utc).isoformat(), "model": variant, "family": "yolo", "device": device,
+        "epochsRequested": epochs, "epochsCompleted": result["epochsCompleted"], "autoEpochs": auto_epochs,
+        "frameCount": len(frames), "annotatedFrames": sum(bool(frame.get("annotations")) for frame in frames),
+        "annotationCount": len(annotations), "classes": sorted({str(item.get("category")) for item in annotations}),
+        "splits": {name: len(items) for name, items in splits.items()},
+        "independentTest": len({frame.get("videoID") for frame in frames if not is_imported_frame(frame)}) >= 3,
+        "checkpoint": "best.pt", "continuedFrom": parent[1].get("packageID") if parent else None,
+        "resumeMode": "weights" if parent else "base", "imageSize": image_size,
+        "validationMetrics": result["validationMetrics"], "testMetrics": result["testMetrics"],
+    }
+    refreshed["lastTraining"] = training_result
+    refreshed["trainingHistory"] = [*refreshed.get("trainingHistory", []), training_result][-12:]
+    refreshed["updatedAt"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    atomic_json(project_file(project_root), refreshed)
+
+    now = datetime.now(timezone.utc)
+    sport = str(refreshed["sport"])
+    package_id = f"reco-{sport}-{variant}-{now.strftime('%Y%m%d-%H%M%S-%f')}"
+    onnx_name = f"weights/{package_id}.onnx"
+    manifest = {
+        "schemaVersion": 1, "packageID": package_id,
+        "displayName": f"{sport.replace('_', ' ').title()} · {entry['title']} · {now.strftime('%Y-%m-%d %H:%M UTC')}",
+        "createdAt": now.isoformat(), "sport": sport, "modelSize": variant, "yoloVariant": variant,
+        "classes": sorted(set(class_names)), "classNames": class_names, "format": ONNX_FORMAT, "inputSize": image_size,
+        "source": "local-training",
+        "description": f"Locally trained {entry['title']} detector for {sport} ({', '.join(class_names)}), ONNX with NMS built in, input {image_size} px."[:500],
+        "framework": {"name": yolo_training.FRAMEWORK, "version": yolo_training.ULTRALYTICS_VERSION},
+        "license": yolo_training.LICENSE, "licenseUrl": yolo_training.LICENSE_URL,
+        "trainingSummary": training_result, "validationMetrics": result["validationMetrics"], "testMetrics": result["testMetrics"],
+        "statistics": {"frameCount": len(frames), "annotationCount": len(annotations)},
+        "weights": {"file": onnx_name, "sha256": sha256_file(Path(result["onnx"]))},
+        "trainWeights": "weights/best.pt",
+        "privacy": "This library entry contains model weights and aggregate metadata only; no videos or frames.",
+    }
+    final = project_root / "models" / "library" / package_id
+    staging = project_root / "models" / f".archive-{uuid.uuid4().hex}"
+    try:
+        (staging / "weights").mkdir(parents=True, exist_ok=False)
+        shutil.copy2(result["onnx"], staging / onnx_name)
+        shutil.copy2(result["best"], staging / "weights" / "best.pt")
+        atomic_json(staging / "manifest.json", manifest)
+        final.parent.mkdir(parents=True, exist_ok=True)
+        staging.replace(final)
+    finally:
+        if staging.exists():
+            shutil.rmtree(staging)
+    promote_if_better(project_root, final / "manifest.json", manifest, args.language)
+    emit(localized(
+        args.language,
+        f"Training abgeschlossen: {manifest['displayName']}. Das Modell steht unter AGPL-3.0.",
+        f"Training completed: {manifest['displayName']}. The model is licensed under AGPL-3.0.",
+        f"Entrenamiento completado: {manifest['displayName']}. El modelo está bajo AGPL-3.0.",
+        f"Entraînement terminé : {manifest['displayName']}. Le modèle est sous licence AGPL-3.0.",
     ))
 
 
@@ -4093,12 +4250,20 @@ def confidence_sweep(args: argparse.Namespace) -> None:
     project_root = Path(args.project).resolve()
     document = require_project(project_root, args.language)
     valid, frames_root = sweep_validation_frames(project_root, document, args.language)
-    checkpoint = preferred_run_checkpoint(project_root / "runs" / args.model)
-    if not valid or checkpoint is None:
+    if yolo_training.is_variant(args.model):
+        info_path = project_root / "runs" / args.model / "reco-yolo.json"
+        info = load_json(info_path) if info_path.is_file() else {}
+        onnx_path = project_root / "runs" / args.model / str(info.get("onnx", ""))
+        if not valid or not info or not onnx_path.is_file():
+            raise SystemExit(localized(args.language, "Keine Validierungsbilder oder kein Modell für den Vergleich.", "No validation images or no model to compare.", "No hay imágenes de validación ni modelo para comparar.", "Pas d’images de validation ni de modèle à comparer."))
+        model = OnnxYoloModel(onnx_path, [str(item) for item in info["classNames"]], int(info.get("inputSize") or 640), args.language)
+    checkpoint = None if yolo_training.is_variant(args.model) else preferred_run_checkpoint(project_root / "runs" / args.model)
+    if not yolo_training.is_variant(args.model) and (not valid or checkpoint is None):
         raise SystemExit(localized(args.language, "Keine Validierungsbilder oder kein Modell für den Vergleich.", "No validation images or no model to compare.", "No hay imágenes de validación ni modelo para comparar.", "Pas d’images de validation ni de modèle à comparer."))
     classes = sorted({annotation["category"] for frame in valid for annotation in frame["annotations"]})
-    verify_weights_pickle_safety(checkpoint, args.language, checkpoint.name)
-    model = import_model_class(args.model, args.language)(pretrain_weights=str(checkpoint), device=detect_device())
+    if checkpoint is not None:
+        verify_weights_pickle_safety(checkpoint, args.language, checkpoint.name)
+        model = import_model_class(args.model, args.language)(pretrain_weights=str(checkpoint), device=detect_device())
     label = localized(args.language, "Confidence prüfen", "Check confidence", "Comprobar la confianza", "Vérifier la confiance")
     predictions, seconds = run_benchmark_pass(model, valid, set(classes), str(document["sport"]), SWEEP_THRESHOLDS[0], 1, project_root, label, args.language, frames_root)
     print(json.dumps({
@@ -4115,7 +4280,8 @@ def recommended_model(results: list[dict[str, Any]]) -> str | None:
         return None
     best = max(item["mAP50"] for item in scored)
     close = [item for item in scored if item["mAP50"] >= best - 0.01]
-    return min(close, key=lambda item: list(MODEL_CLASSES).index(item["model"]))["model"]
+    order = [*MODEL_CLASSES, *yolo_training.VARIANTS]
+    return min(close, key=lambda item: order.index(item["model"]) if item["model"] in order else len(order))["model"]
 
 
 def run_batch_step(command: list[str], prefix: str, index: int, count: int) -> tuple[int, str | None, list[str]]:
@@ -4143,9 +4309,10 @@ def train_batch(args: argparse.Namespace) -> None:
     project_root = Path(args.project).resolve()
     require_project(project_root, args.language)
     keep_awake()
-    wanted = [item for item in str(args.models).split(",") if item in MODEL_CLASSES]
+    order = [*MODEL_CLASSES, *yolo_training.VARIANTS]
+    wanted = [item for item in str(args.models).split(",") if item in order]
     # Smallest first: if the night ends early, the quick models are finished.
-    models = sorted(dict.fromkeys(wanted), key=list(MODEL_CLASSES).index)
+    models = sorted(dict.fromkeys(wanted), key=order.index)
     if not models:
         raise SystemExit(localized(args.language, "Kein Modell ausgewählt.", "No model selected.", "Ningún modelo seleccionado.", "Aucun modèle sélectionné."))
     report_path = project_root / "batch-training" / "latest.json"
@@ -4155,7 +4322,7 @@ def train_batch(args: argparse.Namespace) -> None:
     worker = str(Path(__file__).resolve())
     for number, entry in enumerate(results, start=1):
         name = entry["model"]
-        title = name.capitalize()
+        title = yolo_training.VARIANTS[name]["title"] if yolo_training.is_variant(name) else name.capitalize()
         if shutil.disk_usage(project_root).free < BATCH_MIN_FREE_BYTES:
             entry.update(status="skipped", error=localized(args.language, "Zu wenig Speicherplatz (unter 5 GB frei).", "Not enough disk space (under 5 GB free).", "Espacio insuficiente (menos de 5 GB libres).", "Espace disque insuffisant (moins de 5 Go libres)."))
             atomic_json(report_path, report)
@@ -4169,6 +4336,8 @@ def train_batch(args: argparse.Namespace) -> None:
             command.append("--fresh-start")
         if args.anonymize_fraction:
             command += ["--anonymize-fraction", f"{float(args.anonymize_fraction):.2f}"]
+        if yolo_training.is_variant(name):
+            command += ["--image-size", str(int(getattr(args, "image_size", 640) or 640))]
         code, _, tail = run_batch_step(command, title, number, len(results))
         entry["minutes"] = round((time.time() - started) / 60.0, 1)
         if code != 0:
@@ -5544,7 +5713,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     train_parser = commands.add_parser("train")
     train_parser.add_argument("--project", required=True)
-    train_parser.add_argument("--model", choices=MODEL_CLASSES, default="nano")
+    train_parser.add_argument("--model", choices=[*MODEL_CLASSES, *yolo_training.VARIANTS], default="nano")
+    train_parser.add_argument("--image-size", type=int, default=640, help="YOLO only: training and model input size")
     train_parser.add_argument("--epochs", type=int, default=20)
     train_parser.add_argument("--category", nargs="+")
     train_parser.add_argument("--language", choices=["de", "en", "es", "fr"], default="de")
@@ -5563,12 +5733,13 @@ def build_parser() -> argparse.ArgumentParser:
     batch_parser.add_argument("--fresh-start", action="store_true")
     batch_parser.add_argument("--sweep", action="store_true", help="find the best confidence of every model afterwards")
     batch_parser.add_argument("--anonymize-fraction", type=float, default=0.0)
+    batch_parser.add_argument("--image-size", type=int, default=640, help="YOLO only")
     batch_parser.add_argument("--language", choices=["de", "en", "es", "fr"], default="de")
     batch_parser.set_defaults(func=train_batch)
 
     sweep_parser = commands.add_parser("confidence-sweep")
     sweep_parser.add_argument("--project", required=True)
-    sweep_parser.add_argument("--model", choices=MODEL_CLASSES, required=True)
+    sweep_parser.add_argument("--model", choices=[*MODEL_CLASSES, *yolo_training.VARIANTS], required=True)
     sweep_parser.add_argument("--language", choices=["de", "en", "es", "fr"], default="de")
     sweep_parser.set_defaults(func=confidence_sweep)
 

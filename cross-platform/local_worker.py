@@ -33,6 +33,7 @@ import field_geometry  # standard library only: field outline per video
 import model_hub  # standard library only at module level
 import teachers  # standard library only at module level: hardware tiers
 import vlm  # standard library only: the app-managed VLM (llama-server + Qwen3.5)
+import yolo_training  # standard library only at import; installs Ultralytics on request
 
 
 HOST = os.environ.get("RECO_BIND_HOST", "127.0.0.1")
@@ -1753,6 +1754,34 @@ def system_python() -> Path:
     ))
 
 
+def yolo_installed(venv_python: Path) -> bool:
+    try:
+        return subprocess.run([str(venv_python), "-c", "import importlib.util,sys; sys.exit(0 if importlib.util.find_spec('ultralytics') else 1)"], capture_output=True, timeout=60).returncode == 0
+    except (OSError, subprocess.SubprocessError):
+        return False
+
+
+def ensure_yolo(venv_python: Path, license_accepted: bool) -> None:
+    """Install Ultralytics into the ML environment, but only after the user accepted AGPL-3.0."""
+    if yolo_installed(venv_python):
+        return
+    if not license_accepted:
+        raise RuntimeError(localized(
+            "Für YOLO zuerst der AGPL-3.0-Lizenz von Ultralytics zustimmen.",
+            "Accept the Ultralytics AGPL-3.0 license first to use YOLO.",
+            "Acepta primero la licencia AGPL-3.0 de Ultralytics para usar YOLO.",
+            "Acceptez d’abord la licence AGPL-3.0 d’Ultralytics pour utiliser YOLO.",
+        ))
+    STATE.update(message=localized(
+        f"Installiere YOLO (Ultralytics {yolo_training.ULTRALYTICS_VERSION}, AGPL-3.0) …",
+        f"Installing YOLO (Ultralytics {yolo_training.ULTRALYTICS_VERSION}, AGPL-3.0) …",
+        f"Instalando YOLO (Ultralytics {yolo_training.ULTRALYTICS_VERSION}, AGPL-3.0) …",
+        f"Installation de YOLO (Ultralytics {yolo_training.ULTRALYTICS_VERSION}, AGPL-3.0) …",
+    ))
+    for arguments in yolo_training.INSTALL_ARGS:
+        run_logged([str(venv_python), "-m", "pip", "install", *arguments])
+
+
 def run_logged(command: list[str]) -> dict | None:
     # Without an explicit UTF-8 encoding on both ends, a subprocess whose stdout
     # is piped (not a real terminal) falls back to the OS's locale-preferred
@@ -2452,6 +2481,9 @@ def ml_action(action: str, payload: dict) -> None:
         if language not in {"de", "en", "es", "fr"}:
             language = "de"
         model = payload.get("model", "nano")
+        if yolo_training.is_variant(model):
+            # "model" is the RF-DETR size; an active YOLO model is found through models/active.json.
+            model = "nano"
         STATE.update(operation=action, busy=True, progress=0.0, error=None, log=[], message=localized("Lokaler ML-Vorgang startet …", "Local ML operation starting …", "Iniciando la operación local de ML …", "Démarrage de l’opération ML locale …"))
         venv = ml_venv(root)
         venv_python = venv_python_path(venv)
@@ -2646,10 +2678,12 @@ def ml_action(action: str, payload: dict) -> None:
                 if isinstance(fraction, (int, float)) and 0 < fraction <= 0.5:
                     args += ["--anonymize-fraction", f"{float(fraction):.2f}"]
             elif action == "train-batch":
-                backup_project(root, "training")
-                models = [item for item in payload.get("models") or [] if item in {"nano", "small", "medium", "large"}]
+                models = [item for item in payload.get("models") or [] if item in {"nano", "small", "medium", "large"} or yolo_training.is_variant(item)]
                 if not models:
                     raise RuntimeError(localized("Mindestens ein Modell auswählen.", "Select at least one model.", "Selecciona al menos un modelo.", "Sélectionnez au moins un modèle."))
+                if any(yolo_training.is_variant(item) for item in models):
+                    ensure_yolo(venv_python, bool(payload.get("yoloLicenseAccepted")))
+                backup_project(root, "training")
                 args = ["train-batch", "--project", str(root), "--models", ",".join(models), "--epochs", str(max(1, min(500, int(payload.get("epochs", 100))))), "--patience", str(max(3, min(50, int(payload.get("patience", 10))))), "--language", language]
                 if payload.get("autoEpochs"):
                     args.append("--auto-epochs")
@@ -2657,6 +2691,9 @@ def ml_action(action: str, payload: dict) -> None:
                     args.append("--fresh-start")
                 if payload.get("sweep"):
                     args.append("--sweep")
+                if any(yolo_training.is_variant(item) for item in models):
+                    image_size = int(payload.get("imageSize") or 640)
+                    args += ["--image-size", str(image_size if image_size in yolo_training.IMAGE_SIZES else 640)]
                 fraction = payload.get("anonymizeFraction")
                 if isinstance(fraction, (int, float)) and 0 < fraction <= 0.5:
                     args += ["--anonymize-fraction", f"{float(fraction):.2f}"]
