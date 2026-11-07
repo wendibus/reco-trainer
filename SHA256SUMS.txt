@@ -1,5 +1,5 @@
-8bb9c252122c01dc4f84a6c2adbb7b0640a3d268400e96f0de7e3ca60db8e9d1  Reco.Trainer.Docker.0.30.0.zip
-f5e74718266d466a9d42e4f3fe7c8898df4e2b98af93ac121ecb5ae9af3cd479  Reco.Trainer.Linux.0.30.0.zip
-bed89a5c14bbfdc30ac80275a29e97cb1f381d428b3ae8a1caa8e1aa57db03c7  Reco.Trainer.Payload.0.30.0.zip
-f9974701497d4aeda77edf99f2936134b3e6ae9df1b91d171759491bb5a4e932  Reco.Trainer.Windows.0.30.0.zip
-030260061b4495f6bca28eb8a905bc4889c6163c84b09b8ef3bf0c3cc9415d9a  Reco.Trainer.Payload.0.30.0.zip.sig
+eb4a09d346b9666369ce8b08bf297006e5d9abbc7ff26ffd9d8d546f3948c497  Reco.Trainer.Payload.0.30.1.zip
+b5eb8cc0f8bb4fdc187cad31550816ff2e3f9c61d8e218a0224c9b9d6e160827  Reco.Trainer.Payload.0.30.1.zip.sig
+89f754a5e3a5cbcda8cd65a1dc68801fcc1f4b8987d5727ed9687daf5ebaf604  Reco.Trainer.Windows.0.30.1.zip
+08cef93c4b3077710ff89947ccacc3bcc8b90988bcef3c950f34a457e3f07bad  Reco.Trainer.Linux.0.30.1.zip
+f09b14e2e0cc1215529480c8c16b2a48170ccca0ab5e86e392bbb4df9a7857e5  Reco.Trainer.Docker.0.30.1.zip
