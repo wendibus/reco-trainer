@@ -1,5 +1,12 @@
 # Änderungen
 
+## 0.30.0
+
+Neuer Look und optionales YOLO-Training.
+
+- Neu: Die Oberfläche sieht aus wie eine Mac-App, hell und dunkel. Systemschrift in lesbaren Größen, Milchglas-Kopfzeile und -Seitenleiste, macOS-Knöpfe und Segmentschalter, ruhige Karten, Dialoge als Sheets (kurze Einblendung, abgeschaltet bei „Bewegung reduzieren“), Hinweise und Job-Anzeige als Glas-HUD. Das Bild steht auf einer dunklen Graphit-Bühne mit Glasleiste, die in jeder Sprache einzeilig bleibt. Ballorange markiert App-Symbol, Prüfkandidaten und den Ball. Der Dunkelmodus folgt der Systemeinstellung. Aufbau, Knöpfe und Abläufe sind unverändert.
+- Neu: YOLO trainieren (optional). „Lokal trainieren“ bietet neben RF-DETR jetzt YOLO26 Nano, Small und Medium (Ultralytics), auch beide Familien in einem Vergleichslauf. Ultralytics steht unter AGPL-3.0 und wird erst nach Zustimmung im Dialog in die ML-Umgebung installiert (Version 8.4.180 fest, ohne zweites OpenCV-Paket); die Basisgewichte sind per SHA-256 festgelegt und nicht Teil der Apache/MIT-Modellliste. Nutzungsstatistik und automatische Paketinstallationen von Ultralytics sind abgeschaltet. Bildgröße 640, 960 oder 1280 px wählbar. Das trainierte Modell wird nach ONNX (NMS eingebaut) exportiert und als Bibliotheksmodell abgelegt; es markiert automatisch, läuft im Modelltest und in der Balltracking-Simulation, und der nächste YOLO-Lauf derselben Größe setzt darauf auf. Core ML, kombinierte Modelle und `.recomodel`-Teilen bleiben RF-DETR vorbehalten. Batch-Training und Confidence-Ermittlung kennen YOLO.
+
 ## 0.29.0
 
 Annotieren von sehr kleinen Bällen (viel Zoomen und Verschieben) und eine Diagnose für AMD-/Intel-Grafik.

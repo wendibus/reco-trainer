@@ -8,6 +8,31 @@ type Item = { title: string; text: string };
  *  number in the header opens it again. Add the next version's entry at the top. */
 export const WHATS_NEW: { version: string; items: Record<Language, Item[]> }[] = [
   {
+    version: '0.30.0',
+    items: {
+      de: [
+        { title: 'Neuer Look, hell und dunkel', text: 'Die Oberfläche sieht jetzt aus wie eine Mac-App: Systemschrift, Milchglas-Seitenleiste, ruhige Karten und Dialoge. Das Bild steht auf einer dunklen Bühne mit Glasleiste. Der Dunkelmodus folgt der Systemeinstellung. Alle Knöpfe sind dort, wo sie waren.' },
+        { title: 'YOLO trainieren (optional)', text: 'Im Dialog „Lokal trainieren“ gibt es neben RF-DETR jetzt YOLO26 Nano, Small und Medium, auch beide im Vergleich. YOLO wird beim ersten Mal installiert, nachdem du der AGPL-3.0-Lizenz von Ultralytics zugestimmt hast; damit trainierte Modelle stehen ebenfalls unter AGPL-3.0. Das Modell kann danach automatisch markieren, getestet und in der Tracking-Simulation genutzt werden.' },
+        { title: 'Bildgröße für kleine Bälle', text: 'Für YOLO lässt sich die Bildgröße wählen (640, 960 oder 1280 px). Größer findet kleine Bälle besser, braucht aber mehr Zeit und Speicher.' },
+      ],
+      en: [
+        { title: 'New look, light and dark', text: 'The interface now looks like a Mac app: system font, translucent sidebar, calm cards and dialogs. The frame sits on a dark stage with a glass bar. Dark mode follows the system setting. Every button is where it was.' },
+        { title: 'Train YOLO (optional)', text: 'The “Train locally” dialog now offers YOLO26 Nano, Small and Medium next to RF-DETR, also both side by side. YOLO is installed the first time, after you accept the Ultralytics AGPL-3.0 license; models trained with it are AGPL-3.0 as well. The model can then auto-label, be tested and be used in the tracking simulation.' },
+        { title: 'Image size for small balls', text: 'For YOLO you can choose the image size (640, 960 or 1280 px). Larger finds small balls better but needs more time and memory.' },
+      ],
+      es: [
+        { title: 'Nuevo aspecto, claro y oscuro', text: 'La interfaz parece ahora una app de Mac: fuente del sistema, barra lateral translúcida, tarjetas y diálogos tranquilos. La imagen está sobre un escenario oscuro con una barra de cristal. El modo oscuro sigue el ajuste del sistema. Todos los botones siguen en su sitio.' },
+        { title: 'Entrenar YOLO (opcional)', text: 'El diálogo «Entrenar localmente» ofrece ahora YOLO26 Nano, Small y Medium junto a RF-DETR, también ambos para comparar. YOLO se instala la primera vez, tras aceptar la licencia AGPL-3.0 de Ultralytics; los modelos entrenados con él también son AGPL-3.0. Después el modelo puede marcar automáticamente, probarse y usarse en la simulación de seguimiento.' },
+        { title: 'Tamaño de imagen para balones pequeños', text: 'Para YOLO se puede elegir el tamaño de imagen (640, 960 o 1280 px). Más grande detecta mejor balones pequeños, pero necesita más tiempo y memoria.' },
+      ],
+      fr: [
+        { title: 'Nouveau look, clair et sombre', text: 'L’interface ressemble maintenant à une app Mac : police système, barre latérale translucide, cartes et dialogues sobres. L’image repose sur une scène sombre avec une barre en verre. Le mode sombre suit le réglage du système. Tous les boutons sont restés à leur place.' },
+        { title: 'Entraîner YOLO (optionnel)', text: 'La boîte « Entraîner localement » propose maintenant YOLO26 Nano, Small et Medium à côté de RF-DETR, aussi les deux en comparaison. YOLO est installé la première fois, après acceptation de la licence AGPL-3.0 d’Ultralytics ; les modèles entraînés avec lui sont aussi sous AGPL-3.0. Le modèle peut ensuite marquer automatiquement, être testé et servir dans la simulation de suivi.' },
+        { title: 'Taille d’image pour les petits ballons', text: 'Pour YOLO, on peut choisir la taille d’image (640, 960 ou 1280 px). Plus grand détecte mieux les petits ballons, mais demande plus de temps et de mémoire.' },
+      ],
+    },
+  },
+  {
     version: '0.29.0',
     items: {
       de: [

@@ -51,3 +51,7 @@ gh release create basketball-nano-2026-08 model.recomodel --title "Basketball Na
 ```
 
 Reco Trainer never runs this command automatically.
+
+## YOLO models trained in Reco Trainer
+
+Since 0.30, YOLO26 models trained in the app are stored as `onnx-yolo` library packages (ONNX with NMS built in, plus `best.pt` so the next YOLO run can continue). Their manifest names `"license": "AGPL-3.0 (Ultralytics YOLO26)"`, `framework` (Ultralytics and its version) and `yoloVariant`. Like imported YOLO models they are used for auto-labeling, the benchmark and the ball-tracking simulation, not for Core ML export or combined models.

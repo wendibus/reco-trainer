@@ -74,7 +74,7 @@ The extracted folders also contain `START-HERE.md` with a step-by-step tour of t
 
 1. **Prepare** — choose a sport and a working folder with videos, images or datasets; frames are extracted locally from videos (60 per video by default; you can lower or raise the number) and unsuitable ones can be removed.
 2. **Label** — draw and correct boxes, or let a model suggest them (**auto-label**) and review each suggestion. Mark the **field boundaries** per video / camera position (at least four points along the edge, joined by straight lines; points on the image edge when the field leaves the frame) so auto-label only considers people standing on the field, zoom up to 20× to the mouse, use shortcuts (hold space to pan, B new box, 1–9 class), and tighten boxes with **Refine boxes with OpenCV**. Ten undo/redo steps per image.
-3. **Train** — fine-tune RF-DETR Nano or Small locally. Every run is kept as its own model version; a worse run never silently replaces the active one.
+3. **Train** — fine-tune RF-DETR (Nano to Large) locally, or optionally YOLO26 (Nano/Small/Medium, Ultralytics, AGPL-3.0, installed only after you accept its license). Every run is kept as its own model version; a worse run never silently replaces the active one.
 4. **Improve** — **Review new videos** builds a review queue from footage the model has not seen, prioritizing uncertain frames (model disagreement, positional outliers). Only frames you reviewed enter training. **Check consistency** looks for missing, duplicate or jumping boxes (see [Consistency check](#consistency-check)).
 5. **Test** — **Independent model test** builds a held-out test set from videos never used for training; **Test models** ranks all compatible models on it (mAP@0.50, precision, recall, F1, mean IoU, false positives/negatives, inference time). You can also bake a **combined model** that uses the best model per category.
 6. **Inspect tracking** — the **ball-tracking simulation** plays a short clip frame by frame and shows detected, interpolated, held and lost ball positions.
@@ -161,6 +161,8 @@ The studio works best with a fixed camera. With a moving camera a session has on
 
 Reco Trainer only downloads models under **Apache-2.0** or **MIT**, each with a checksum ([`cross-platform/model_registry.json`](cross-platform/model_registry.json)); the licenses are shown in the export dialog and written into every export's `metadata.json`.
 
+The one exception is optional and needs your consent: **YOLO training** (since 0.30) installs Ultralytics `8.4.180` and downloads YOLO26 base weights (pinned by SHA-256), both under **AGPL-3.0**, only after you tick the license box in the training dialog. They are not part of the registry above, and YOLO models trained with them are AGPL-3.0 as well.
+
 | Model | Used for | License |
 |---|---|---|
 | RF-DETR Nano / Small / Medium / Large (COCO) | training base, auto-label, finding people for anonymization | Apache-2.0 |
@@ -174,7 +176,7 @@ Reco Trainer only downloads models under **Apache-2.0** or **MIT**, each with a 
 | ONNX Runtime (`onnxruntime`, installed by **Set up ML** from PyPI) | imported ONNX models, RF-DETR on AMD/Intel graphics | MIT |
 | DirectML (`DirectML.dll` inside `onnxruntime-directml`, Windows without NVIDIA only) | RF-DETR detection on AMD/Intel graphics | Microsoft DirectML license terms (redistributable, Windows/Xbox only) |
 
-RF-DETR XL/2XL (PML 1.0), SAM 3 and Ultralytics models are not used. Hugging Face models are pinned to one exact revision.
+RF-DETR XL/2XL (PML 1.0) and SAM 3 are not used; Ultralytics only for the optional YOLO training described above. Hugging Face models are pinned to one exact revision.
 
 ## Hardware
 
