@@ -1,5 +1,13 @@
 # Änderungen
 
+## 0.30.2
+
+Spielfeldgrenze entfernen (Wunsch eines Testers).
+
+- Neu: „Spielfeldgrenze entfernen“ im Dialog „Spielfeld bearbeiten“, sobald eine Grenze gespeichert ist. Löscht die Grenze dieses Videos oder, mit Häkchen „Für alle Videos übernehmen“, die aller Videos (auch die Vorgabe für neue Videos). Der erste Klick färbt den Knopf rot („Wirklich entfernen?“), erst der zweite löscht. Vorher wird `project.json` in `backups/` gesichert. Automatisch markieren filtert für diese Videos danach nicht mehr nach Spielfeld.
+- Behoben: Unter Windows zeigte die Hardware-Zeile „? GB“, weil es dort kein `os.sysconf` gibt. Der Arbeitsspeicher wird jetzt über `GlobalMemoryStatusEx` gelesen, auch für die Wahl der Trainings-Batchgröße.
+- Geändert: Die Hardware-Zeile nennt die DirectML-Erkennung nicht mehr „experimentell“ (bestätigt auf einer RX 7800 XT).
+
 ## 0.30.1
 
 Kleines Bugfix-Release nach dem ersten Bericht von einer AMD-Karte.

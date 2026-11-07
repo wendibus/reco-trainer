@@ -8,6 +8,27 @@ type Item = { title: string; text: string };
  *  number in the header opens it again. Add the next version's entry at the top. */
 export const WHATS_NEW: { version: string; items: Record<Language, Item[]> }[] = [
   {
+    version: '0.30.2',
+    items: {
+      de: [
+        { title: 'Spielfeldgrenze entfernen', text: 'Im Dialog „Spielfeld bearbeiten“ löscht „Spielfeldgrenze entfernen“ die Grenze dieses Videos, mit Häkchen „Für alle Videos übernehmen“ die aller Videos. Zur Sicherheit braucht es einen zweiten Klick. Automatisch markieren filtert danach nicht mehr nach Spielfeld.' },
+        { title: 'Arbeitsspeicher unter Windows', text: 'Die Hardware-Zeile zeigt unter Windows jetzt den Arbeitsspeicher statt „? GB“. Die Erkennung auf AMD- und Intel-Grafik heißt nicht mehr „experimentell“.' },
+      ],
+      en: [
+        { title: 'Remove a field boundary', text: 'In “Edit field boundaries”, “Remove field boundary” deletes this video’s boundary, or every video’s with “Use for all videos” ticked. It asks for a second click to be safe. Auto-label then no longer filters by field.' },
+        { title: 'Memory on Windows', text: 'The hardware line on Windows now shows the memory instead of “? GB”. Detection on AMD and Intel graphics is no longer called “experimental”.' },
+      ],
+      es: [
+        { title: 'Eliminar el límite del campo', text: 'En «Editar el campo», «Eliminar límite del campo» borra el límite de este vídeo, o el de todos con «Usar para todos los vídeos» marcado. Por seguridad pide un segundo clic. Después, el marcado automático ya no filtra por campo.' },
+        { title: 'Memoria en Windows', text: 'La línea de hardware en Windows muestra ahora la memoria en lugar de «? GB». La detección en gráficas AMD e Intel ya no se llama «experimental».' },
+      ],
+      fr: [
+        { title: 'Supprimer la limite du terrain', text: 'Dans « Modifier le terrain », « Supprimer la limite du terrain » efface la limite de cette vidéo, ou de toutes avec « Utiliser pour toutes les vidéos » coché. Un second clic confirme. Le marquage automatique ne filtre alors plus par terrain.' },
+        { title: 'Mémoire sous Windows', text: 'La ligne matériel sous Windows affiche maintenant la mémoire au lieu de « ? GB ». La détection sur cartes AMD et Intel n’est plus dite « expérimentale ».' },
+      ],
+    },
+  },
+  {
     version: '0.30.1',
     items: {
       de: [
