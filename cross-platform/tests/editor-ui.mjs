@@ -13,7 +13,7 @@ try {
  const page=await browser.newPage({viewport:{width:1440,height:1000}});
  page.setDefaultTimeout(8000);page.setDefaultNavigationTimeout(10000);
  const errors=[];page.on('pageerror',e=>errors.push(String(e)));
- await page.addInitScript(()=>{localStorage.setItem('reco-language-v1','de');localStorage.setItem('reco-walkthrough-complete-v2','yes');localStorage.setItem('reco-field-nudge-dismissed-v1','yes');});
+ await page.addInitScript(()=>{localStorage.setItem('reco-language-v1','de');localStorage.setItem('reco-walkthrough-complete-v2','yes');localStorage.setItem('reco-field-nudge-dismissed-v1','yes');localStorage.setItem('reco-whats-new-seen-v1','9.9.9');});
  let saves=[];let fail=false;
  const original={id:'player1',category:'player',x:400,y:250,width:100,height:240,source:'auto',confidence:0.81};
  const state={connected:true,selectedFolder:'/synthetic',folderName:'Synthetischer UI-Test',sport:'football',operation:'ready',progress:0,message:'Bereit',busy:false,error:null,log:'',mlReady:false,frames:[{id:'one',relativePath:'one.svg',videoName:'Synthetisches Testbild',timestamp:0,width:1600,height:900,reviewStatus:'reviewed',annotations:[structuredClone(original),{id:'ball1',category:'ball',x:900,y:500,width:25,height:25,source:'manual'}]}],modelLibrary:{packages:[],activePackageID:null}};

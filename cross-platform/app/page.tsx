@@ -15,6 +15,7 @@ import { BatchReportPanel, TrainDialog, type TrainRequest } from './TrainDialog'
 import { HubDialog, HubShareDialog, hubLabels } from './ModelHub';
 import { AugmentationStudio } from './AugmentationStudio';
 import { MAX_ZOOM, MIN_ZOOM, clampZoom, screenPixels, steppedZoom, viewBox as frameViewBox, wheelFactor, zoomAt, zoomLabel, type Point, type Size, type View } from './viewport';
+import WhatsNew, { whatsNewFor } from './WhatsNew';
 import ConsistencyReview, { consistencyProposal, reviewListText, type ReviewAnnotation } from './ConsistencyReview';
 
 type Platform = 'mac' | 'windows' | 'linux';
@@ -65,7 +66,8 @@ const DEFAULT_API = import.meta.env.DEV ? 'http://127.0.0.1:8766' : window.locat
 // Single source of truth for this web UI's own version - bump alongside
 // VERSION in cross-platform/scripts/package-platforms.sh at every release.
 // Compared against GitHub's latest release tag to power the update banner.
-const CURRENT_VERSION = '0.28.0';
+const CURRENT_VERSION = '0.29.0';
+const WHATS_NEW_SEEN_KEY = 'reco-whats-new-seen-v1';
 // One clearly different colour per class, so boxes can be told apart at a glance.
 // Auto-label suggestions are dashed (not recoloured), so the colour always means the class.
 const CATEGORY_COLORS: Record<string, string> = {
@@ -208,6 +210,7 @@ export default function Home() {
   const [fieldNudgeDismissed, setFieldNudgeDismissed] = useState(false);
   const [workspaceView, setWorkspaceView] = useState<'training' | 'benchmark' | 'simulation' | 'augment'>('training');
   const [walkthroughOpen, setWalkthroughOpen] = useState(false);
+  const [whatsNewOpen, setWhatsNewOpen] = useState(false);
   const [walkthroughStep, setWalkthroughStep] = useState(0);
   const [onboardingChoiceOpen, setOnboardingChoiceOpen] = useState(false);
   const [videoWalkthroughOpen, setVideoWalkthroughOpen] = useState(false);
@@ -315,6 +318,13 @@ export default function Home() {
     } else {
       setLanguagePromptOpen(true);
     }
+    // "What's new" once after an update; a first start gets the walkthrough instead.
+    try {
+      const seen = window.localStorage.getItem(WHATS_NEW_SEEN_KEY);
+      const returning = window.localStorage.getItem('reco-walkthrough-complete-v2') === 'yes';
+      if (!returning) window.localStorage.setItem(WHATS_NEW_SEEN_KEY, CURRENT_VERSION);
+      else if (whatsNewFor(CURRENT_VERSION) && (!seen || isNewerVersion(CURRENT_VERSION, seen))) setWhatsNewOpen(true);
+    } catch { /* storage unavailable: skip the popup */ }
     setDismissedUpdateVersion(window.localStorage.getItem(DISMISSED_UPDATE_KEY) ?? '');
     setUseCuda(window.localStorage.getItem('reco-use-cuda-v1') !== 'no');
     setFieldNudgeDismissed(window.localStorage.getItem('reco-field-nudge-dismissed-v1') === 'yes');
@@ -473,6 +483,10 @@ export default function Home() {
   async function saveFieldGeometry(geometry: FieldGeometry, applyToAll: boolean) {
     await post('/api/field-geometry', { ...geometry, video: fieldFrame?.videoName ?? '', applyToAll });
     setFieldEditorOpen(false);
+  }
+  function closeWhatsNew() {
+    setWhatsNewOpen(false);
+    try { window.localStorage.setItem(WHATS_NEW_SEEN_KEY, CURRENT_VERSION); } catch { /* optional */ }
   }
   function dismissFieldNudge() {
     window.localStorage.setItem('reco-field-nudge-dismissed-v1', 'yes');
@@ -701,7 +715,7 @@ export default function Home() {
 
   return <main className="preview-page"><HintLayer enabled={hintsEnabled} />
     <header className="preview-header">
-      <div className="brand-block"><div className="brand-mark" aria-hidden="true">R</div><div><h1>Reco Trainer <small>{CURRENT_VERSION}</small></h1><p>{t.preview}</p></div></div>
+      <div className="brand-block"><div className="brand-mark" aria-hidden="true">R</div><div><h1>Reco Trainer <button data-hint={h.whatsNew} type="button" className="version-button" onClick={() => setWhatsNewOpen(true)}>{CURRENT_VERSION}</button></h1><p>{t.preview}</p></div></div>
       <div className="switches"><div className="segmented" role="group" aria-label={t.platformLabel}>{(['mac', 'windows', 'linux'] as Platform[]).map((item) => <button data-hint={h.platform} type="button" key={item} className={platform === item ? 'active' : ''} onClick={() => setPlatform(item)}>{item === 'mac' ? 'macOS' : item === 'windows' ? 'Windows' : 'Linux'}</button>)}</div><button type="button" data-hint={hintsEnabled ? h.toggleOn : h.toggleOff} className={hintsEnabled ? 'hints-toggle active' : 'hints-toggle'} aria-pressed={hintsEnabled} onClick={toggleHints}>💬 {h.toggle}</button><div className="segmented language-switch" role="group" aria-label={t.languageLabel}>{(['de', 'en', 'es', 'fr'] as Language[]).map((item) => <button data-hint={h.language} type="button" key={item} className={language === item ? 'active' : ''} onClick={() => chooseLanguage(item)}>{item.toUpperCase()}</button>)}</div></div>
       <div className="header-actions"><button data-hint={workspaceView === 'benchmark' ? h.viewBack : h.viewBenchmark} type="button" className={workspaceView === 'benchmark' ? 'walkthrough-launch active-view' : 'walkthrough-launch'} onClick={() => setWorkspaceView((view) => view === 'benchmark' ? 'training' : 'benchmark')}>{workspaceView === 'benchmark' ? `← ${trainingLabel}` : `◇ ${benchmarkLabel}`}</button><button data-hint={workspaceView === 'simulation' ? h.viewBack : h.viewSimulation} type="button" className={workspaceView === 'simulation' ? 'walkthrough-launch active-view' : 'walkthrough-launch'} onClick={() => setWorkspaceView((view) => view === 'simulation' ? 'training' : 'simulation')}>{workspaceView === 'simulation' ? `← ${trainingLabel}` : `◎ ${simulationLabel}`}</button><button data-hint={workspaceView === 'augment' ? h.viewBack : h.viewAugment} type="button" className={workspaceView === 'augment' ? 'walkthrough-launch active-view' : 'walkthrough-launch'} onClick={() => setWorkspaceView((view) => view === 'augment' ? 'training' : 'augment')}>{workspaceView === 'augment' ? `← ${trainingLabel}` : '✦ Augmentation Studio'}</button><button data-hint={h.help} type="button" className="walkthrough-launch" onClick={() => setOnboardingChoiceOpen(true)}>? {t.help}</button><div className="local-note"><span>●</span>{t.note}</div></div>
     </header>
@@ -754,6 +768,7 @@ export default function Home() {
     {consistencyOpen && <ConsistencyDialog language={language} tier={advanced.tier === 'auto' ? (worker?.hardwareTier?.detected ?? 'weak') : advanced.tier} registry={worker?.modelRegistry ?? []} onClose={() => setConsistencyOpen(false)} onStart={(options) => { setConsistencyOpen(false); void runML('/api/consistency-check', { ...options, tier: advanced.tier }); }} />}
     {exportOpen && <ExportDialog language={language} mlReady={!!worker?.mlReady} accelerated={worker?.hardware?.accelerator.kind === 'apple-gpu' || worker?.hardware?.accelerator.kind === 'cuda'} registry={worker?.modelRegistry ?? []} vlmAllowed={(advanced.tier === 'auto' ? worker?.hardwareTier?.detected : advanced.tier) !== 'weak'} onClose={() => setExportOpen(false)} onStart={(options) => { setExportOpen(false); void runML('/api/export-dataset', options); }} />}
     {onnxForm && <div className="walkthrough-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setOnnxForm(null); }}><form className="onnx-dialog" role="dialog" aria-modal="true" aria-labelledby="onnx-title" onSubmit={(event) => { event.preventDefault(); const form = onnxForm; setOnnxForm(null); void runML('/api/import-onnx', form); }}><h2 id="onnx-title">{x.importOnnx}</h2><p>{x.importOnnxHelp}</p><label>{x.onnxName}<input value={onnxForm.name} onChange={(event) => setOnnxForm({ ...onnxForm, name: event.target.value })} /></label><label>{x.onnxClasses}<input required placeholder="player, ball, referee" value={onnxForm.classNames} onChange={(event) => setOnnxForm({ ...onnxForm, classNames: event.target.value })} /><small>{x.onnxClassesHint(categories.join(', '))}</small></label><label>{x.onnxInputSize}<input type="number" min={64} max={4096} step={32} value={onnxForm.inputSize} onChange={(event) => setOnnxForm({ ...onnxForm, inputSize: Number(event.target.value) })} /><small>{x.onnxInputSizeHint}</small></label><label>{x.onnxLicense}<input placeholder="AGPL-3.0" value={onnxForm.license} onChange={(event) => setOnnxForm({ ...onnxForm, license: event.target.value })} /></label><div className="onnx-actions"><button data-hint={h.cancel} type="button" className="secondary-button" onClick={() => setOnnxForm(null)}>{x.cancel}</button><button data-hint={h.chooseOnnx} type="submit" className="primary-button" disabled={!onnxForm.classNames.trim()}>{x.onnxChooseFile}</button></div></form></div>}
+    {whatsNewOpen && <WhatsNew language={language} version={CURRENT_VERSION} onClose={closeWhatsNew} />}
     {fieldEditorOpen && fieldFrame && <FieldGeometryEditor key={fieldFrame.videoName} language={language} api={api} frame={fieldFrame} existing={fieldFor(fieldFrame.videoName)} videoCount={videoNames.length} onSave={saveFieldGeometry} onCancel={() => setFieldEditorOpen(false)} />}
     {onboardingChoiceOpen && !languagePromptOpen && <div className="walkthrough-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) finishOnboarding(); }}><section className="onboarding-choice-dialog" role="dialog" aria-modal="true" aria-labelledby="onboarding-choice-title"><button data-hint={h.close} type="button" className="walkthrough-close" aria-label={t.close} onClick={finishOnboarding}>×</button><h2 id="onboarding-choice-title">{t.onboardingChoiceTitle}</h2><p>{t.onboardingChoiceSubtitle}</p><div className="onboarding-choice-options"><button data-hint={h.watchVideo} type="button" onClick={() => { setOnboardingChoiceOpen(false); setVideoWalkthroughOpen(true); }}><strong>▶ {t.onboardingWatchVideo}</strong><span>{t.onboardingWatchVideoHint}</span></button><button data-hint={h.steps} type="button" onClick={() => { setOnboardingChoiceOpen(false); setWalkthroughStep(0); setWalkthroughOpen(true); }}><strong>☰ {t.onboardingSteps}</strong><span>{t.onboardingStepsHint}</span></button></div><small>Videos and images always remain on this computer.</small></section></div>}
     {videoWalkthroughOpen && <div className="walkthrough-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) finishOnboarding(); }}><section className="video-walkthrough-dialog" role="dialog" aria-modal="true" aria-labelledby="video-walkthrough-title"><div className="video-walkthrough-header"><h2 id="video-walkthrough-title">{t.videoWalkthroughTitle}</h2><button data-hint={h.close} type="button" className="primary-button" onClick={finishOnboarding}>{t.done}</button></div><video src={`/walkthrough-${language}.mp4`} controls autoPlay playsInline /></section></div>}

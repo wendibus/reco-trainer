@@ -566,7 +566,14 @@ button:disabled[data-hint] { pointer-events:none; }
 .benchmark-readiness ul { margin:6px 0 0; padding-left:18px; display:grid; gap:5px; }
 .benchmark-readiness li span { display:block; font-weight:700; }
 .benchmark-readiness li small { color:#7a5d1d; }
-.disabled-reason { display:inline-block; }
-.disabled-reason > button { width:100%; }
-.disabled-reason > button:disabled { pointer-events:none; } /* the wrapper shows the reason on hover */
 .benchmark-disabled-note { display:block; margin-top:5px; color:#8a6a24; font-size:9px; }
+.version-button { margin-left:5px; padding:1px 5px; border:1px solid transparent; border-radius:5px; background:transparent; color:#7a8698; font-size:9px; font-weight:700; vertical-align:middle; }
+.version-button:hover { border-color:#cbd4df; color:var(--blue); }
+.whats-new-dialog { width:min(620px,100%); max-height:calc(100dvh - 48px); overflow:auto; padding:26px 28px 20px; border-radius:20px; background:#fff; box-shadow:0 28px 80px rgba(8,20,42,.34); }
+.whats-new-dialog h2 { margin:0 0 14px; font-size:19px; letter-spacing:-.02em; }
+.whats-new-dialog ul { margin:0; padding:0; list-style:none; display:grid; gap:11px; }
+.whats-new-dialog li { display:grid; gap:2px; padding:10px 12px; border:1px solid #e1e7ef; border-radius:10px; background:#f8fafc; }
+.whats-new-dialog li strong { font-size:13px; color:#162238; }
+.whats-new-dialog li span { font-size:12px; color:#4a5870; line-height:1.45; }
+.whats-new-actions { display:flex; justify-content:flex-end; margin-top:16px; }
+.whats-new-dialog:focus { outline:none; }
