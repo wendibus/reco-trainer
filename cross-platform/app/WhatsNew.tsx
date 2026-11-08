@@ -8,6 +8,31 @@ type Item = { title: string; text: string };
  *  number in the header opens it again. Add the next version's entry at the top. */
 export const WHATS_NEW: { version: string; items: Record<Language, Item[]> }[] = [
   {
+    version: '0.30.5',
+    items: {
+      de: [
+        { title: 'Leere Bilder nur nach Bestätigung im Training', text: 'Ein Bild ohne Boxen kommt erst ins Training, wenn du im Editor „Bild ist leer“ anklickst. Vorher zählten auch noch nicht markierte Bilder als leer und brachten dem Modell bei, dass Spieler und Ball Hintergrund sind. Die Übersicht zeigt, wie viele Bilder ohne Boxen draußen bleiben.' },
+        { title: 'Leere Hallen als Hintergrundbilder', text: 'Fotos einer leeren Halle in den Arbeitsordner legen, vorbereiten, sichtbare Körbe markieren und „Bild ist leer“ bzw. die Boxen speichern. So lernt das Modell, was kein Ball und kein Spieler ist.' },
+        { title: 'Klarere Rolle im Augmentation Studio', text: '„Statisch“ heißt jetzt „Bleibt an seinem Platz“: Körbe und Tore werden nicht verschoben, behalten aber ihre Klasse und Box.' },
+      ],
+      en: [
+        { title: 'Empty images train only when confirmed', text: 'An image without boxes only goes into training once you click “Image is empty” in the editor. Before, images not yet labelled also counted as empty and taught the model that players and ball are background. The summary shows how many images without boxes stay out.' },
+        { title: 'Empty halls as background images', text: 'Put photos of an empty hall into the working folder, prepare it, mark visible hoops and save, or click “Image is empty”. The model learns what is not a ball or a player.' },
+        { title: 'Clearer role in the Augmentation Studio', text: '“Static” is now called “Stays in place”: hoops and goals are not moved but keep their class and box.' },
+      ],
+      es: [
+        { title: 'Imágenes vacías solo si se confirman', text: 'Una imagen sin cuadros solo entra en el entrenamiento si pulsas «La imagen está vacía» en el editor. Antes también contaban como vacías las imágenes aún sin etiquetar y enseñaban al modelo que jugadores y balón son fondo. El resumen muestra cuántas imágenes sin cuadros quedan fuera.' },
+        { title: 'Pabellones vacíos como fondo', text: 'Pon fotos de un pabellón vacío en la carpeta de trabajo, prepárala, marca las canastas visibles y guarda, o pulsa «La imagen está vacía». El modelo aprende qué no es un balón ni un jugador.' },
+        { title: 'Función más clara en Augmentation Studio', text: '«Estático» ahora se llama «Se queda en su sitio»: canastas y porterías no se mueven, pero conservan su clase y su cuadro.' },
+      ],
+      fr: [
+        { title: 'Images vides seulement après confirmation', text: 'Une image sans boîtes n’entre dans l’entraînement qu’après un clic sur « L’image est vide » dans l’éditeur. Avant, les images pas encore annotées comptaient aussi comme vides et apprenaient au modèle que joueurs et ballon sont du fond. Le résumé indique combien d’images sans boîtes restent dehors.' },
+        { title: 'Salles vides comme images de fond', text: 'Placez des photos d’une salle vide dans le dossier de travail, préparez-le, annotez les paniers visibles et enregistrez, ou cliquez sur « L’image est vide ». Le modèle apprend ce qui n’est ni un ballon ni un joueur.' },
+        { title: 'Rôle plus clair dans Augmentation Studio', text: '« Statique » s’appelle désormais « Reste à sa place » : paniers et buts ne sont pas déplacés mais gardent leur classe et leur boîte.' },
+      ],
+    },
+  },
+  {
     version: '0.30.4',
     items: {
       de: [

@@ -110,6 +110,8 @@ Reviewing a candidate frame means one of:
 - **Correcting** them — resizing, moving, deleting, or adding a box — when the model got close but not quite right.
 - **Rejecting** the frame entirely when it's not useful (motion blur, empty scene, nothing of interest).
 
+**Images without boxes.** An image with no boxes only goes into training after you click **Image is empty** in the editor. Use it for frames where there really is nothing to mark, such as an empty hall or a scene without ball, players or hoop. These background images teach the model what is *not* an object. Images you simply haven't labelled yet stay out of training. The summary shows how many there are ("without boxes, not in training"). Candidates where you chose "no ball", and images imported together with a label file, already count as checked.
+
 Every correction you make is a small lesson for the *next* training run. This is genuinely the highest-leverage thing you can do to improve the model — more so than tweaking epochs or thresholds.
 
 ### Review-priority flags: what to look at first

@@ -382,6 +382,7 @@ class LocalState:
                     "frameCount": len(training_frames),
                     "candidateCount": len(candidates),
                     "annotatedFrames": sum(bool(frame.get("annotations")) for frame in training_frames),
+                    "unconfirmedEmpty": sum(1 for frame in training_frames if not frame.get("annotations") and frame.get("reviewStatus") != "reviewed" and not frame.get("emptyConfirmed")),
                     "annotationCount": len(annotations),
                     "automaticCount": sum(annotation.get("source") == "auto" for annotation in annotations),
                     "classes": classes,
@@ -2972,6 +2973,11 @@ def save_annotations(payload: dict) -> None:
     backup_project(root, "markierung")
     clean = clean_annotations(project, annotations)
     frame["annotations"] = clean
+    # "Image is empty": a frame without boxes only trains when this was said (see ml_worker.trains_on).
+    if clean or payload.get("emptyConfirmed") is False:
+        frame.pop("emptyConfirmed", None)
+    elif payload.get("emptyConfirmed") is True:
+        frame["emptyConfirmed"] = True
     project["updatedAt"] = utc_now()
     atomic_json(root / "project.json", project)
     STATE.update(project=project, message=localized(

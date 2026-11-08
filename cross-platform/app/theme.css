@@ -390,3 +390,7 @@ select { height: 30px; padding: 0 8px; }
 /* Remove field boundary: sits left in the action row, turns red when armed. */
 .field-editor-actions .field-editor-remove { margin-right: auto; color: var(--sys-red); }
 .field-editor-actions .field-editor-remove.armed { background: var(--sys-red); border-color: var(--sys-red); color: #fff; }
+
+/* "Image is empty": confirms a frame without boxes for training. */
+.editor-controls > button.empty-frame { width: auto; padding: 0 9px; font-size: 11px; }
+.editor-controls > button.empty-frame.confirmed { background: var(--sys-green-fill, rgba(52, 199, 89, .16)); color: var(--sys-green, #30d158); }

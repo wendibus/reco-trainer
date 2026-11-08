@@ -1,5 +1,11 @@
 # Änderungen
 
+## 0.30.5
+
+- Behoben: Bilder ohne Boxen gingen immer ins Training, auch noch nicht markierte Videobilder. Das brachte dem Modell bei, dass Spieler und Ball darauf Hintergrund sind. Neu ist `ml_worker.trains_on`: Ein Bild ohne Boxen zählt nur mit `emptyConfirmed` (Knopf „Bild ist leer“ im Editor) oder `reviewStatus: reviewed` („kein Ball“ im Kandidaten-Check, importierte Labeldateien). Das gilt für `build_dataset`, den Datensatz-Export, die Split-Statistik nach dem Training und den Schwellen-Sweep. Das Training meldet, wie viele Bilder ausgelassen wurden, die Übersicht zeigt `unconfirmedEmpty`. Wer Boxen speichert, setzt `emptyConfirmed` zurück.
+- Augmentation Studio: Die Rolle „Statisch“ heißt jetzt „Bleibt an seinem Platz“ (DE/EN/ES/FR).
+- Hinweis: Weil ausgelassene Bilder einen Video-Split verändern können, kann sich die Aufteilung in Training, Validierung und Test gegenüber 0.30.4 verschieben.
+
 ## 0.30.4
 
 - Behoben: „Quellordner wählen“ im Augmentation Studio öffnete ohne vorbereiteten Arbeitsordner oder ohne ML-Umgebung kein Fenster, nur eine kleine Fehlerzeile oben. Jetzt ist der Knopf dann gesperrt und daneben steht, was fehlt (`needs: project | ml` in `/api/augment/state`). Das Studio lädt seinen Zustand neu, wenn ein anderer Arbeitsordner geöffnet oder ML eingerichtet wird.

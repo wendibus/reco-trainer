@@ -2623,6 +2623,19 @@ def consistency_suggest(args: argparse.Namespace) -> None:
     print(json.dumps(summary, ensure_ascii=False))
 
 
+def trains_on(frame: dict[str, Any]) -> bool:
+    """Whether a frame belongs in the training data. A frame without boxes only counts when someone
+    said it is empty (button "Image is empty", or "no ball" in the candidate review, or an imported
+    label file): an untouched frame would otherwise teach that its players and ball are background."""
+    if frame.get("reviewStatus") == "candidate":
+        return False
+    return bool(frame.get("annotations")) or frame.get("reviewStatus") == "reviewed" or bool(frame.get("emptyConfirmed"))
+
+
+def unconfirmed_empty(frames: list[dict[str, Any]]) -> int:
+    return sum(1 for frame in frames if frame.get("reviewStatus") != "candidate" and not trains_on(frame))
+
+
 def is_imported_frame(frame: dict[str, Any]) -> bool:
     return str(frame.get("videoID", "")).startswith("import-")
 
@@ -2780,10 +2793,16 @@ def build_dataset(
     augmentation = document.get("augmentation") or {}
     if augmentation.get("mode") in {"mixed", "real-only"}:
         return build_augmented_dataset(project_root, document, augmentation, categories, language)
-    frames = [
-        frame for frame in document.get("frames", [])
-        if frame.get("reviewStatus") != "candidate" and not frame.get("heldOut")
-    ]
+    candidates_frames = [frame for frame in document.get("frames", []) if not frame.get("heldOut")]
+    frames = [frame for frame in candidates_frames if trains_on(frame)]
+    if skipped := unconfirmed_empty(candidates_frames):
+        emit(localized(
+            language,
+            f"Hinweis: {skipped} Bilder ohne Markierungen ausgelassen. Wenn sie wirklich leer sind, im Editor „Bild ist leer“ anklicken.",
+            f"Note: {skipped} images without annotations were left out. If they really are empty, click “Image is empty” in the editor.",
+            f"Nota: se omitieron {skipped} imágenes sin anotaciones. Si de verdad están vacías, pulsa «La imagen está vacía» en el editor.",
+            f"Remarque : {skipped} images sans annotations ont été ignorées. Si elles sont vraiment vides, cliquez sur « L’image est vide » dans l’éditeur.",
+        ))
     if not frames:
         raise SystemExit(localized(language, "Keine Trainingsframes vorhanden.", "No training frames are available."))
     category_names = {
@@ -2968,7 +2987,7 @@ def export_dataset(args: argparse.Namespace) -> None:
     document = require_project(project_root, args.language)
     sport = str(document.get("sport", ""))
     formats = [item for item in str(args.formats).split(",") if item in {"yolo", "coco"}] or ["yolo", "coco"]
-    frames = [frame for frame in document.get("frames", []) if frame.get("reviewStatus") != "candidate" and not frame.get("heldOut")]
+    frames = [frame for frame in document.get("frames", []) if trains_on(frame) and not frame.get("heldOut")]
     if not frames:
         raise SystemExit(localized(args.language, "Keine geprüften Bilder zum Exportieren.", "No reviewed images to export."))
     present = {annotation["category"] for frame in frames for annotation in frame.get("annotations", [])}
@@ -3786,10 +3805,7 @@ def train(args: argparse.Namespace) -> None:
     )
 
     refreshed = require_project(project_root, args.language)
-    refreshed_frames = [
-        frame for frame in refreshed.get("frames", [])
-        if frame.get("reviewStatus") != "candidate"
-    ]
+    refreshed_frames = [frame for frame in refreshed.get("frames", []) if trains_on(frame)]
     refreshed_splits, _ = split_frames(refreshed_frames, args.language)
     all_annotations = [
         annotation
@@ -3981,7 +3997,7 @@ def train_yolo(args: argparse.Namespace, project_root: Path, document: dict[str,
     atomic_json(run_dir / "reco-yolo.json", {"classNames": class_names, "inputSize": image_size, "onnx": str(Path(result["onnx"]).relative_to(run_dir))})
 
     refreshed = require_project(project_root, args.language)
-    frames = [frame for frame in refreshed.get("frames", []) if frame.get("reviewStatus") != "candidate"]
+    frames = [frame for frame in refreshed.get("frames", []) if trains_on(frame)]
     splits, _ = split_frames(frames, args.language)
     annotations = [annotation for frame in frames for annotation in frame.get("annotations", [])]
     training_result = {
@@ -4241,7 +4257,7 @@ def sweep_validation_frames(project_root: Path, document: dict[str, Any], langua
     """The validation images the model did not train on. With the Augmentation Studio these are
     the studio's split in dataset/valid: the project's own split can hold its training images."""
     if (document.get("augmentation") or {}).get("mode") not in {"mixed", "real-only"}:
-        frames = [frame for frame in document.get("frames", []) if frame.get("reviewStatus") != "candidate"]
+        frames = [frame for frame in document.get("frames", []) if trains_on(frame)]
         splits, _ = split_frames(frames, language)
         return [frame for frame in splits.get("valid", []) if frame.get("annotations")], None
     folder = project_root / "dataset" / "valid"
