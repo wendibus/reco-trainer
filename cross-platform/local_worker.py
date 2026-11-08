@@ -29,6 +29,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlparse
 
+import amd_training  # standard library only: RF-DETR training on AMD cards with ROCm (Windows)
 import field_geometry  # standard library only: field outline per video
 import model_hub  # standard library only at module level
 import teachers  # standard library only at module level: hardware tiers
@@ -214,6 +215,9 @@ def non_apple_accelerator() -> dict:
     a fresh venv path covers "just finished ML setup" / "reinstalled with a
     different torch build" without re-probing every second).
     """
+    rocm = rocm_status()
+    if rocm and rocm.get("enabled"):
+        return {"kind": "rocm-directml", "gpuName": rocm.get("device") or rocm.get("card")}
     root = STATE.project_root
     if root is not None:
         venv_python = venv_python_path(ml_venv(root))
@@ -389,6 +393,7 @@ class LocalState:
                 },
                 "hardware": hardware_summary(),
                 "gpu": gpu_status(),
+                "rocm": rocm_status(),
                 "lastTraining": (self.project or {}).get("lastTraining"),
                 "trainingHistory": (self.project or {}).get("trainingHistory", []),
                 "modelLibrary": model_library_snapshot(self.project_root),
@@ -1796,7 +1801,7 @@ def ensure_yolo(venv_python: Path, license_accepted: bool) -> None:
         run_logged([str(venv_python), "-m", "pip", "install", *arguments])
 
 
-def run_logged(command: list[str]) -> dict | None:
+def run_logged(command: list[str], extra_env: dict[str, str] | None = None) -> dict | None:
     # Without an explicit UTF-8 encoding on both ends, a subprocess whose stdout
     # is piped (not a real terminal) falls back to the OS's locale-preferred
     # encoding to decide how to write text - on Windows that's typically a
@@ -1808,7 +1813,7 @@ def run_logged(command: list[str]) -> dict | None:
     # decodes what it reads back.
     process = popen_tracked(
         command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding="utf-8", errors="replace",
-        bufsize=1, env={**os.environ, **gpu_environment(), "PYTHONUNBUFFERED": "1", "PYTORCH_ENABLE_MPS_FALLBACK": "1", "PYTHONIOENCODING": "utf-8"},
+        bufsize=1, env={**os.environ, **gpu_environment(), "PYTHONUNBUFFERED": "1", "PYTORCH_ENABLE_MPS_FALLBACK": "1", "PYTHONIOENCODING": "utf-8", **(extra_env or {})},
     )
     assert process.stdout is not None
     last_json: dict | None = None
@@ -2309,6 +2314,132 @@ def gpu_environment() -> dict[str, str]:
     return {key: value for key, value in wanted.items() if key not in os.environ}
 
 
+# --- AMD training with ROCm on Windows (see amd_training.py) ----------------------------------
+
+ROCM_TRAINING_ENV = {"RECO_ONNX_INFERENCE": "off", "PYTHONUTF8": "1"}
+
+
+def rocm_folder() -> Path | None:
+    return amd_training.env_dir(vlm.app_data_dir())
+
+
+def rocm_status() -> dict | None:
+    return amd_training.status(rocm_folder(), (amd_offer() or {}).get("card"))
+
+
+def rocm_training_executable(default: Path) -> tuple[Path, bool]:
+    """The ROCm environment's Python when AMD training is set up and switched on."""
+    python = amd_training.training_python(rocm_folder()) if rocm_status() else None
+    if python is None:
+        return default, False
+    STATE.append_log(localized(
+        "Training auf der AMD-Karte (ROCm).", "Training on the AMD card (ROCm).",
+        "Entrenamiento en la tarjeta AMD (ROCm).", "Entraînement sur la carte AMD (ROCm).",
+    ))
+    return python, True
+
+
+def remember_rocm_problem(problem: str | None) -> None:
+    folder = rocm_folder()
+    if folder is None or not folder.is_dir():
+        return
+    state = amd_training.read_state(folder)
+    if problem is None:
+        state.pop("problem", None)
+    else:
+        state["problem"] = {"message": problem[-400:], "at": datetime.now(timezone.utc).isoformat()}
+    try:
+        amd_training.write_state(folder, state)
+    except OSError:
+        pass
+
+
+def set_rocm_enabled(enabled: bool) -> None:
+    folder = rocm_folder()
+    if folder is None or not amd_training.ready(folder):
+        raise RuntimeError(localized("AMD-Training ist nicht eingerichtet.", "AMD training is not set up.", "El entrenamiento AMD no está configurado.", "L’entraînement AMD n’est pas configuré."))
+    state = amd_training.read_state(folder)
+    state["enabled"] = bool(enabled)
+    amd_training.write_state(folder, state)
+    _ACCELERATOR_CACHE.clear()
+
+
+def rocm_setup_action(payload: dict) -> None:
+    """Python 3.12 venv with AMD's ROCm PyTorch and RF-DETR, then a check on the card."""
+    STATE.update(operation="rocm-setup", busy=True, error=None, log=[], progress=0.0, message=localized(
+        "Richte AMD-Training ein …", "Setting up AMD training …", "Configurando el entrenamiento AMD …", "Configuration de l’entraînement AMD …"))
+    try:
+        folder = rocm_folder()
+        if folder is None or rocm_status() is None:
+            raise RuntimeError(localized(
+                "Auf diesem Rechner wurde keine AMD-Karte gefunden, die mit ROCm trainieren kann (Radeon RX 7000/9000, Windows).",
+                "No AMD card that can train with ROCm was found on this computer (Radeon RX 7000/9000, Windows).",
+                "No se encontró en este equipo ninguna tarjeta AMD que pueda entrenar con ROCm (Radeon RX 7000/9000, Windows).",
+                "Aucune carte AMD capable d’entraîner avec ROCm n’a été trouvée sur cet ordinateur (Radeon RX 7000/9000, Windows).",
+            ))
+        main_python = venv_python_path(ml_venv(STATE.project_root))
+        if not main_python.is_file():
+            raise RuntimeError(localized("Zuerst „ML einrichten“ anklicken.", "Click “Set up ML” first.", "Primero pulsa «Configurar ML».", "Cliquez d’abord sur « Configurer le ML »."))
+        python = amd_training.find_python312()
+        if not python:
+            raise RuntimeError(localized(
+                "AMD-Training braucht Python 3.12 (AMD liefert PyTorch für Windows nur dafür). Bitte von python.org „Python 3.12“ (Windows 64-bit) installieren, „py launcher“ angehakt lassen, dann erneut einrichten. Andere Python-Versionen bleiben unverändert.",
+                "AMD training needs Python 3.12 (AMD ships PyTorch for Windows for that version only). Please install “Python 3.12” (Windows 64-bit) from python.org, keep “py launcher” ticked, then set up again. Other Python versions stay as they are.",
+                "El entrenamiento AMD necesita Python 3.12 (AMD solo ofrece PyTorch para Windows en esa versión). Instala «Python 3.12» (Windows 64 bits) desde python.org, deja marcado «py launcher» y vuelve a configurar. Las demás versiones de Python no cambian.",
+                "L’entraînement AMD nécessite Python 3.12 (AMD ne fournit PyTorch pour Windows que pour cette version). Installez « Python 3.12 » (Windows 64 bits) depuis python.org, laissez « py launcher » coché, puis relancez la configuration. Les autres versions de Python restent inchangées.",
+            ))
+        rfdetr_version = subprocess.run(
+            [str(main_python), "-c", "import importlib.metadata as m; print(m.version('rfdetr'))"],
+            capture_output=True, text=True, timeout=60, check=False,
+        ).stdout.strip()
+        if not amd_training.venv_python(folder).is_file():
+            folder.mkdir(parents=True, exist_ok=True)
+            run_logged([python, "-m", "venv", str(folder / "venv")])
+        constraints = folder / "constraints.txt"
+        constraints.write_text(amd_training.CONSTRAINTS, encoding="utf-8")
+        steps = amd_training.install_steps(amd_training.venv_python(folder), rfdetr_version, constraints)
+        for number, (name, command) in enumerate(steps):
+            STATE.update(progress=number / (len(steps) + 1), message=localized(
+                f"AMD-Training: installiere {name} (insgesamt etwa 4 GB) …", f"AMD training: installing {name} (about 4 GB in total) …",
+                f"Entrenamiento AMD: instalando {name} (unos 4 GB en total) …", f"Entraînement AMD : installation de {name} (environ 4 Go au total) …",
+            ))
+            run_logged(command)
+        STATE.update(progress=len(steps) / (len(steps) + 1), message=localized(
+            "AMD-Training: prüfe die Karte …", "AMD training: checking the card …", "Entrenamiento AMD: comprobando la tarjeta …", "Entraînement AMD : vérification de la carte …"))
+        check = subprocess.run([str(amd_training.venv_python(folder)), "-c", amd_training.VERIFY_SCRIPT], capture_output=True, text=True,
+                               encoding="utf-8", errors="replace", timeout=600, check=False, env={**os.environ, "PYTHONIOENCODING": "utf-8"})
+        try:
+            result = json.loads(check.stdout.strip().splitlines()[-1])
+        except (ValueError, IndexError):
+            result = {"available": False, "error": (check.stderr or check.stdout)[-1500:]}
+        state = {"verified": result, "enabled": True, "rfdetr": rfdetr_version or amd_training.FALLBACK_RFDETR,
+                 "installedAt": datetime.now(timezone.utc).isoformat()}
+        amd_training.write_state(folder, state)
+        STATE.append_log(json.dumps(result, ensure_ascii=False))
+        if not amd_training.verified(result):
+            raise RuntimeError(localized(
+                "AMD-Training ist installiert, aber die Karte hat die Prüfung nicht bestanden. Training läuft weiter auf der CPU. Details stehen im Protokoll.",
+                "AMD training is installed, but the card failed the check. Training stays on the CPU. Details are in the log.",
+                "El entrenamiento AMD está instalado, pero la tarjeta no superó la comprobación. El entrenamiento sigue en la CPU. Los detalles están en el registro.",
+                "L’entraînement AMD est installé, mais la carte n’a pas réussi la vérification. L’entraînement reste sur le CPU. Les détails sont dans le journal.",
+            ))
+        _ACCELERATOR_CACHE.clear()
+        device = result.get("device") or ""
+        STATE.update(operation="ready", busy=False, progress=1.0, message=localized(
+            f"AMD-Training eingerichtet: „Lokal trainieren“ nutzt jetzt {device}.", f"AMD training is set up: “Train locally” now uses {device}.",
+            f"Entrenamiento AMD configurado: «Entrenar localmente» usa ahora {device}.", f"Entraînement AMD configuré : « Entraîner localement » utilise maintenant {device}.",
+        ))
+    except OperationCancelled:
+        message = cancelled_message("rocm-setup")
+        STATE.append_log(message)
+        STATE.update(operation="cancelled", busy=False, progress=0.0, error=None, message=message)
+    except Exception as error:  # noqa: BLE001
+        STATE.append_log(str(error))
+        STATE.update(operation="error", busy=False, error=str(error), message=localized(
+            "AMD-Training konnte nicht eingerichtet werden.", "AMD training could not be set up.",
+            "No se pudo configurar el entrenamiento AMD.", "L’entraînement AMD n’a pas pu être configuré."))
+
+
 def gpu_status() -> dict:
     problem = STATE.gpu_problem
     return {
@@ -2327,6 +2458,8 @@ def record_job_failure(kind: str, error: str | None) -> None:
     diagnosis report is started from here instead."""
     if kind in GPU_JOB_KINDS or STATE.gpu_diagnosing or amd_choice() != "yes":
         return
+    if kind in {"train", "train-batch", "rocm-setup"} and (rocm_status() or {}).get("enabled"):
+        return  # ROCm training, not DirectML: the DirectML report would test the wrong thing
     if LAST_USER_ERROR["message"] and error and LAST_USER_ERROR["message"] in error:
         return  # a message for the user (for example "no flagged images"), not a crash
     record_gpu_problem(json.dumps({"reason": error or kind, "traceback": ""}), crashed=kind)
@@ -2502,6 +2635,7 @@ def gpu_report_text() -> dict:
 def ml_action(action: str, payload: dict) -> None:
     output_dirs: list[Path] = []
     before: dict[Path, float] = {}
+    rocm_used = False
     try:
         root = STATE.project_root
         if root is None or not (root / "project.json").is_file():
@@ -2703,6 +2837,7 @@ def ml_action(action: str, payload: dict) -> None:
             elif action == "train":
                 backup_project(root, "training")
                 args = ["train", "--project", str(root), "--model", model, "--epochs", str(int(payload.get("epochs", 20))), "--language", language]
+                executable, rocm_used = rocm_training_executable(executable)
                 if payload.get("freshStart"):
                     args.append("--fresh-start")
                 fraction = payload.get("anonymizeFraction")
@@ -2714,6 +2849,9 @@ def ml_action(action: str, payload: dict) -> None:
                     raise RuntimeError(localized("Mindestens ein Modell auswählen.", "Select at least one model.", "Selecciona al menos un modelo.", "Sélectionnez au moins un modèle."))
                 if any(yolo_training.is_variant(item) for item in models):
                     ensure_yolo(venv_python, bool(payload.get("yoloLicenseAccepted")))
+                else:
+                    # YOLO is installed in the normal environment only, so a batch with YOLO stays there.
+                    executable, rocm_used = rocm_training_executable(executable)
                 backup_project(root, "training")
                 args = ["train-batch", "--project", str(root), "--models", ",".join(models), "--epochs", str(max(1, min(500, int(payload.get("epochs", 100))))), "--patience", str(max(3, min(50, int(payload.get("patience", 10))))), "--language", language]
                 if payload.get("autoEpochs"):
@@ -2754,7 +2892,10 @@ def ml_action(action: str, payload: dict) -> None:
                 STATE.append_log(message)
                 STATE.update(project=load_project(root), folder_empty=False, operation="ready", busy=False, progress=1.0, message=message)
                 return
-            result = run_logged([str(executable), str(worker), *args])
+            command = [str(executable), str(worker), *args]
+            result = run_logged(command, ROCM_TRAINING_ENV) if rocm_used else run_logged(command)
+            if rocm_used:
+                remember_rocm_problem(None)
             if action == "consistency-suggest" and result:
                 STATE.update(project=load_project(root), operation="ready", busy=False, progress=1.0, message=localized(
                     f"Vorschläge für {result.get('suggestions')} von {result.get('checked')} markierten Bildern berechnet.",
@@ -2780,6 +2921,14 @@ def ml_action(action: str, payload: dict) -> None:
         STATE.update(project=load_project(root) if root else STATE.project, operation="cancelled", busy=False, progress=0.0, error=None, message=message)
     except Exception as error:
         STATE.append_log(str(error))
+        if rocm_used and not (LAST_USER_ERROR["message"] and LAST_USER_ERROR["message"] in str(error)):
+            remember_rocm_problem(str(error))
+            error = RuntimeError(f"{error}\n\n" + localized(
+                "Das Training auf der AMD-Karte ist abgebrochen. Zum Trainieren auf der CPU „Auf der AMD-Karte trainieren“ ausschalten und erneut starten.",
+                "Training on the AMD card stopped. To train on the CPU, switch off “Train on the AMD card” and start again.",
+                "El entrenamiento en la tarjeta AMD se detuvo. Para entrenar en la CPU, desactiva «Entrenar en la tarjeta AMD» y vuelve a empezar.",
+                "L’entraînement sur la carte AMD s’est arrêté. Pour entraîner sur le CPU, désactivez « Entraîner sur la carte AMD » et relancez.",
+            ))
         STATE.update(operation="error", busy=False, error=str(error), message=localized("Lokaler ML-Vorgang fehlgeschlagen.", "Local ML operation failed.", "La operación local de ML falló.", "L’opération ML locale a échoué."))
 
 
@@ -3441,6 +3590,12 @@ class Handler(BaseHTTPRequestHandler):
                 save_amd_choice(choice)
                 job = JOBS.submit("gpu-test", gpu_test_action, payload) if choice == "yes" else None
                 self.json_response({"ok": True, "job": job, "status": STATE.snapshot()})
+            elif self.path == "/api/rocm-setup":
+                job = JOBS.submit("rocm-setup", rocm_setup_action, payload)
+                self.json_response({"ok": True, "job": job})
+            elif self.path == "/api/rocm-enabled":
+                set_rocm_enabled(bool(payload.get("enabled")))
+                self.json_response({"ok": True, "status": STATE.snapshot()})
             elif self.path == "/api/gpu-diagnose":
                 job = JOBS.submit("gpu-diagnose", gpu_diagnose_action, {"trigger": "manual"})
                 self.json_response({"ok": True, "job": job})

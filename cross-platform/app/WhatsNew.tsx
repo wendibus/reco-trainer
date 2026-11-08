@@ -8,6 +8,27 @@ type Item = { title: string; text: string };
  *  number in the header opens it again. Add the next version's entry at the top. */
 export const WHATS_NEW: { version: string; items: Record<Language, Item[]> }[] = [
   {
+    version: '0.31.0',
+    items: {
+      de: [
+        { title: 'Training auf AMD-Grafikkarten (Windows)', text: 'Mit einer Radeon RX 7700 bis 7900 oder RX 9060/9070 erscheint „AMD-Training einrichten“. Danach trainiert „Lokal trainieren“ RF-DETR auf der Karte, bei einer RX 7800 XT etwa 40-mal schneller als auf der CPU. Braucht Python 3.12 und rund 6 GB.' },
+        { title: 'Ein- und ausschaltbar', text: '„Auf der AMD-Karte trainieren“ schaltet zurück auf die CPU, falls etwas nicht klappt. Automatisches Markieren und Export laufen weiter wie bisher.' },
+      ],
+      en: [
+        { title: 'Training on AMD graphics cards (Windows)', text: 'With a Radeon RX 7700 to 7900 or RX 9060/9070, “Set up AMD training” appears. Afterwards “Train locally” trains RF-DETR on the card, about 40 times faster than on the CPU on an RX 7800 XT. Needs Python 3.12 and about 6 GB.' },
+        { title: 'Can be switched off', text: '“Train on the AMD card” switches back to the CPU if something goes wrong. Auto-labeling and export keep working as before.' },
+      ],
+      es: [
+        { title: 'Entrenamiento en gráficas AMD (Windows)', text: 'Con una Radeon RX 7700 a 7900 o RX 9060/9070 aparece «Configurar entrenamiento AMD». Después, «Entrenar localmente» entrena RF-DETR en la tarjeta, unas 40 veces más rápido que en la CPU con una RX 7800 XT. Necesita Python 3.12 y unos 6 GB.' },
+        { title: 'Se puede desactivar', text: '«Entrenar en la tarjeta AMD» vuelve a la CPU si algo falla. El marcado automático y la exportación siguen como antes.' },
+      ],
+      fr: [
+        { title: 'Entraînement sur cartes graphiques AMD (Windows)', text: 'Avec une Radeon RX 7700 à 7900 ou RX 9060/9070, « Configurer l’entraînement AMD » apparaît. Ensuite, « Entraîner localement » entraîne RF-DETR sur la carte, environ 40 fois plus vite que sur le CPU avec une RX 7800 XT. Nécessite Python 3.12 et environ 6 Go.' },
+        { title: 'Désactivable', text: '« Entraîner sur la carte AMD » revient au CPU en cas de problème. Le marquage automatique et l’export fonctionnent comme avant.' },
+      ],
+    },
+  },
+  {
     version: '0.30.6',
     items: {
       de: [{ title: 'AMD-Trainingstest repariert', text: '„Test AMD Training.bat“ brach nach dem Training mit einem Zeichenfehler der Windows-Konsole ab. Das Training selbst lief schon. Jetzt schreibt der Test seinen Bericht vollständig.' }],

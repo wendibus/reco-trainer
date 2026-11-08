@@ -1,5 +1,15 @@
 # Änderungen
 
+## 0.31.0
+
+Training auf AMD-Grafikkarten unter Windows (ROCm), nach dem erfolgreichen Test auf einer RX 7800 XT (eine Epoche 16,4 s auf der Karte statt 711 s auf der CPU).
+
+- Neu: `amd_training.py` (nur Standardbibliothek). Eigene Umgebung `<App-Daten>/rocm-env/venv` mit Python 3.12, AMDs ROCm 7.2.1 mit torch 2.9.1 von repo.radeon.com und `rfdetr[train,onnx]` in derselben Version wie die normale ML-Umgebung. Ein Constraints-File hält AMDs torch fest. Nach der Installation prüft ein kleiner Test die Karte (Matrixprodukt gegen CPU, Faltung mit Rückwärtsschritt). Erst wenn er besteht, wird die Umgebung genutzt. Der Zustand steht in `state.json` (`verified`, `enabled`, `problem`).
+- Angeboten nur unter Windows x64 ohne NVIDIA und mit einer Karte von AMDs Liste: gfx1100/1101 (RX 7700–7900, PRO W7700–W7900) und gfx1200/1201 (RX 9060/9070, AI PRO R9700).
+- `local_worker`: `/api/rocm-setup` (Job `rocm-setup`), `/api/rocm-enabled`, `rocm` im Status. „Lokal trainieren“ (`train`) und Batch-Training ohne YOLO starten `ml_worker` mit dem Python der ROCm-Umgebung und `RECO_ONNX_INFERENCE=off`. Die Karte erscheint in PyTorch als `cuda`, `ml_worker` bleibt unverändert. Ein Absturz dort startet keinen DirectML-Bericht, sondern nennt den Schalter zum Zurückwechseln auf die CPU. Die Hardware-Zeile zeigt `rocm-directml`.
+- Oberfläche: „AMD-Training einrichten“ (mit Rückfrage, braucht „ML einrichten“) und danach der Schalter „Auf der AMD-Karte trainieren“.
+- Behoben, bevor es auslieferbar war: Das neue Modul fehlte in den Dateilisten von `build-payload.sh` und `Dockerfile`. Neuer Test `PackagedModulesTests` prüft jetzt jedes eigene Modul, das die Worker importieren.
+
 ## 0.30.6
 
 - Behoben: `tools/amd_training_probe.py` brach auf Windows nach jeder Trainingsepoche ab. RF-DETR 1.11.2 gibt seine Metrik-Tabellen mit Rahmenzeichen aus, und die Konsole mit Codepage cp1252 kann sie nicht kodieren (`UnicodeEncodeError`). Jetzt läuft der Bench-Prozess mit `PYTHONIOENCODING=utf-8`/`PYTHONUTF8=1` und stellt stdout/stderr selbst auf UTF-8 um. Bei einem Fehler wird `secondsUntilError` mitgeschrieben. Auf dem Mac mit `PYTHONIOENCODING=cp1252` nachgestellt und geprüft. Die App selbst war nicht betroffen, sie startet ihre Worker schon mit UTF-8.

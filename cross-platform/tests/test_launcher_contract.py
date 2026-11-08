@@ -84,7 +84,7 @@ class LauncherContractTests(unittest.TestCase):
             for required in ("payload.json", "local_worker.py", "ml_worker.py", "ui/index.html"):
                 self.assertIn(required, names)
             # Modules and data the workers load at run time must travel with them.
-            for companion in ("anonymize.py", "teachers.py", "augment_studio.py", "vlm.py", "gpu_diagnosis.py", "field_geometry.py", "yolo_training.py", "model_registry.json"):
+            for companion in ("amd_training.py", "anonymize.py", "teachers.py", "augment_studio.py", "vlm.py", "gpu_diagnosis.py", "field_geometry.py", "yolo_training.py", "model_registry.json"):
                 self.assertIn(companion, names)
             manifest = json.loads(archive.read("payload.json"))
             self.assertEqual(manifest, {"version": version, "minLauncher": "0.20.0"})
@@ -93,6 +93,25 @@ class LauncherContractTests(unittest.TestCase):
     def test_swift_required_files_match_payload(self):
         swift = (ROOT.parent / "mac" / "Sources" / "LauncherCore" / "PayloadStore.swift").read_text(encoding="utf-8")
         self.assertIn('["payload.json", "local_worker.py", "ml_worker.py", "ui/index.html"]', swift)
+
+
+class PackagedModulesTests(unittest.TestCase):
+    """Every own module a worker imports must be copied into the Mac payload and the Docker image
+    (both list their files one by one); a missing one stops the worker at start."""
+
+    def test_imported_modules_are_in_every_package_list(self):
+        import re
+        modules = set()
+        for worker in ("local_worker.py", "ml_worker.py"):
+            for name in re.findall(r"^\s*import (\w+)", (ROOT / worker).read_text(encoding="utf-8"), re.MULTILINE):
+                if (ROOT / f"{name}.py").is_file():
+                    modules.add(f"{name}.py")
+        self.assertIn("amd_training.py", modules)
+        payload = (ROOT / "scripts" / "build-payload.sh").read_text(encoding="utf-8")
+        docker = (ROOT / "Dockerfile").read_text(encoding="utf-8")
+        for module in sorted(modules):
+            self.assertIn(f"$PROJECT_DIR/{module}", payload, module)
+            self.assertIn(f" {module}", docker, module)
 
 
 class NoTrainingImagesInTheRepositoryTests(unittest.TestCase):

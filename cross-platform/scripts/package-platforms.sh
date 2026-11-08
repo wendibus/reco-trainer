@@ -4,7 +4,7 @@ set -euo pipefail
 PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 OUTPUT_DIR="${1:-$(cd "$PROJECT_DIR/.." && pwd)}"
 ML_WORKER="$PROJECT_DIR/ml_worker.py"
-VERSION="0.30.6"
+VERSION="0.31.0"
 STAGE_DIR="$(mktemp -d)"
 PACKAGE_VERSION="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["version"])' "$PROJECT_DIR/package.json")"
 [ "$PACKAGE_VERSION" = "$VERSION" ] || { echo "package.json is $PACKAGE_VERSION, script is $VERSION" >&2; exit 1; }
