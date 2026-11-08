@@ -1992,6 +1992,9 @@ def augment_state(root: Path) -> dict:
     studio = augment_paths(root)
     project = load_project(root) or {}
     state: dict = {"source": None, "training": project.get("augmentation")}
+    # What the studio needs before "Select source folder" can open a dialog (shown next to the button).
+    if not venv_python_path(ml_venv(root)).is_file():
+        state["needs"] = "ml"
     if studio is None:
         return state
     work = Path(studio["work"])
@@ -3172,7 +3175,7 @@ class Handler(BaseHTTPRequestHandler):
             return
         if route.path == "/api/augment/state":
             root = STATE.project_root
-            self.json_response(augment_state(root) if root else {"source": None})
+            self.json_response(augment_state(root) if root and (root / "project.json").is_file() else {"source": None, "needs": "project"})
             return
         if route.path == "/api/augment/file":
             root = STATE.project_root

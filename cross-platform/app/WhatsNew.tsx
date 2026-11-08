@@ -8,6 +8,23 @@ type Item = { title: string; text: string };
  *  number in the header opens it again. Add the next version's entry at the top. */
 export const WHATS_NEW: { version: string; items: Record<Language, Item[]> }[] = [
   {
+    version: '0.30.4',
+    items: {
+      de: [
+        { title: 'Augmentation Studio erklärt, was fehlt', text: '„Quellordner wählen“ ist gesperrt, solange kein Arbeitsordner vorbereitet oder ML nicht eingerichtet ist. Daneben steht, was zuerst zu tun ist. Vorher passierte beim Klick scheinbar nichts.' },
+      ],
+      en: [
+        { title: 'Augmentation Studio says what is missing', text: '“Select source folder” stays disabled until a working folder is prepared and ML is set up, and the text next to it says what to do first. Before, clicking it seemed to do nothing.' },
+      ],
+      es: [
+        { title: 'Augmentation Studio indica lo que falta', text: '«Seleccionar carpeta de origen» queda desactivado hasta que haya una carpeta de trabajo preparada y el ML esté configurado; al lado se indica qué hacer primero. Antes, al pulsarlo no parecía pasar nada.' },
+      ],
+      fr: [
+        { title: 'Augmentation Studio indique ce qui manque', text: '« Sélectionner le dossier source » reste désactivé tant qu’aucun dossier de travail n’est préparé et que le ML n’est pas configuré ; le texte à côté indique quoi faire d’abord. Avant, le clic semblait sans effet.' },
+      ],
+    },
+  },
+  {
     version: '0.30.3',
     items: {
       de: [

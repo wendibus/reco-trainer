@@ -21,9 +21,12 @@ type Report = { images: number; violations: Record<string, number>; foundThenReg
 type StudioState = {
   source: string | null; config?: Config; analysis?: Analysis | null; report?: Report | null; previews?: string[]; generated?: number;
   training?: { mode: 'mixed' | 'real-only'; realWeight: number } | null;
+  needs?: 'project' | 'ml';
 };
 type Props = {
   language: Language; api: string; busy: boolean; modelSize: string;
+  /** Changes when another working folder is opened or ML gets set up: the studio reloads its state. */
+  projectKey?: string;
   post: (path: string, payload?: Record<string, unknown>) => Promise<unknown>;
 };
 
@@ -31,7 +34,7 @@ const MODEL_INPUT: Record<string, number> = { nano: 384, small: 512, medium: 576
 const DEFAULTS = { cropShare: 0.6, zoom: [0.2, 0.7] as [number, number], seed: 1, players: 5, referees: 3, balls: 1, minVisible: 0.3 };
 
 const text: Record<Language, {
-  title: string; intro: string; step1: string; choose: string; none: string; rolesTitle: string; roles: Record<Role, string>; step2: string;
+  title: string; intro: string; step1: string; choose: string; none: string; needs: Record<'project' | 'ml', string>; rolesTitle: string; roles: Record<Role, string>; step2: string;
   variations: string; cropShare: string; zoomLow: string; zoomHigh: string; output: string; seed: string; players: string; referees: string; balls: string; minVisible: string;
   jersey: string; yolo: string; anonymize: string; step3: string; analyze: string; reanalyze: string; correctionsHint: string; images: string; plate: string; split: Record<Split, string>;
   link: string; noLink: string; moveTo: string; newSession: string; imagesList: string; polygon: Record<Session['polygonSource'], string>; polygonClick: string; polygonSave: string; polygonReset: string; polygonEdit: string;
@@ -41,7 +44,7 @@ const text: Record<Language, {
 }> = {
   de: {
     title: 'Augmentation Studio', intro: 'Erzeugt aus gelabelten Full-Court-Aufnahmen synthetische Trainingsbilder mit passender Perspektive, korrekten Labels und nie mehr als zwei Mannschaften.',
-    step1: '1 · Quellordner', choose: 'Quellordner wählen', none: 'Bilder und COCO-Annotationen, zum Beispiel aus „Datensatz exportieren“.', rolesTitle: 'Rolle je Klasse', roles: { player: 'Spieler', referee: 'Schiedsrichter', ball: 'Ball', static: 'Statisch', ignore: 'Ignorieren' },
+    needs: { project: 'Zuerst links einen Arbeitsordner wählen und vorbereiten. Dort legt das Studio seine Daten ab.', ml: 'Zuerst „ML einrichten“ anklicken. Das Studio braucht die ML-Umgebung.' }, step1: '1 · Quellordner', choose: 'Quellordner wählen', none: 'Bilder und COCO-Annotationen, zum Beispiel aus „Datensatz exportieren“.', rolesTitle: 'Rolle je Klasse', roles: { player: 'Spieler', referee: 'Schiedsrichter', ball: 'Ball', static: 'Statisch', ignore: 'Ignorieren' },
     step2: '2 · Einstellungen', variations: 'Anzahl Variationen', cropShare: 'Anteil Ausschnitte %', zoomLow: 'Zoom von % der Breite', zoomHigh: 'Zoom bis % der Breite', output: 'Ausgabegröße px', seed: 'Seed', players: 'Max. Spieler je Team', referees: 'Max. Schiedsrichter', balls: 'Max. Bälle', minVisible: 'Mind. sichtbar %',
     jersey: 'Trikotfarben variieren', yolo: 'Zusätzlich YOLO-Export', anonymize: 'Köpfe anonymisieren', step3: '3 · Analyse prüfen', analyze: 'Analysieren', reanalyze: 'Änderungen übernehmen und neu analysieren', correctionsHint: 'Fertige Masken und Platten bleiben erhalten, das geht deutlich schneller als beim ersten Mal.',
     images: 'Bilder', plate: 'Leere Hallenplatte', split: { train: 'Training', valid: 'Validierung', test: 'Test' }, link: 'Gleiche Paarung wie', noLink: 'eigene Paarung', moveTo: 'Verschieben nach', newSession: 'neue Session', imagesList: 'Bilder dieser Session',
@@ -55,7 +58,7 @@ const text: Record<Language, {
   },
   en: {
     title: 'Augmentation Studio', intro: 'Creates synthetic training images from labelled full-court footage, with matching perspective, correct labels and never more than two teams.',
-    step1: '1 · Source folder', choose: 'Select source folder', none: 'Images and COCO annotations, for example from “Export dataset”.', rolesTitle: 'Role per class', roles: { player: 'Player', referee: 'Referee', ball: 'Ball', static: 'Static', ignore: 'Ignore' },
+    needs: { project: 'First select and prepare a working folder on the left. The studio keeps its data there.', ml: 'Click “Set up ML” first. The studio needs the ML environment.' }, step1: '1 · Source folder', choose: 'Select source folder', none: 'Images and COCO annotations, for example from “Export dataset”.', rolesTitle: 'Role per class', roles: { player: 'Player', referee: 'Referee', ball: 'Ball', static: 'Static', ignore: 'Ignore' },
     step2: '2 · Settings', variations: 'Number of variations', cropShare: 'Share of crops %', zoomLow: 'Zoom from % of width', zoomHigh: 'Zoom to % of width', output: 'Output size px', seed: 'Seed', players: 'Max. players per team', referees: 'Max. referees', balls: 'Max. balls', minVisible: 'Min. visible %',
     jersey: 'Vary jersey colours', yolo: 'Also export YOLO', anonymize: 'Anonymize heads', step3: '3 · Review the analysis', analyze: 'Analyze', reanalyze: 'Apply changes and analyze again', correctionsHint: 'Finished masks and plates are kept, so this is much faster than the first time.',
     images: 'images', plate: 'Empty-hall plate', split: { train: 'Training', valid: 'Validation', test: 'Test' }, link: 'Same pairing as', noLink: 'own pairing', moveTo: 'Move to', newSession: 'new session', imagesList: 'Images of this session',
@@ -69,7 +72,7 @@ const text: Record<Language, {
   },
   es: {
     title: 'Augmentation Studio', intro: 'Crea imágenes sintéticas de entrenamiento a partir de grabaciones etiquetadas de pista completa, con perspectiva adecuada, etiquetas correctas y nunca más de dos equipos.',
-    step1: '1 · Carpeta de origen', choose: 'Seleccionar carpeta de origen', none: 'Imágenes y anotaciones COCO, por ejemplo de «Exportar conjunto de datos».', rolesTitle: 'Función por clase', roles: { player: 'Jugador', referee: 'Árbitro', ball: 'Balón', static: 'Estático', ignore: 'Ignorar' },
+    needs: { project: 'Primero selecciona y prepara una carpeta de trabajo a la izquierda. El estudio guarda allí sus datos.', ml: 'Pulsa primero «Configurar ML». El estudio necesita el entorno de ML.' }, step1: '1 · Carpeta de origen', choose: 'Seleccionar carpeta de origen', none: 'Imágenes y anotaciones COCO, por ejemplo de «Exportar conjunto de datos».', rolesTitle: 'Función por clase', roles: { player: 'Jugador', referee: 'Árbitro', ball: 'Balón', static: 'Estático', ignore: 'Ignorar' },
     step2: '2 · Ajustes', variations: 'Número de variaciones', cropShare: 'Parte de recortes %', zoomLow: 'Zoom desde % del ancho', zoomHigh: 'Zoom hasta % del ancho', output: 'Tamaño de salida px', seed: 'Semilla', players: 'Máx. jugadores por equipo', referees: 'Máx. árbitros', balls: 'Máx. balones', minVisible: 'Mín. visible %',
     jersey: 'Variar colores de camiseta', yolo: 'Exportar también YOLO', anonymize: 'Anonimizar cabezas', step3: '3 · Revisar el análisis', analyze: 'Analizar', reanalyze: 'Aplicar cambios y volver a analizar', correctionsHint: 'Las máscaras y placas terminadas se conservan, así que es mucho más rápido que la primera vez.',
     images: 'imágenes', plate: 'Placa de pabellón vacío', split: { train: 'Entrenamiento', valid: 'Validación', test: 'Prueba' }, link: 'Mismo enfrentamiento que', noLink: 'enfrentamiento propio', moveTo: 'Mover a', newSession: 'sesión nueva', imagesList: 'Imágenes de esta sesión',
@@ -83,7 +86,7 @@ const text: Record<Language, {
   },
   fr: {
     title: 'Augmentation Studio', intro: 'Crée des images d’entraînement synthétiques à partir de prises de vue annotées du terrain entier, avec une perspective adaptée, des annotations correctes et jamais plus de deux équipes.',
-    step1: '1 · Dossier source', choose: 'Sélectionner le dossier source', none: 'Images et annotations COCO, par exemple via « Exporter le jeu de données ».', rolesTitle: 'Rôle par classe', roles: { player: 'Joueur', referee: 'Arbitre', ball: 'Ballon', static: 'Statique', ignore: 'Ignorer' },
+    needs: { project: 'Sélectionnez et préparez d’abord un dossier de travail à gauche. Le studio y enregistre ses données.', ml: 'Cliquez d’abord sur « Configurer le ML ». Le studio a besoin de l’environnement ML.' }, step1: '1 · Dossier source', choose: 'Sélectionner le dossier source', none: 'Images et annotations COCO, par exemple via « Exporter le jeu de données ».', rolesTitle: 'Rôle par classe', roles: { player: 'Joueur', referee: 'Arbitre', ball: 'Ballon', static: 'Statique', ignore: 'Ignorer' },
     step2: '2 · Réglages', variations: 'Nombre de variations', cropShare: 'Part de recadrages %', zoomLow: 'Zoom de % de la largeur', zoomHigh: 'Zoom à % de la largeur', output: 'Taille de sortie px', seed: 'Graine', players: 'Max. joueurs par équipe', referees: 'Max. arbitres', balls: 'Max. ballons', minVisible: 'Min. visible %',
     jersey: 'Varier les couleurs de maillot', yolo: 'Exporter aussi en YOLO', anonymize: 'Anonymiser les têtes', step3: '3 · Vérifier l’analyse', analyze: 'Analyser', reanalyze: 'Appliquer et analyser à nouveau', correctionsHint: 'Les masques et plaques terminés sont conservés, c’est donc bien plus rapide que la première fois.',
     images: 'images', plate: 'Plaque de salle vide', split: { train: 'Entraînement', valid: 'Validation', test: 'Test' }, link: 'Même affiche que', noLink: 'affiche propre', moveTo: 'Déplacer vers', newSession: 'nouvelle session', imagesList: 'Images de cette session',
@@ -97,7 +100,7 @@ const text: Record<Language, {
   },
 };
 
-export function AugmentationStudio({ language, api, busy, modelSize, post }: Props) {
+export function AugmentationStudio({ language, api, busy, modelSize, post, projectKey }: Props) {
   const t = text[language];
   const [state, setState] = useState<StudioState>({ source: null });
   const [config, setConfig] = useState<Config>({});
@@ -116,7 +119,7 @@ export function AugmentationStudio({ language, api, busy, modelSize, post }: Pro
     } catch (problem) { setError(String(problem)); }
   }, [api, accept]);
   // A finished job changes what there is to show.
-  useEffect(() => { if (!busy) void refresh(); }, [busy, refresh]);
+  useEffect(() => { if (!busy) void refresh(); }, [busy, refresh, projectKey]);
 
   const run = async (path: string, payload: Record<string, unknown> = {}) => {
     setError(null);
@@ -161,8 +164,8 @@ export function AugmentationStudio({ language, api, busy, modelSize, post }: Pro
     {error && <p className="studio-error" role="alert">{error}</p>}
 
     <section className="studio-card"><h3>{t.step1}</h3>
-      <button type="button" data-hint={t.hints.choose} className="secondary-button" disabled={busy} onClick={() => void run('/api/augment/select-source')}>{t.choose}</button>
-      <code className="studio-path">{state.source ?? t.none}</code>
+      <button type="button" data-hint={t.hints.choose} className="secondary-button" disabled={busy || Boolean(state.needs)} onClick={() => void run('/api/augment/select-source')}>{t.choose}</button>
+      {state.needs ? <p className="studio-needs" role="status">{t.needs[state.needs]}</p> : <code className="studio-path">{state.source ?? t.none}</code>}
       {config.roles && <div className="studio-row"><strong>{t.rolesTitle}</strong>{Object.entries(config.roles).map(([name, role]) => <label key={name} className="studio-field">{name}<select value={role} onChange={(event) => save({ roles: { ...config.roles, [name]: event.target.value as Role } })}>{(Object.keys(t.roles) as Role[]).map((item) => <option key={item} value={item}>{t.roles[item]}</option>)}</select></label>)}</div>}
     </section>
 

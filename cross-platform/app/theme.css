@@ -260,6 +260,7 @@ select { height: 30px; padding: 0 8px; }
 .benchmark-empty.stale { border-color: color-mix(in srgb, var(--ball) 50%, transparent); background: var(--sys-orange-fill); color: var(--sys-orange); }
 .benchmark-threshold { color: var(--label-2); font-size: 11px; }
 .benchmark-progress, .progress-dialog-bar, .job-chip-bar { background: var(--fill); }
+.studio-needs { margin: 0; color: var(--label-2); font-size: 12px; }
 .benchmark-error, .studio-error, .progress-dialog-error { border: 0; border-radius: 9px; background: var(--sys-red-fill); color: var(--sys-red); font-size: 12px; }
 .benchmark-explanation { border: 0; border-radius: 10px; background: var(--fill-2); }
 .benchmark-explanation summary { font-size: 12px; font-weight: 600; }

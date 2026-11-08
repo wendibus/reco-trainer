@@ -1,5 +1,9 @@
 # Änderungen
 
+## 0.30.4
+
+- Behoben: „Quellordner wählen“ im Augmentation Studio öffnete ohne vorbereiteten Arbeitsordner oder ohne ML-Umgebung kein Fenster, nur eine kleine Fehlerzeile oben. Jetzt ist der Knopf dann gesperrt und daneben steht, was fehlt (`needs: project | ml` in `/api/augment/state`). Das Studio lädt seinen Zustand neu, wenn ein anderer Arbeitsordner geöffnet oder ML eingerichtet wird.
+
 ## 0.30.3
 
 Nach dem zweiten Bericht von der RX 7800 XT: kein Grafikproblem, sondern zwei Fehler in der Konsistenzprüfung. Dazu ein Test für AMD-Training.
