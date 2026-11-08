@@ -29,3 +29,10 @@ class AmdTrainingProbeTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ProbeEncodingTests(unittest.TestCase):
+    def test_bench_writes_utf8_so_rfdetr_tables_do_not_crash_on_windows(self):
+        source = (Path(__file__).parents[1] / "tools" / "amd_training_probe.py").read_text(encoding="utf-8")
+        self.assertIn('"PYTHONIOENCODING": "utf-8"', source)
+        self.assertIn('reconfigure(encoding="utf-8", errors="replace")', source)

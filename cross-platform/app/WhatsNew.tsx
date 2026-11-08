@@ -8,6 +8,15 @@ type Item = { title: string; text: string };
  *  number in the header opens it again. Add the next version's entry at the top. */
 export const WHATS_NEW: { version: string; items: Record<Language, Item[]> }[] = [
   {
+    version: '0.30.6',
+    items: {
+      de: [{ title: 'AMD-Trainingstest repariert', text: '„Test AMD Training.bat“ brach nach dem Training mit einem Zeichenfehler der Windows-Konsole ab. Das Training selbst lief schon. Jetzt schreibt der Test seinen Bericht vollständig.' }],
+      en: [{ title: 'AMD training test fixed', text: '“Test AMD Training.bat” stopped after training with a Windows console character error. Training itself already worked. The test now writes its full report.' }],
+      es: [{ title: 'Prueba de entrenamiento AMD corregida', text: '«Test AMD Training.bat» se detenía tras el entrenamiento por un error de caracteres de la consola de Windows. El entrenamiento ya funcionaba. Ahora la prueba escribe su informe completo.' }],
+      fr: [{ title: 'Test d’entraînement AMD corrigé', text: '« Test AMD Training.bat » s’arrêtait après l’entraînement à cause d’une erreur de caractères de la console Windows. L’entraînement fonctionnait déjà. Le test écrit maintenant son rapport complet.' }],
+    },
+  },
+  {
     version: '0.30.5',
     items: {
       de: [

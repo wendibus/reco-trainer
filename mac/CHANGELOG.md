@@ -1,5 +1,10 @@
 # Änderungen
 
+## 0.30.6
+
+- Behoben: `tools/amd_training_probe.py` brach auf Windows nach jeder Trainingsepoche ab. RF-DETR 1.11.2 gibt seine Metrik-Tabellen mit Rahmenzeichen aus, und die Konsole mit Codepage cp1252 kann sie nicht kodieren (`UnicodeEncodeError`). Jetzt läuft der Bench-Prozess mit `PYTHONIOENCODING=utf-8`/`PYTHONUTF8=1` und stellt stdout/stderr selbst auf UTF-8 um. Bei einem Fehler wird `secondsUntilError` mitgeschrieben. Auf dem Mac mit `PYTHONIOENCODING=cp1252` nachgestellt und geprüft. Die App selbst war nicht betroffen, sie startet ihre Worker schon mit UTF-8.
+- Erster Bericht von einer RX 7800 XT (gfx1101, Adrenalin 32.0.32015.7029): ROCm 7.2.1 mit torch 2.9.1 erkennt die Karte, Matrixmultiplikation stimmt, RF-DETR Nano trainiert eine Epoche auf der Karte bis zur Validierung.
+
 ## 0.30.5
 
 - Behoben: Bilder ohne Boxen gingen immer ins Training, auch noch nicht markierte Videobilder. Das brachte dem Modell bei, dass Spieler und Ball darauf Hintergrund sind. Neu ist `ml_worker.trains_on`: Ein Bild ohne Boxen zählt nur mit `emptyConfirmed` (Knopf „Bild ist leer“ im Editor) oder `reviewStatus: reviewed` („kein Ball“ im Kandidaten-Check, importierte Labeldateien). Das gilt für `build_dataset`, den Datensatz-Export, die Split-Statistik nach dem Training und den Schwellen-Sweep. Das Training meldet, wie viele Bilder ausgelassen wurden, die Übersicht zeigt `unconfirmedEmpty`. Wer Boxen speichert, setzt `emptyConfirmed` zurück.

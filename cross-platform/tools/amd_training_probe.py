@@ -42,7 +42,10 @@ def say(text: str) -> None:
 
 def run(command: list[str], log: list[str], timeout: int = 3600) -> int:
     say("> " + " ".join(command)[:200])
-    result = subprocess.run(command, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=timeout)
+    # UTF-8 for the child: RF-DETR prints its metric tables with box characters, which the
+    # Windows default code page (cp1252) cannot encode - training finished, then crashed on print.
+    env = {**os.environ, "PYTHONIOENCODING": "utf-8", "PYTHONUTF8": "1"}
+    result = subprocess.run(command, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=timeout, env=env)
     log.append(f"$ {' '.join(command)}\nexit {result.returncode}\n{result.stdout[-3000:]}\n{result.stderr[-3000:]}")
     if result.returncode:
         say((result.stderr or result.stdout)[-1500:])
@@ -155,6 +158,11 @@ def make_dataset(root: Path) -> None:
 
 
 def bench(out: Path) -> None:
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")
+        except (AttributeError, ValueError):
+            pass
     result: dict = {}
     try:
         import torch
@@ -176,6 +184,7 @@ def bench(out: Path) -> None:
     for name, accelerator in (("gpu", "gpu"), ("cpu", "cpu")):
         if name == "gpu" and not result.get("torch", {}).get("cudaAvailable"):
             continue
+        t = time.time()
         try:
             from rfdetr import RFDETRNano
             model = RFDETRNano()
@@ -186,7 +195,7 @@ def bench(out: Path) -> None:
             if name == "gpu":
                 result["train"][name]["peakMemoryGB"] = round(torch.cuda.max_memory_allocated() / 1024 ** 3, 2)
         except Exception:  # noqa: BLE001
-            result["train"][name] = {"error": traceback.format_exc()[-4000:]}
+            result["train"][name] = {"error": traceback.format_exc()[-4000:], "secondsUntilError": round(time.time() - t, 1)}
         out.write_text(json.dumps(result, indent=2), encoding="utf-8")
 
 
