@@ -1,5 +1,12 @@
 # Änderungen
 
+## 0.31.1
+
+- Neu: Schritt-für-Schritt-Anleitung im Augmentation Studio (`app/AugmentGuide.tsx`), sieben Schritte in Deutsch, Englisch, Spanisch und Französisch: was das Studio macht und was es braucht (mindestens 300, besser 500 geprüfte Bilder aus mehreren Aufnahmen), Quellordner und Rollen, Einstellungen (1.500–2.000 Variationen für einen ersten Test), Analyse und Hallen, Teams, Erzeugen, Training und Vergleich mit „Nur echt, gleiche Aufteilung“.
+- Sie öffnet sich bei jedem Start des Studios, bis „Nicht mehr anzeigen“ angehakt wird (`localStorage` `reco-augment-guide-hidden-v1`). Der Knopf „Anleitung“ im Studio öffnet sie wieder; dort lässt sich der Haken auch wieder entfernen. Pfeiltasten blättern, Esc schließt.
+- Die Bildschirmbilder (`public/augment-guide/<sprache>-<schritt>.jpg`) zeigen das echte Studio in der jeweiligen Sprache. `tests/augment-guide-shots.mjs` erzeugt sie aus dem Build gegen einen nachgebildeten Worker; alle Hallen, Spieler und Vorschauen darin sind als SVG gezeichnet, es stecken keine echten Trainingsbilder darin.
+- Tests: `tests/test_augment_guide.py` prüft, dass alle 28 Bilder da und klein sind und jede Sprache sieben Schritte hat; `tests/editor-ui.mjs` prüft Öffnen, Ausblenden, Wiederholen und das Laden der Bilder.
+
 ## 0.31.0
 
 Training auf AMD-Grafikkarten unter Windows (ROCm), nach dem erfolgreichen Test auf einer RX 7800 XT (eine Epoche 16,4 s auf der Karte statt 711 s auf der CPU).

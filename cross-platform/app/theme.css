@@ -394,3 +394,21 @@ select { height: 30px; padding: 0 8px; }
 /* "Image is empty": confirms a frame without boxes for training. */
 .editor-controls > button.empty-frame { width: auto; padding: 0 9px; font-size: 11px; }
 .editor-controls > button.empty-frame.confirmed { background: var(--sys-green-fill, rgba(52, 199, 89, .16)); color: var(--sys-green, #30d158); }
+
+/* Augmentation Studio guide */
+.studio-guide-open { flex: none; align-self: flex-start; }
+.augment-guide { position: relative; width: min(940px, 100%); max-height: calc(100vh - 48px); overflow: auto; padding: 26px 28px 22px; border-radius: var(--radius-sheet); background: var(--raised); color: var(--label); box-shadow: var(--sheet-shadow); animation: sheet-in .22s cubic-bezier(.2, .9, .3, 1.1); }
+.augment-guide h2 { margin: 6px 44px 14px 0; font-size: 20px; font-weight: 700; letter-spacing: -.02em; }
+.augment-guide-progress { display: grid; grid-template-columns: repeat(7, 1fr); gap: 5px; margin-bottom: 18px; }
+.augment-guide-progress span { height: 4px; border-radius: 4px; background: var(--fill); }
+.augment-guide-progress span.active { background: var(--accent); }
+.augment-guide-body { display: grid; grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr); gap: 22px; align-items: start; min-height: 300px; }
+.augment-guide-body figure { display: grid; place-items: center; height: 340px; margin: 0; padding: 8px; border-radius: var(--radius-card); background: var(--fill-2); overflow: hidden; }
+.augment-guide-body img { display: block; max-width: 100%; max-height: 100%; object-fit: contain; border-radius: 6px; box-shadow: 0 0 0 .5px rgba(0, 0, 0, .14); }
+.augment-guide-body h3 { margin: 2px 0 10px; font-size: 16px; font-weight: 650; }
+.augment-guide-body p { margin: 0; color: var(--label-2); font-size: 13.5px; line-height: 1.6; }
+.augment-guide footer { display: flex; align-items: center; gap: 10px; margin-top: 20px; }
+.augment-guide footer label { display: inline-flex; align-items: center; gap: 6px; margin-right: auto; }
+.augment-guide footer button { min-width: 96px; }
+@media (prefers-reduced-motion: reduce) { .augment-guide { animation: none; } }
+@media (max-width: 760px) { .augment-guide-body { grid-template-columns: 1fr; min-height: 0; } .augment-guide-body figure { height: auto; max-height: 300px; } .augment-guide { padding: 22px 16px 16px; } }

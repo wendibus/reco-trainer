@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState, type MouseEvent } from 'react';
+import { AugmentGuide, guideHidden, guideText } from './AugmentGuide';
 
 type Language = 'de' | 'en' | 'es' | 'fr';
 type Role = 'player' | 'referee' | 'ball' | 'static' | 'ignore';
@@ -106,6 +107,9 @@ export function AugmentationStudio({ language, api, busy, modelSize, post, proje
   const [config, setConfig] = useState<Config>({});
   const [error, setError] = useState<string | null>(null);
   const [drawing, setDrawing] = useState<{ session: string; points: number[][] } | null>(null);
+  // Opens every time the studio opens, unless "Don't show again" was ticked in the guide.
+  const [guideOpen, setGuideOpen] = useState(() => !guideHidden());
+  const closeGuide = useCallback(() => setGuideOpen(false), []);
 
   const accept = useCallback((next?: StudioState) => {
     if (!next) return;
@@ -160,7 +164,8 @@ export function AugmentationStudio({ language, api, busy, modelSize, post, proje
   const gallery = (instances: Instance[]) => <div className="studio-gallery">{instances.map((instance) => <button data-hint={t.hints.instance} key={instance.id} type="button" className={`studio-thumb${instance.uncertain ? ' uncertain' : ''}${instance.complete ? '' : ' pale'}`} onClick={() => cycleTeam(instance)}><img src={file('thumb', `${instance.id}.jpg`)} alt="" loading="lazy" /></button>)}</div>;
 
   return <section className="benchmark-workspace studio" aria-label={t.title}>
-    <div className="benchmark-heading"><div><h2>{t.title}</h2><p>{t.intro}</p></div></div>
+    <div className="benchmark-heading"><div><h2>{t.title}</h2><p>{t.intro}</p></div><button data-hint={guideText[language].openHint} type="button" className="secondary-button studio-guide-open" onClick={() => setGuideOpen(true)}>{guideText[language].open}</button></div>
+    {guideOpen && <AugmentGuide language={language} onClose={closeGuide} />}
     {error && <p className="studio-error" role="alert">{error}</p>}
 
     <section className="studio-card"><h3>{t.step1}</h3>

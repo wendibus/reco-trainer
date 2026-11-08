@@ -5,7 +5,7 @@ import { readFile } from 'node:fs/promises';
 import { resolve, extname } from 'node:path';
 import assert from 'node:assert/strict';
 const root=resolve(process.argv[2] || 'ui');
-const server=createServer(async(req,res)=>{try {const path=resolve(root,'.'+(req.url==='/'?'/index.html':req.url.split('?')[0]));assert(path.startsWith(root+'/'));res.setHeader('Content-Type', {'.html':'text/html','.js':'text/javascript','.css':'text/css'}[extname(path)]||'text/plain');res.end(await readFile(path));}catch{res.statusCode=404;res.end();}});
+const server=createServer(async(req,res)=>{try {const path=resolve(root,'.'+(req.url==='/'?'/index.html':req.url.split('?')[0]));assert(path.startsWith(root+'/'));res.setHeader('Content-Type', {'.html':'text/html','.js':'text/javascript','.css':'text/css','.jpg':'image/jpeg'}[extname(path)]||'text/plain');res.end(await readFile(path));}catch{res.statusCode=404;res.end();}});
 await new Promise(r=>server.listen(0,'127.0.0.1',r));
 const url=`http://127.0.0.1:${server.address().port}/`;
 const browser=await chromium.launch({...(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : {}),headless:true});
@@ -95,6 +95,20 @@ try {
  await page.locator('#frames-per-video').focus();await page.keyboard.press('2');await page.keyboard.press('b');
  assert.equal(await page.locator('#category').inputValue(),'ball','no shortcut while typing');
  assert.match(await page.locator('.tool-group button.active').textContent(),/Neue Box/);
+ // Augmentation Studio guide: opens with the studio, "don't show again" sticks, the Guide button brings it back.
+ const openStudio=async()=>{await page.locator('.header-actions button',{hasText:'Augmentation Studio'}).click();await page.locator('.studio').waitFor();};
+ const leaveStudio=async()=>{await page.locator('.header-actions button',{hasText:'←'}).first().click();await page.locator('.studio').waitFor({state:'detached'});};
+ await openStudio();await page.locator('.augment-guide').waitFor();
+ assert.match(await page.locator('.augment-guide .walkthrough-kicker').textContent(),/Schritt 1 \/ 7/);
+ assert(await page.locator('.augment-guide img').evaluate(img=>img.complete&&img.naturalWidth>0&&img.getAttribute('src')==='augment-guide/de-1.jpg'),'guide screenshot loads');
+ await page.keyboard.press('ArrowRight');assert.match(await page.locator('.augment-guide .walkthrough-kicker').textContent(),/Schritt 2 \/ 7/);
+ await page.locator('.augment-guide footer input[type=checkbox]').check();await page.keyboard.press('Escape');await page.locator('.augment-guide').waitFor({state:'detached'});
+ assert.equal(await page.evaluate(()=>localStorage.getItem('reco-augment-guide-hidden-v1')),'yes');
+ await leaveStudio();await openStudio();await page.waitForTimeout(200);assert.equal(await page.locator('.augment-guide').count(),0,'hidden guide stays closed');
+ await page.locator('.studio-guide-open').click();await page.locator('.augment-guide').waitFor();
+ assert(await page.locator('.augment-guide footer input[type=checkbox]').isChecked(),'checkbox shows the hidden state');
+ await page.locator('.augment-guide footer input[type=checkbox]').uncheck();await page.locator('.augment-guide .walkthrough-close').click();
+ await leaveStudio();await openStudio();await page.locator('.augment-guide').waitFor();await page.keyboard.press('Escape');await leaveStudio();
  assert.equal(errors.length,0,errors.join('\n'));
  console.log(JSON.stringify({result:'PASS',expandedPreviewHeight:before.height,collapsedPreviewHeight:after.height,checks:['viewer keeps window height','zoom keeps coordinates and 1.5 px lines','wheel zooms to the mouse','zoom up to 20x','shortcuts space/B/1-9','click without mutation','class mapping and unchanged geometry','undo/redo','persistence after reload','save failure rollback','expand','no browser errors']},null,2));
 }finally{await browser.close();server.close();}

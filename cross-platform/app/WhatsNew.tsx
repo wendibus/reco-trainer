@@ -8,6 +8,15 @@ type Item = { title: string; text: string };
  *  number in the header opens it again. Add the next version's entry at the top. */
 export const WHATS_NEW: { version: string; items: Record<Language, Item[]> }[] = [
   {
+    version: '0.31.1',
+    items: {
+      de: [{ title: 'Anleitung im Augmentation Studio', text: 'Beim Öffnen des Studios führt eine Schritt-für-Schritt-Anleitung mit Bildern durch alles: Quellordner, Einstellungen, Hallen und Teams prüfen, Erzeugen und der Vergleich mit „Nur echt“. „Nicht mehr anzeigen“ blendet sie aus, der Knopf „Anleitung“ im Studio holt sie zurück.' }],
+      en: [{ title: 'Guide in the Augmentation Studio', text: 'When the studio opens, a step-by-step guide with pictures walks through everything: source folder, settings, checking venues and teams, generating and the comparison with “Real only”. “Don’t show again” hides it; the “Guide” button in the studio brings it back.' }],
+      es: [{ title: 'Guía en Augmentation Studio', text: 'Al abrir el estudio, una guía paso a paso con imágenes lo explica todo: carpeta de origen, ajustes, revisión de pabellones y equipos, generación y la comparación con «Solo real». «No volver a mostrar» la oculta; el botón «Guía» del estudio la recupera.' }],
+      fr: [{ title: 'Guide dans Augmentation Studio', text: 'À l’ouverture du studio, un guide pas à pas illustré explique tout : dossier source, réglages, vérification des salles et des équipes, génération et comparaison avec « Réel seul ». « Ne plus afficher » le masque ; le bouton « Guide » du studio le fait revenir.' }],
+    },
+  },
+  {
     version: '0.31.0',
     items: {
       de: [
