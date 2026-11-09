@@ -1,5 +1,11 @@
 # Änderungen
 
+## 0.31.2
+
+- Behoben: Das Augmentation Studio machte bei Datensätzen aus „Datensatz exportieren“ aus jedem Bild eine eigene Session. Der Export benennt Bilder absichtlich `frame-<id>.jpg`, ohne Videonamen, und `session_hint` behielt die Id. Gemeldet mit „Basketball Cleaned“: 4.900 Bilder ergaben 4.900 Sessions, keine Hallenplatte aus mehreren Bildern, Aufteilung nur nach den Export-Ordnern. Jetzt fallen reine Ids weg (auch Roboflows `_jpg.rf.<hash>`), und Bildgröße und Hintergrund entscheiden. Auf demselben Datensatz ergibt das rund 1.500 Sessions; 30 davon mit mindestens 20 Bildern decken zusammen rund 1.850 Bilder ab.
+- Dabei aufgefallen: Im selben Export lagen Bilder derselben Halle und Kamera in Training, Validierung und Test, weil das Projekt aus einem importierten Datensatz ohne Videonamen stammt. Das Studio teilt solche Hallen jetzt als Ganzes neu auf.
+- Oberfläche: Das Studio zeigt höchstens 12 Sessions vollständig (die größten, ab 5 Bildern). Die übrigen stehen in einer zugeklappten Liste, die erst beim Aufklappen gerendert wird. Vorher wären bei diesem Datensatz rund 30.000 Vorschaubilder auf einer Seite gelandet.
+
 ## 0.31.1
 
 - Neu: Schritt-für-Schritt-Anleitung im Augmentation Studio (`app/AugmentGuide.tsx`), sieben Schritte in Deutsch, Englisch, Spanisch und Französisch: was das Studio macht und was es braucht (mindestens 300, besser 500 geprüfte Bilder aus mehreren Aufnahmen), Quellordner und Rollen, Einstellungen (1.500–2.000 Variationen für einen ersten Test), Analyse und Hallen, Teams, Erzeugen, Training und Vergleich mit „Nur echt, gleiche Aufteilung“.

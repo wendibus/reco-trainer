@@ -246,10 +246,15 @@ def load_source(source: Path, language: str = "de") -> tuple[list[dict[str, Any]
 # --- sessions -------------------------------------------------------------------------------
 
 def session_hint(relative: str) -> str:
-    """Subfolder (without dataset split folders) plus the file name without its running number."""
+    """Subfolder (without dataset split folders) plus the file name without its running number.
+
+    Names that only carry an id say nothing about the recording: Reco Trainer's own export
+    ("frame-0001c1aa531b.jpg", no video names on purpose) and Roboflow ("x_jpg.rf.<hash>.jpg").
+    Their id is dropped, so such images are grouped by image size and background alone."""
     parts = Path(relative).parts
     folders = [part for part in parts[:-1] if part.lower() not in SPLIT_FOLDERS]
-    stem = re.sub(r"[-_ .]*\d+$", "", Path(relative).stem)
+    stem = re.sub(r"(_(jpe?g|png))?\.rf\.[0-9a-f]{8,}$", "", Path(relative).stem, flags=re.IGNORECASE)
+    stem = re.sub(r"[-_ .]*(\d+|[0-9a-f]*\d[0-9a-f]*)$", "", stem, flags=re.IGNORECASE) if re.search(r"[0-9a-f]{8,}$", stem, re.IGNORECASE) else re.sub(r"[-_ .]*\d+$", "", stem)
     return "/".join([*folders, stem])
 
 

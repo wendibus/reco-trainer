@@ -8,6 +8,15 @@ type Item = { title: string; text: string };
  *  number in the header opens it again. Add the next version's entry at the top. */
 export const WHATS_NEW: { version: string; items: Record<Language, Item[]> }[] = [
   {
+    version: '0.31.2',
+    items: {
+      de: [{ title: 'Augmentation Studio erkennt Hallen in exportierten Datensätzen', text: 'Bei Datensätzen aus „Datensatz exportieren“ wurde jedes Bild zu einer eigenen Session, weil die Dateinamen absichtlich keine Videonamen enthalten. Jetzt gruppiert das Studio solche Bilder nach Bildgröße und Hallenhintergrund. Viele kleine Sessions erscheinen zusammengefasst, damit die Seite flüssig bleibt. Bitte im Studio einmal neu analysieren.' }],
+      en: [{ title: 'Augmentation Studio finds venues in exported datasets', text: 'With datasets from “Export dataset”, every image became its own session, because the file names deliberately contain no video names. The studio now groups such images by image size and venue background. Many small sessions are shown as one list so the page stays fast. Please analyze once more in the studio.' }],
+      es: [{ title: 'Augmentation Studio reconoce pabellones en conjuntos exportados', text: 'Con conjuntos de «Exportar conjunto de datos», cada imagen se convertía en su propia sesión, porque los nombres de archivo no incluyen a propósito nombres de vídeo. Ahora el estudio agrupa esas imágenes por tamaño y fondo del pabellón. Las sesiones pequeñas aparecen en una lista para que la página siga fluida. Vuelve a analizar una vez en el estudio.' }],
+      fr: [{ title: 'Augmentation Studio reconnaît les salles des jeux exportés', text: 'Avec les jeux issus de « Exporter le jeu de données », chaque image devenait sa propre session, car les noms de fichiers ne contiennent volontairement aucun nom de vidéo. Le studio regroupe désormais ces images par taille et arrière-plan de la salle. Les nombreuses petites sessions apparaissent dans une liste pour que la page reste fluide. Veuillez relancer l’analyse une fois dans le studio.' }],
+    },
+  },
+  {
     version: '0.31.1',
     items: {
       de: [{ title: 'Anleitung im Augmentation Studio', text: 'Beim Öffnen des Studios führt eine Schritt-für-Schritt-Anleitung mit Bildern durch alles: Quellordner, Einstellungen, Hallen und Teams prüfen, Erzeugen und der Vergleich mit „Nur echt“. „Nicht mehr anzeigen“ blendet sie aus, der Knopf „Anleitung“ im Studio holt sie zurück.' }],

@@ -100,7 +100,7 @@ try {
  const leaveStudio=async()=>{await page.locator('.header-actions button',{hasText:'←'}).first().click();await page.locator('.studio').waitFor({state:'detached'});};
  await openStudio();await page.locator('.augment-guide').waitFor();
  assert.match(await page.locator('.augment-guide .walkthrough-kicker').textContent(),/Schritt 1 \/ 7/);
- assert(await page.locator('.augment-guide img').evaluate(img=>img.complete&&img.naturalWidth>0&&img.getAttribute('src')==='augment-guide/de-1.jpg'),'guide screenshot loads');
+ assert(await page.locator('.augment-guide img').evaluate(img=>(img.complete?Promise.resolve():new Promise(done=>{img.onload=img.onerror=done;})).then(()=>img.naturalWidth>0&&img.getAttribute('src')==='augment-guide/de-1.jpg')),'guide screenshot loads');
  await page.keyboard.press('ArrowRight');assert.match(await page.locator('.augment-guide .walkthrough-kicker').textContent(),/Schritt 2 \/ 7/);
  await page.locator('.augment-guide footer input[type=checkbox]').check();await page.keyboard.press('Escape');await page.locator('.augment-guide').waitFor({state:'detached'});
  assert.equal(await page.evaluate(()=>localStorage.getItem('reco-augment-guide-hidden-v1')),'yes');

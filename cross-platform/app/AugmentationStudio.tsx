@@ -31,6 +31,8 @@ type Props = {
   post: (path: string, payload?: Record<string, unknown>) => Promise<unknown>;
 };
 
+const MAX_SHOWN_SESSIONS = 12;
+const MIN_SHOWN_IMAGES = 5;
 const MODEL_INPUT: Record<string, number> = { nano: 384, small: 512, medium: 576, large: 704 };
 const DEFAULTS = { cropShare: 0.6, zoom: [0.2, 0.7] as [number, number], seed: 1, players: 5, referees: 3, balls: 1, minVisible: 0.3 };
 
@@ -39,7 +41,7 @@ const text: Record<Language, {
   variations: string; cropShare: string; zoomLow: string; zoomHigh: string; output: string; seed: string; players: string; referees: string; balls: string; minVisible: string;
   jersey: string; yolo: string; anonymize: string; step3: string; analyze: string; reanalyze: string; correctionsHint: string; images: string; plate: string; split: Record<Split, string>;
   link: string; noLink: string; moveTo: string; newSession: string; imagesList: string; polygon: Record<Session['polygonSource'], string>; polygonClick: string; polygonSave: string; polygonReset: string; polygonEdit: string;
-  team: (n: number) => string; outliers: string; referee: string; uncertainHint: string; notMovable: string; warnOne: string; warnTwo: string; noTrain: string; dropped: (n: number) => string; step4: string; generate: string; resume: (done: number) => string; needVariations: string;
+  team: (n: number) => string; moreSessions: (sessions: number, images: number) => string; outliers: string; referee: string; uncertainHint: string; notMovable: string; warnOne: string; warnTwo: string; noTrain: string; dropped: (n: number) => string; step4: string; generate: string; resume: (done: number) => string; needVariations: string;
   report: (n: number) => string; violationsNone: string; violations: string; regenerated: (n: number) => string; tooSmall: (n: number) => string; realCounts: (t: number, v: number, s: number) => string; preview: string; step5: string; trainingMode: string; modeOff: string; modeMixed: string; modeReal: string; realWeight: string; trainingHint: string;
   hints: { choose: string; analyze: string; generate: string; polygonSave: string; polygonReset: string; polygonEdit: string; instance: string };
 }> = {
@@ -50,6 +52,7 @@ const text: Record<Language, {
     jersey: 'Trikotfarben variieren', yolo: 'Zusätzlich YOLO-Export', anonymize: 'Köpfe anonymisieren', step3: '3 · Analyse prüfen', analyze: 'Analysieren', reanalyze: 'Änderungen übernehmen und neu analysieren', correctionsHint: 'Fertige Masken und Platten bleiben erhalten, das geht deutlich schneller als beim ersten Mal.',
     images: 'Bilder', plate: 'Leere Hallenplatte', split: { train: 'Training', valid: 'Validierung', test: 'Test' }, link: 'Gleiche Paarung wie', noLink: 'eigene Paarung', moveTo: 'Verschieben nach', newSession: 'neue Session', imagesList: 'Bilder dieser Session',
     polygon: { clicked: 'Spielfeld angeklickt', calibration: 'Spielfeld aus Kalibrierung', estimated: 'Spielfeld geschätzt aus Fußpunkten, bitte prüfen' }, polygonClick: 'Spielfeldecken der Reihe nach anklicken.', polygonSave: 'Spielfeld speichern', polygonReset: 'Punkte löschen', polygonEdit: 'Spielfeld anklicken',
+    moreSessions: (n, i) => `${n} weitere Sessions mit zusammen ${i} Bildern (Einzelbilder und kleine Gruppen; sie werden genauso verwendet)`,
     team: (n) => `Team ${n + 1}`, outliers: 'Ausreißer (werden nicht verwendet)', referee: 'Schiedsrichter', uncertainHint: 'Orange umrandet = unsicher. Klick wechselt das Team.', notMovable: 'Halb verdeckte oder angeschnittene Personen sind blass und werden nicht verschoben.',
     warnOne: 'Nur eine Session: Es gibt keine echten Bilder für Validierung und Test. Für eine ehrliche Bewertung weitere Aufnahmen ergänzen.', warnTwo: 'Nur zwei Sessions: Es gibt keinen unabhängigen Test.', noTrain: 'Keine Session ist fürs Training eingeteilt.', dropped: (n) => `${n} Instanzen wegen schlechter Maske verworfen (siehe Protokoll).`,
     step4: '4 · Erzeugen', generate: 'Datensatz erzeugen', resume: (done) => `${done} Bilder sind schon fertig; gleiche Einstellungen setzen dort fort.`, needVariations: 'Bitte die Anzahl der Variationen angeben.',
@@ -64,6 +67,7 @@ const text: Record<Language, {
     jersey: 'Vary jersey colours', yolo: 'Also export YOLO', anonymize: 'Anonymize heads', step3: '3 · Review the analysis', analyze: 'Analyze', reanalyze: 'Apply changes and analyze again', correctionsHint: 'Finished masks and plates are kept, so this is much faster than the first time.',
     images: 'images', plate: 'Empty-hall plate', split: { train: 'Training', valid: 'Validation', test: 'Test' }, link: 'Same pairing as', noLink: 'own pairing', moveTo: 'Move to', newSession: 'new session', imagesList: 'Images of this session',
     polygon: { clicked: 'Court clicked', calibration: 'Court from calibration', estimated: 'Court estimated from foot points, please check' }, polygonClick: 'Click the court corners in order.', polygonSave: 'Save court', polygonReset: 'Clear points', polygonEdit: 'Click the court',
+    moreSessions: (n, i) => `${n} more sessions with ${i} images in total (single images and small groups; they are used the same way)`,
     team: (n) => `Team ${n + 1}`, outliers: 'Outliers (not used)', referee: 'Referees', uncertainHint: 'Orange border = uncertain. A click changes the team.', notMovable: 'Half-hidden or cut-off people are pale and are not moved.',
     warnOne: 'Only one session: there are no real images for validation and test. Add more recordings for an honest evaluation.', warnTwo: 'Only two sessions: there is no independent test.', noTrain: 'No session is assigned to training.', dropped: (n) => `${n} instances dropped for a poor mask (see the log).`,
     step4: '4 · Generate', generate: 'Generate dataset', resume: (done) => `${done} images are already finished; the same settings continue from there.`, needVariations: 'Please enter the number of variations.',
@@ -78,6 +82,7 @@ const text: Record<Language, {
     jersey: 'Variar colores de camiseta', yolo: 'Exportar también YOLO', anonymize: 'Anonimizar cabezas', step3: '3 · Revisar el análisis', analyze: 'Analizar', reanalyze: 'Aplicar cambios y volver a analizar', correctionsHint: 'Las máscaras y placas terminadas se conservan, así que es mucho más rápido que la primera vez.',
     images: 'imágenes', plate: 'Placa de pabellón vacío', split: { train: 'Entrenamiento', valid: 'Validación', test: 'Prueba' }, link: 'Mismo enfrentamiento que', noLink: 'enfrentamiento propio', moveTo: 'Mover a', newSession: 'sesión nueva', imagesList: 'Imágenes de esta sesión',
     polygon: { clicked: 'Campo marcado', calibration: 'Campo de la calibración', estimated: 'Campo estimado por los pies, compruébalo' }, polygonClick: 'Haz clic en las esquinas del campo en orden.', polygonSave: 'Guardar campo', polygonReset: 'Borrar puntos', polygonEdit: 'Marcar el campo',
+    moreSessions: (n, i) => `${n} sesiones más con ${i} imágenes en total (imágenes sueltas y grupos pequeños; se usan igual)`,
     team: (n) => `Equipo ${n + 1}`, outliers: 'Valores atípicos (no se usan)', referee: 'Árbitros', uncertainHint: 'Borde naranja = dudoso. Un clic cambia el equipo.', notMovable: 'Las personas semiocultas o cortadas aparecen pálidas y no se mueven.',
     warnOne: 'Solo una sesión: no hay imágenes reales para validación y prueba. Añade más grabaciones para una evaluación honesta.', warnTwo: 'Solo dos sesiones: no hay prueba independiente.', noTrain: 'Ninguna sesión está asignada al entrenamiento.', dropped: (n) => `${n} instancias descartadas por mala máscara (ver el registro).`,
     step4: '4 · Generar', generate: 'Generar conjunto de datos', resume: (done) => `${done} imágenes ya están listas; con los mismos ajustes continúa desde ahí.`, needVariations: 'Indica el número de variaciones.',
@@ -92,6 +97,7 @@ const text: Record<Language, {
     jersey: 'Varier les couleurs de maillot', yolo: 'Exporter aussi en YOLO', anonymize: 'Anonymiser les têtes', step3: '3 · Vérifier l’analyse', analyze: 'Analyser', reanalyze: 'Appliquer et analyser à nouveau', correctionsHint: 'Les masques et plaques terminés sont conservés, c’est donc bien plus rapide que la première fois.',
     images: 'images', plate: 'Plaque de salle vide', split: { train: 'Entraînement', valid: 'Validation', test: 'Test' }, link: 'Même affiche que', noLink: 'affiche propre', moveTo: 'Déplacer vers', newSession: 'nouvelle session', imagesList: 'Images de cette session',
     polygon: { clicked: 'Terrain cliqué', calibration: 'Terrain issu de la calibration', estimated: 'Terrain estimé d’après les pieds, à vérifier' }, polygonClick: 'Cliquez les coins du terrain dans l’ordre.', polygonSave: 'Enregistrer le terrain', polygonReset: 'Effacer les points', polygonEdit: 'Cliquer le terrain',
+    moreSessions: (n, i) => `${n} autres sessions, ${i} images au total (images isolées et petits groupes ; elles sont utilisées de la même façon)`,
     team: (n) => `Équipe ${n + 1}`, outliers: 'Valeurs aberrantes (non utilisées)', referee: 'Arbitres', uncertainHint: 'Bord orange = incertain. Un clic change l’équipe.', notMovable: 'Les personnes à moitié cachées ou coupées sont pâles et ne sont pas déplacées.',
     warnOne: 'Une seule session : aucune image réelle pour la validation et le test. Ajoutez d’autres prises de vue pour une évaluation honnête.', warnTwo: 'Deux sessions seulement : pas de test indépendant.', noTrain: 'Aucune session n’est affectée à l’entraînement.', dropped: (n) => `${n} instances rejetées pour un mauvais masque (voir le journal).`,
     step4: '4 · Générer', generate: 'Générer le jeu de données', resume: (done) => `${done} images sont déjà terminées ; avec les mêmes réglages, la génération reprend là.`, needVariations: 'Veuillez indiquer le nombre de variations.',
@@ -110,6 +116,13 @@ export function AugmentationStudio({ language, api, busy, modelSize, post, proje
   // Opens every time the studio opens, unless "Don't show again" was ticked in the guide.
   const [guideOpen, setGuideOpen] = useState(() => !guideHidden());
   const closeGuide = useCallback(() => setGuideOpen(false), []);
+  const [showSmall, setShowSmall] = useState(false);
+  // Exported datasets can form hundreds of sessions: the biggest are shown in full, the rest as a list.
+  const shownSessions = (current: Analysis) => {
+    const ordered = [...current.sessions].sort((a, b) => b.images.length - a.images.length || a.id.localeCompare(b.id));
+    const main = ordered.filter((session, index) => index < MAX_SHOWN_SESSIONS && (index < 3 || session.images.length >= MIN_SHOWN_IMAGES));
+    return { main, rest: ordered.slice(main.length) };
+  };
 
   const accept = useCallback((next?: StudioState) => {
     if (!next) return;
@@ -202,7 +215,7 @@ export function AugmentationStudio({ language, api, busy, modelSize, post, proje
       {analysis && !analysis.sessions.some((session) => session.split === 'train') && <p className="folder-empty-hint">{t.noTrain}</p>}
       {!!analysis?.dropped && <small>{t.dropped(analysis.dropped)}</small>}
       {!!analysis?.log.length && <details className="studio-log"><summary>Log ({analysis.log.length})</summary><pre>{analysis.log.join('\n')}</pre></details>}
-      {analysis && <><small>{t.uncertainHint} {t.notMovable}</small>{analysis.sessions.map((session) => {
+      {analysis && <><small>{t.uncertainHint} {t.notMovable}</small>{shownSessions(analysis).main.map((session) => {
         const people = analysis.instances.filter((item) => item.session === session.id);
         const players = people.filter((item) => item.role === 'player');
         const others = analysis.sessions.filter((item) => item.id !== session.id);
@@ -224,7 +237,7 @@ export function AugmentationStudio({ language, api, busy, modelSize, post, proje
           </div>
           <details><summary>{t.imagesList}</summary><ul className="studio-images">{session.images.map((image) => <li key={image}><code>{image}</code><label>{t.moveTo} <select value="" onChange={(event) => { if (event.target.value) moveImage(image, event.target.value); }}><option value="">–</option>{others.map((item) => <option key={item.id} value={item.id}>{item.id.split('|')[0]}</option>)}<option value="new">{t.newSession}</option></select></label></li>)}</ul></details>
         </article>;
-      })}</>}
+      })}{shownSessions(analysis).rest.length > 0 && <details className="studio-more-sessions" open={showSmall} onToggle={(event) => setShowSmall((event.currentTarget as HTMLDetailsElement).open)}><summary>{t.moreSessions(shownSessions(analysis).rest.length, shownSessions(analysis).rest.reduce((sum, item) => sum + item.images.length, 0))}</summary>{showSmall && <ul className="studio-images">{shownSessions(analysis).rest.map((session) => <li key={session.id}><code>{session.images[0]}</code><span>{session.images.length} {t.images} · {t.split[session.split]}</span></li>)}</ul>}</details>}</>}
     </section>}
 
     {analysis && <section className="studio-card"><h3>{t.step4}</h3>

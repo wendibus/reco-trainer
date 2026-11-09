@@ -348,6 +348,20 @@ class SessionAndTeamTests(unittest.TestCase):
         self.assertEqual(studio.session_hint("train/game_a_0012.jpg"), "game_a")
         self.assertEqual(studio.session_hint("match1/images/valid/cam-7.png"), "match1/cam")
 
+    def test_id_only_names_are_grouped_by_background(self):
+        # Reco Trainer's export hides video names; Roboflow appends a hash. One hint for all of them,
+        # so the background decides, across the split folders of the export.
+        self.assertEqual(studio.session_hint("train/frame-0001c1aa531b.jpg"), studio.session_hint("test/frame-76c7ee74b315.jpg"))
+        self.assertEqual(studio.session_hint("train/IMG_1234_jpg.rf.0a1b2c3d4e5f60718293a4b5c6d7e8f9.jpg"), "IMG")
+        hall = np.full((36, 64), 100, dtype=np.float32)
+        other = np.full((36, 64), 180, dtype=np.float32)
+        free = np.ones((36, 64), dtype=bool)
+        images = [{"rel": f"{split}/frame-{index:012x}", "width": 1920, "height": 1080} for index, split in enumerate(["train", "valid", "test", "train"])]
+        signatures = {images[0]["rel"]: (hall, free), images[1]["rel"]: (hall + 3, free), images[2]["rel"]: (other, free), images[3]["rel"]: (hall, free)}
+        groups = studio.group_sessions(images, signatures, {})
+        self.assertEqual(sorted(len(members) for members in groups.values()), [1, 3])
+        self.assertEqual(studio.splits_from_folders(groups), {}, "a hall spread over the export splits is split again as a whole")
+
     def test_linked_sessions_form_one_group(self):
         groups = studio.link_groups(["a", "b", "c"], [["a", "b"]])
         self.assertEqual(groups["a"], groups["b"])

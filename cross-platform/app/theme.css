@@ -412,3 +412,5 @@ select { height: 30px; padding: 0 8px; }
 .augment-guide footer button { min-width: 96px; }
 @media (prefers-reduced-motion: reduce) { .augment-guide { animation: none; } }
 @media (max-width: 760px) { .augment-guide-body { grid-template-columns: 1fr; min-height: 0; } .augment-guide-body figure { height: auto; max-height: 300px; } .augment-guide { padding: 22px 16px 16px; } }
+.studio-more-sessions summary { cursor: pointer; color: var(--label-2); font-size: 12px; }
+.studio-more-sessions .studio-images { max-height: 320px; overflow: auto; }
