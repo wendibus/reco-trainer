@@ -102,7 +102,7 @@ class BatchRunTests(unittest.TestCase):
             calls = []
             interpreters = self.interpreters = []
 
-            def fake_step(command, prefix, index, count, env=None):
+            def fake_step(command, prefix, index, count, env=None, **options):
                 calls.append((command[2], command[command.index("--model") + 1]))
                 interpreters.append((command[0], command[2], command[command.index("--model") + 1], env))
                 if command[2] == "train" and command[command.index("--model") + 1] in fail:
@@ -162,6 +162,40 @@ class BatchRunTests(unittest.TestCase):
             self.assertFalse(ml_worker.hard_exit_after_work())
         with mock.patch.object(ml_worker.os, "name", "posix"), mock.patch.dict(ml_worker.os.environ, {"ROCM_SDK_TARGET_FAMILY": "custom"}):
             self.assertFalse(ml_worker.hard_exit_after_work())
+
+
+class BatchStepProcessTests(unittest.TestCase):
+    """run_batch_step with real child processes: a step that hangs must not stop the batch."""
+
+    def step(self, code: str, **options):
+        import contextlib
+        import io
+        import time
+        started = time.monotonic()
+        with contextlib.redirect_stdout(io.StringIO()):
+            result = ml_worker.run_batch_step([sys.executable, "-c", code], "Medium", 1, 2, **options)
+        return result, time.monotonic() - started
+
+    def test_a_normal_step_returns_its_result(self):
+        (code, line, _), _ = self.step("print('hello'); print('{\"a\": 1}')")
+        self.assertEqual((code, line), (0, '{"a": 1}'))
+
+    def test_a_step_that_prints_its_result_but_does_not_end_is_stopped(self):
+        (code, line, _), seconds = self.step("import time; print('{\"a\": 1}', flush=True); time.sleep(120)", result_grace=2)
+        self.assertEqual((code, line), (0, '{"a": 1}'))
+        self.assertLess(seconds, 60)
+
+    def test_a_silent_step_is_stopped_after_the_idle_limit(self):
+        (code, line, tail), seconds = self.step("import time; print('53/53', flush=True); time.sleep(120)", idle_limit=2)
+        self.assertNotEqual(code, 0)
+        self.assertIsNone(line)
+        self.assertLess(seconds, 60)
+
+    def test_a_child_holding_the_pipe_does_not_block_the_batch(self):
+        child = "import subprocess, sys; subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(120)']); print('{\"a\": 2}', flush=True)"
+        (code, line, _), seconds = self.step(child)
+        self.assertEqual((code, line), (0, '{"a": 2}'))
+        self.assertLess(seconds, 60)
 
 
 class StaticContractTests(unittest.TestCase):

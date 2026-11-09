@@ -18,6 +18,7 @@ import json
 import math
 import os
 import platform
+import queue
 import re
 import shutil
 import signal
@@ -26,6 +27,7 @@ import struct
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import urllib.request
 import uuid
@@ -54,6 +56,8 @@ MODEL_CLASSES = {
 AUTO_EPOCH_LIMIT = 500
 BATCH_MIN_FREE_BYTES = 5_000_000_000
 SWEEP_THRESHOLDS = [round(0.05 * step, 2) for step in range(1, 19)]
+# The confidence check prints a line per image; this long without one, it counts as stuck.
+SWEEP_IDLE_LIMIT = 600.0
 
 
 def emit(message: str) -> None:
@@ -4290,9 +4294,13 @@ def confidence_sweep(args: argparse.Namespace) -> None:
         model = import_model_class(args.model, args.language)(pretrain_weights=str(checkpoint), device=detect_device())
     label = localized(args.language, "Confidence prüfen", "Check confidence", "Comprobar la confianza", "Vérifier la confiance")
     predictions, seconds = run_benchmark_pass(model, valid, set(classes), str(document["sport"]), SWEEP_THRESHOLDS[0], 1, project_root, label, args.language, frames_root)
+    swept = sweep_thresholds(valid, predictions, classes)
+    # A visible line before the result, so the log shows that the check got this far.
+    emit(localized(args.language, f"Beste Confidence: {swept['bestThreshold']:.2f} (F1 {swept['f1']:.3f})", f"Best confidence: {swept['bestThreshold']:.2f} (F1 {swept['f1']:.3f})",
+                   f"Mejor confianza: {swept['bestThreshold']:.2f} (F1 {swept['f1']:.3f})", f"Meilleure confiance : {swept['bestThreshold']:.2f} (F1 {swept['f1']:.3f})"))
     print(json.dumps({
         "mAP50": evaluate_predictions(valid, predictions, classes)["mAP50"], "validationImages": len(valid),
-        "imagesPerSecond": len(valid) / max(seconds, 1e-6), **sweep_thresholds(valid, predictions, classes),
+        "imagesPerSecond": len(valid) / max(seconds, 1e-6), **swept,
     }, ensure_ascii=False), flush=True)
 
 
@@ -4308,25 +4316,89 @@ def recommended_model(results: list[dict[str, Any]]) -> str | None:
     return min(close, key=lambda item: order.index(item["model"]) if item["model"] in order else len(order))["model"]
 
 
-def run_batch_step(command: list[str], prefix: str, index: int, count: int, env: dict[str, str] | None = None) -> tuple[int, str | None, list[str]]:
-    """One model in its own process, so running out of memory ends this step and not the night."""
+def stop_process_tree(process: subprocess.Popen) -> None:
+    """End a step and anything it started (on Windows a child can keep the output pipe open)."""
+    try:
+        if os.name == "nt":
+            subprocess.run(["taskkill", "/PID", str(process.pid), "/T", "/F"], capture_output=True, timeout=60)
+        else:
+            process.kill()
+    except (OSError, subprocess.SubprocessError):
+        pass
+    try:
+        process.wait(timeout=30)
+    except subprocess.TimeoutExpired:
+        pass
+
+
+def run_batch_step(command: list[str], prefix: str, index: int, count: int, env: dict[str, str] | None = None,
+                   idle_limit: float | None = None, result_grace: float = 60.0, language: str = "en") -> tuple[int, str | None, list[str]]:
+    """One model in its own process, so running out of memory ends this step and not the night.
+
+    The output is read on a thread, so the batch never waits on the pipe alone: a step that has
+    printed its result but does not end, or one whose process ended while something it started
+    still holds the pipe, no longer stops the whole batch. idle_limit ends a step that prints
+    nothing for that many seconds (only for the confidence check, which is optional)."""
     # stderr comes along: the last line of a crash is what the report has to show.
     process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding="utf-8", errors="replace", bufsize=1, env={**os.environ, **(env or {}), "PYTHONUNBUFFERED": "1"})
+    lines: queue.Queue[str | None] = queue.Queue()
+
+    def pump() -> None:
+        try:
+            for raw in process.stdout:
+                lines.put(raw)
+        except (OSError, ValueError):
+            pass
+        lines.put(None)
+
+    threading.Thread(target=pump, daemon=True).start()
     last_json, tail = None, []
-    for line in process.stdout:
+    last_output = time.monotonic()
+    exited_at = result_at = None
+    while True:
+        try:
+            line = lines.get(timeout=1.0)
+        except queue.Empty:
+            now = time.monotonic()
+            if process.poll() is not None:
+                exited_at = exited_at or now
+                if now - exited_at > 10:
+                    break  # the process is gone; something it started still holds the pipe
+            elif last_json is not None and now - (result_at or now) > result_grace:
+                emit(localized_step_stopped(prefix, language))
+                stop_process_tree(process)
+                return 0, last_json, tail
+            elif idle_limit is not None and now - last_output > idle_limit:
+                emit(localized_step_stopped(prefix, language))
+                stop_process_tree(process)
+                return 124, None, [*tail, f"no output for {int(idle_limit)} s"][-5:]
+            continue
+        if line is None:
+            break
+        last_output = time.monotonic()
         line = line.rstrip("\n")
         match = re.match(r"^RECO_STAGE \d+ \d+ (.*)$", line)
         if match:
             stage(index, count, f"{prefix}: {match.group(1)}")
         elif line.startswith("{") and line.endswith("}"):
             last_json = line
+            result_at = time.monotonic()
         elif line.startswith("RECO_PROGRESS "):
             print(line, file=sys.stderr, flush=True)
         else:
             emit(line)
             if line.strip():
                 tail = [*tail, line][-5:]
-    return process.wait(), last_json, tail
+    try:
+        return process.wait(timeout=30), last_json, tail
+    except subprocess.TimeoutExpired:
+        stop_process_tree(process)
+        return (0 if last_json is not None else 124), last_json, tail
+
+
+def localized_step_stopped(prefix: str, language: str) -> str:
+    return prefix + ": " + localized(language, "Der Schritt endete nicht von selbst und wurde beendet.", "the step did not end by itself and was stopped.",
+                                     "el paso no terminó por sí solo y se detuvo.", "l’étape ne s’est pas terminée d’elle-même et a été arrêtée.")
 
 
 # Same as local_worker.ROCM_TRAINING_ENV: the ROCm environment has no ONNX inference on the card.
@@ -4373,7 +4445,7 @@ def train_batch(args: argparse.Namespace) -> None:
             command += ["--image-size", str(int(getattr(args, "image_size", 640) or 640))]
         if rocm:
             emit(localized(args.language, f"{title}: Training auf der AMD-Karte (ROCm).", f"{title}: training on the AMD card (ROCm).", f"{title}: entrenamiento en la tarjeta AMD (ROCm).", f"{title} : entraînement sur la carte AMD (ROCm)."))
-        code, _, tail = run_batch_step(command, title, number, len(results), ROCM_STEP_ENV if rocm else None)
+        code, _, tail = run_batch_step(command, title, number, len(results), ROCM_STEP_ENV if rocm else None, language=args.language)
         entry["minutes"] = round((time.time() - started) / 60.0, 1)
         if code != 0:
             entry.update(status="failed", error=tail[-1] if tail else f"exit code {code}")
@@ -4385,7 +4457,8 @@ def train_batch(args: argparse.Namespace) -> None:
         # Without a sweep the training's own evaluation still allows a comparison.
         entry.update(status="done", epochs=training.get("epochsCompleted"), device=training.get("device"), testMetrics=training.get("testMetrics") or {}, splits=training.get("splits"), mAP50=validation.get("val/mAP_50"))
         if args.sweep:
-            code, line, tail = run_batch_step([sys.executable, worker, "confidence-sweep", "--project", str(project_root), "--model", name, "--language", args.language], title, number, len(results))
+            # Optional: if it hangs (seen on an AMD card on Windows), the batch moves on.
+            code, line, tail = run_batch_step([sys.executable, worker, "confidence-sweep", "--project", str(project_root), "--model", name, "--language", args.language], title, number, len(results), idle_limit=SWEEP_IDLE_LIMIT, language=args.language)
             if code == 0 and line:
                 entry.update(json.loads(line))
             else:

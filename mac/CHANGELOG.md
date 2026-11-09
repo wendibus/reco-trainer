@@ -1,5 +1,10 @@
 # Änderungen
 
+## 0.31.7
+
+- Behoben: Das Batch-Training auf der AMD-Karte blieb auch mit 0.31.6 nach „Confidence prüfen: 53/53“ von Medium stehen (Tester, RX 7800 XT). Das harte Beenden in 0.31.6 hat also nicht gereicht. Wahrscheinlich hält unter Windows ein vom Prüfschritt gestarteter Prozess die Ausgabe-Pipe offen, und `run_batch_step` las mit `for line in process.stdout` bis EOF. `run_batch_step` liest jetzt auf einem Thread. Ist der Prozess beendet, wartet es höchstens 10 s auf das Ende der Pipe. Hat ein Schritt sein Ergebnis (JSON) geliefert und endet nicht, beendet es ihn nach 60 s samt Unterprozessen (`taskkill /T /F`). Die optionale Confidence-Prüfung wird nach 600 s ohne Ausgabe abgebrochen und als `sweepError` vermerkt.
+- Der Sweep schreibt vor seinem Ergebnis „Beste Confidence: x (F1 y)“ ins Protokoll, damit man sieht, wie weit er gekommen ist.
+
 ## 0.31.6
 
 - Behoben (vermutlich): Beim Tester (RX 7800 XT, 0.31.5) blieb ein Batch aus RF-DETR Medium und YOLO26 Medium nach Medium stehen. Angezeigt wurde zuletzt „Comprobar la confianza: 53/53“, 99 %, YOLO begann nie, der Batch musste abgebrochen werden. Nach dem letzten Bild rechnet der Sweep nur noch kurz und gibt sein Ergebnis aus, also endete entweder dieser Prozess nicht, oder YOLO hing vor seiner ersten Meldung. `ml_worker.main` beendet Prozesse der ROCm-Umgebung unter Windows (`ROCM_SDK_TARGET_FAMILY=custom`) nach getaner Arbeit jetzt mit `os._exit(0)`. Ausgaben werden vorher geleert, alle Dateien sind dann schon atomar geschrieben, und der Treiber wird nicht mehr aufgeräumt.

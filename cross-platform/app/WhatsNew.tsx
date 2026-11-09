@@ -8,6 +8,15 @@ type Item = { title: string; text: string };
  *  number in the header opens it again. Add the next version's entry at the top. */
 export const WHATS_NEW: { version: string; items: Record<Language, Item[]> }[] = [
   {
+    version: '0.31.7',
+    items: {
+      de: [{ title: 'Batch-Training läuft nach der Confidence-Prüfung weiter', text: 'Auf einer AMD-Karte unter Windows blieb das Batch-Training nach „Confidence prüfen“ des ersten Modells stehen. Der Batch wartet jetzt nicht mehr endlos: Ein Schritt, der sein Ergebnis geliefert hat, aber nicht endet, wird beendet; eine Confidence-Prüfung, die zehn Minuten lang nichts meldet, wird übersprungen. Das trainierte Modell ist zu dem Zeitpunkt schon gespeichert.' }],
+      en: [{ title: 'Batch training continues after the confidence check', text: 'On an AMD card on Windows, batch training stopped after the first model’s “Check confidence”. The batch no longer waits forever: a step that has delivered its result but does not end is stopped, and a confidence check that reports nothing for ten minutes is skipped. The trained model is already saved at that point.' }],
+      es: [{ title: 'El entrenamiento por lotes continúa tras comprobar la confianza', text: 'En una tarjeta AMD con Windows, el entrenamiento por lotes se detenía tras «Comprobar la confianza» del primer modelo. El lote ya no espera indefinidamente: un paso que ya entregó su resultado pero no termina se detiene, y una comprobación de confianza que no informa nada durante diez minutos se omite. El modelo entrenado ya está guardado en ese momento.' }],
+      fr: [{ title: 'L’entraînement par lots continue après la vérification de la confiance', text: 'Sur une carte AMD sous Windows, l’entraînement par lots s’arrêtait après « Vérifier la confiance » du premier modèle. Le lot n’attend plus indéfiniment : une étape qui a livré son résultat mais ne se termine pas est arrêtée, et une vérification de la confiance qui ne signale rien pendant dix minutes est ignorée. Le modèle entraîné est déjà enregistré à ce moment-là.' }],
+    },
+  },
+  {
     version: '0.31.6',
     items: {
       de: [{ title: 'Batch-Training auf der AMD-Karte bleibt nicht mehr hängen', text: 'Ein Batch-Training auf der AMD-Karte konnte nach einem fertigen Modell stehen bleiben, bevor das nächste begann. Prozesse in der AMD-Umgebung beenden sich jetzt sofort, sobald alles gespeichert ist. Außerdem zeigt der Batch den Start jedes Modells gleich an.' }],
