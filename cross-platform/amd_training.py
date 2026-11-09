@@ -137,6 +137,22 @@ def install_steps(python: Path, rfdetr_version: str, constraints: Path) -> list[
     ]
 
 
+# YOLO (Ultralytics) in this environment too, so a batch with YOLO trains on the card as well.
+# Same pinned version and --no-deps as the normal environment; its other needs are listed here and
+# installed under the constraints, so pip keeps AMD's torch. opencv is only added when cv2 is missing
+# (opencv-python and -headless write the same module).
+YOLO_DEPENDENCIES = ["ultralytics-thop>=2.2.4", "polars>=0.20.0", "matplotlib>=3.3.0", "psutil>=5.8.0", "pyyaml>=5.3.1", "pillow>=7.1.2", "requests>=2.23.0"]
+YOLO_CHECK = "import os; os.environ['YOLO_OFFLINE'] = '1'; import cv2, polars, ultralytics; from ultralytics import YOLO"
+
+
+def yolo_install_steps(python: Path, ultralytics_version: str, constraints: Path, has_cv2: bool) -> list[list[str]]:
+    pip = [str(python), "-m", "pip", "install", "--disable-pip-version-check", "-c", str(constraints)]
+    steps = [pip + ["--no-deps", f"ultralytics=={ultralytics_version}"], pip + YOLO_DEPENDENCIES]
+    if not has_cv2:
+        steps.append(pip + ["opencv-python-headless>=4.10.0"])
+    return steps
+
+
 def status(folder: Path | None, card: dict[str, Any] | None) -> dict[str, Any] | None:
     """For the app: None when AMD training is not possible on this computer."""
     if folder is None or (not is_windows_x64() and os.environ.get("RECO_SIMULATE_AMD") != "1"):

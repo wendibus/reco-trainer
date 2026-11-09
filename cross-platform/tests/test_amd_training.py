@@ -69,7 +69,7 @@ class EnvironmentTests(unittest.TestCase):
 
 
 class WorkerTests(unittest.TestCase):
-    def run_action(self, action: str, payload: dict, rocm_python: Path | None):
+    def run_action(self, action: str, payload: dict, rocm_python: Path | None, yolo_on_card: bool = False):
         calls = []
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -82,6 +82,7 @@ class WorkerTests(unittest.TestCase):
                     mock.patch.object(local_worker, "rocm_status", return_value={"enabled": rocm_python is not None}), \
                     mock.patch.object(local_worker, "remember_rocm_problem"), \
                     mock.patch.object(local_worker, "ensure_yolo"), \
+                    mock.patch.object(local_worker, "ensure_yolo_rocm", return_value=yolo_on_card), \
                     mock.patch.object(amd_training, "training_python", return_value=rocm_python):
                 local_worker.ml_action(action, payload)
         return calls
@@ -93,6 +94,14 @@ class WorkerTests(unittest.TestCase):
         calls = self.run_action("train", {"language": "en"}, None)
         self.assertNotEqual(calls[0][0][0], str(Path("C:/rocm/python.exe")))
         self.assertIsNone(calls[0][1])
+
+    def test_a_batch_with_yolo_trains_on_the_card_when_yolo_is_set_up_there(self):
+        rocm = str(Path("C:/rocm/python.exe"))
+        for models in (["nano", "yolo-nano"], ["yolo-medium"]):
+            calls = self.run_action("train-batch", {"language": "en", "models": models, "yoloLicenseAccepted": True}, Path("C:/rocm/python.exe"), yolo_on_card=True)
+            self.assertEqual(calls[0][0][0], rocm)
+            self.assertNotIn("--rfdetr-python", calls[0][0])
+            self.assertEqual(calls[0][1], local_worker.ROCM_TRAINING_ENV)
 
     def test_a_batch_with_yolo_trains_only_rfdetr_on_the_card(self):
         calls = self.run_action("train-batch", {"language": "en", "models": ["nano", "yolo-nano"], "yoloLicenseAccepted": True}, Path("C:/rocm/python.exe"))
@@ -115,6 +124,30 @@ class WorkerTests(unittest.TestCase):
             report.assert_not_called()
             local_worker.record_job_failure("autolabel", "exited with code 1")
             report.assert_called_once()
+
+
+class YoloOnCardTests(unittest.TestCase):
+    def test_yolo_install_keeps_amds_torch_and_adds_opencv_only_when_missing(self):
+        constraints = Path("C:/rocm/constraints.txt")
+        steps = amd_training.yolo_install_steps(Path("C:/rocm/python.exe"), "8.4.180", constraints, has_cv2=True)
+        self.assertTrue(all(["-c", str(constraints)] == step[step.index("-c"):step.index("-c") + 2] for step in steps))
+        self.assertIn("--no-deps", steps[0])
+        self.assertIn("ultralytics==8.4.180", steps[0])
+        self.assertFalse(any("opencv" in part for step in steps for part in step))
+        steps = amd_training.yolo_install_steps(Path("C:/rocm/python.exe"), "8.4.180", constraints, has_cv2=False)
+        self.assertIn("opencv-python-headless>=4.10.0", steps[-1])
+        self.assertFalse(any(part.startswith("torch") for step in steps for part in step))
+
+    def test_a_failed_install_leaves_yolo_on_the_cpu(self):
+        with tempfile.TemporaryDirectory() as temporary, \
+                mock.patch.object(local_worker, "rocm_folder", return_value=Path(temporary)), \
+                mock.patch.object(local_worker, "run_logged", side_effect=RuntimeError("pip failed")), \
+                mock.patch.object(local_worker.subprocess, "run", return_value=mock.Mock(returncode=1)):
+            self.assertFalse(local_worker.ensure_yolo_rocm(Path("C:/rocm/python.exe")))
+        with mock.patch.object(local_worker.subprocess, "run", return_value=mock.Mock(returncode=0)), \
+                mock.patch.object(local_worker, "run_logged") as install:
+            self.assertTrue(local_worker.ensure_yolo_rocm(Path("C:/rocm/python.exe")))
+            install.assert_not_called()
 
 
 class SetupTests(unittest.TestCase):

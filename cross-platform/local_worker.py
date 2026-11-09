@@ -2339,6 +2339,42 @@ def rocm_training_executable(default: Path) -> tuple[Path, bool]:
     return python, True
 
 
+def ensure_yolo_rocm(python: Path) -> bool:
+    """YOLO in the AMD environment as well. False (and YOLO stays on the CPU) when that fails."""
+    def check(code: str) -> bool:
+        try:
+            return subprocess.run([str(python), "-c", code], capture_output=True, timeout=300, env={**os.environ, "PYTHONUTF8": "1"}).returncode == 0
+        except (OSError, subprocess.SubprocessError):
+            return False
+
+    if check(amd_training.YOLO_CHECK):
+        return True
+    STATE.update(message=localized(
+        "Installiere YOLO auch für das Training auf der AMD-Karte …", "Installing YOLO for training on the AMD card as well …",
+        "Instalando YOLO también para entrenar en la tarjeta AMD …", "Installation de YOLO aussi pour l’entraînement sur la carte AMD …",
+    ))
+    folder = rocm_folder()
+    try:
+        if folder is None:
+            raise RuntimeError("no AMD training folder")
+        constraints = folder / "constraints.txt"
+        constraints.write_text(amd_training.CONSTRAINTS, encoding="utf-8")
+        has_cv2 = check("import cv2")
+        for command in amd_training.yolo_install_steps(python, yolo_training.ULTRALYTICS_VERSION, constraints, has_cv2):
+            run_logged(command)
+    except Exception as error:  # noqa: BLE001 - the batch still runs, with YOLO on the CPU
+        STATE.append_log(str(error))
+    if check(amd_training.YOLO_CHECK):
+        return True
+    STATE.append_log(localized(
+        "YOLO ließ sich für die AMD-Karte nicht einrichten. YOLO trainiert deshalb auf der CPU, RF-DETR weiter auf der Karte.",
+        "YOLO could not be set up for the AMD card, so YOLO trains on the CPU; RF-DETR still trains on the card.",
+        "No se pudo configurar YOLO para la tarjeta AMD, así que YOLO se entrena en la CPU; RF-DETR sigue en la tarjeta.",
+        "YOLO n’a pas pu être configuré pour la carte AMD : YOLO s’entraîne donc sur le CPU, RF-DETR toujours sur la carte.",
+    ))
+    return False
+
+
 def remember_rocm_problem(problem: str | None) -> None:
     folder = rocm_folder()
     if folder is None or not folder.is_dir():
@@ -2850,10 +2886,15 @@ def ml_action(action: str, payload: dict) -> None:
                 rocm_python = None
                 if any(yolo_training.is_variant(item) for item in models):
                     ensure_yolo(venv_python, bool(payload.get("yoloLicenseAccepted")))
-                    # YOLO is installed in the normal environment only, so the batch runs there and
-                    # starts just the RF-DETR models with the AMD environment's Python.
-                    if any(not yolo_training.is_variant(item) for item in models):
-                        rocm_python = amd_training.training_python(rocm_folder()) if rocm_status() else None
+                    rocm_python = amd_training.training_python(rocm_folder()) if rocm_status() else None
+                    if rocm_python is not None and ensure_yolo_rocm(rocm_python):
+                        # YOLO is in the AMD environment too: the whole batch trains on the card.
+                        rocm_python = None
+                        executable, rocm_used = rocm_training_executable(executable)
+                    elif all(yolo_training.is_variant(item) for item in models):
+                        rocm_python = None
+                    # Otherwise the batch runs in the normal environment and starts just the
+                    # RF-DETR models with the AMD environment's Python.
                 else:
                     executable, rocm_used = rocm_training_executable(executable)
                 backup_project(root, "training")

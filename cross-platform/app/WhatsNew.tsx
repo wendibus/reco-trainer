@@ -8,6 +8,15 @@ type Item = { title: string; text: string };
  *  number in the header opens it again. Add the next version's entry at the top. */
 export const WHATS_NEW: { version: string; items: Record<Language, Item[]> }[] = [
   {
+    version: '0.31.4',
+    items: {
+      de: [{ title: 'YOLO trainiert auf der AMD-Karte', text: 'Ist „AMD-Training einrichten“ erledigt und „Auf der AMD-Karte trainieren“ an, trainieren jetzt auch YOLO-Modelle auf der Karte. Beim ersten Batch-Training mit YOLO wird YOLO dafür zusätzlich in die AMD-Umgebung installiert (einige hundert MB). Klappt das nicht, trainiert YOLO wie bisher auf der CPU.' }],
+      en: [{ title: 'YOLO trains on the AMD card', text: 'With “Set up AMD training” done and “Train on the AMD card” switched on, YOLO models now train on the card too. The first batch training with YOLO also installs YOLO into the AMD environment (a few hundred MB). If that fails, YOLO trains on the CPU as before.' }],
+      es: [{ title: 'YOLO se entrena en la tarjeta AMD', text: 'Con «Configurar entrenamiento AMD» completado y «Entrenar en la tarjeta AMD» activado, los modelos YOLO ahora también se entrenan en la tarjeta. El primer entrenamiento por lotes con YOLO instala YOLO además en el entorno AMD (unos cientos de MB). Si falla, YOLO se entrena en la CPU como antes.' }],
+      fr: [{ title: 'YOLO s’entraîne sur la carte AMD', text: 'Une fois « Configurer l’entraînement AMD » terminé et « Entraîner sur la carte AMD » activé, les modèles YOLO s’entraînent désormais aussi sur la carte. Le premier entraînement par lots avec YOLO installe en plus YOLO dans l’environnement AMD (quelques centaines de Mo). En cas d’échec, YOLO s’entraîne sur le CPU comme avant.' }],
+    },
+  },
+  {
     version: '0.31.3',
     items: {
       de: [{ title: 'Batch-Training mit YOLO nutzt die AMD-Karte für RF-DETR', text: 'Enthielt ein Batch-Training auch ein YOLO-Modell, lief bisher der ganze Batch auf der CPU, obwohl „Auf der AMD-Karte trainieren“ eingeschaltet war. Jetzt trainieren die RF-DETR-Modelle des Batches auf der Karte, nur YOLO bleibt auf der CPU.' }],

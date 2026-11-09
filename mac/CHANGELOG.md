@@ -1,5 +1,10 @@
 # Änderungen
 
+## 0.31.4
+
+- Neu: YOLO trainiert auf der AMD-Karte (Windows, ROCm). Bei einem Batch mit YOLO installiert `local_worker.ensure_yolo_rocm` Ultralytics in derselben gepinnten Version zusätzlich in die ROCm-Umgebung: `--no-deps`, die übrigen Abhängigkeiten unter `rocm-env/constraints.txt`, damit pip AMDs torch behält, und `opencv-python-headless` nur, wenn `cv2` fehlt. Danach läuft der ganze Batch mit dem Python der ROCm-Umgebung, wie ein Batch ohne YOLO. `ml_worker` erkennt die Karte als `cuda`, YOLO trainiert dann mit AMP und der Batchgröße für die Grafikkarte.
+- Schlägt die Installation oder die Importprüfung fehl, bleibt es beim Weg aus 0.31.3: RF-DETR auf der Karte, YOLO auf der CPU, mit einem Hinweis im Protokoll. Auf echter AMD-Hardware noch nicht geprüft.
+
 ## 0.31.3
 
 - Behoben: Ein Batch-Training mit RF-DETR und YOLO lief komplett in der normalen ML-Umgebung, unter Windows mit AMD-Karte also auf der CPU, obwohl „Auf der AMD-Karte trainieren“ an war. Gemeldet von einem Tester mit RX 7800 XT (RF-DETR Medium + YOLO26 Medium): rund 4 Minuten pro Epoche, CPU 90 %, „Compute“ der Karte 0 %, 0,8 GB Grafikspeicher. `local_worker` gibt dem Batch jetzt `--rfdetr-python` mit; `ml_worker train-batch` startet die RF-DETR-Schritte mit dem Python der ROCm-Umgebung und `RECO_ONNX_INFERENCE=off`, YOLO und der Konfidenz-Sweep bleiben in der normalen Umgebung.
