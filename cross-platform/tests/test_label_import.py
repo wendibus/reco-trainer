@@ -175,6 +175,44 @@ class LabelImportTests(unittest.TestCase):
         self.assertEqual((by_category["ball"]["x"], by_category["ball"]["width"]), (10.0, 30.0))
         self.assertIn("goalkeeper", by_category)
 
+    def reco_dataset(self, description: str = "Local Reco Trainer dataset: football") -> Path:
+        source = self.root / "reco"
+        colors = {"train": (10, 10, 10), "valid": (20, 20, 20), "test": (30, 30, 30)}
+        for split, color in colors.items():
+            (source / split).mkdir(parents=True)
+            Image.new("RGB", (200, 100), color).save(source / split / f"{split}.jpg")
+            (source / split / "_annotations.coco.json").write_text(json.dumps({
+                "info": {"description": description},
+                "images": [{"id": 1, "file_name": f"{split}.jpg", "width": 200, "height": 100}],
+                "categories": [{"id": 1, "name": "ball"}],
+                "annotations": [{"id": 1, "image_id": 1, "category_id": 1, "bbox": [10, 20, 30, 40]}],
+            }), encoding="utf-8")
+        return source
+
+    def test_a_reco_trainer_dataset_keeps_its_train_valid_test_roles(self):
+        summary = run_import(self.project, self.reco_dataset())
+        self.assertEqual(summary["roles"], {"train": 1, "valid": 1, "test": 1})
+        roles = {Path(frame["relativePath"]).name.split("-", 1)[1]: frame.get("split") for frame in self.frames()}
+        self.assertEqual(roles, {"train.jpg": "train", "valid.jpg": "valid", "test.jpg": "test"})
+        splits, _ = ml_worker.split_frames(self.frames(), "en")
+        self.assertEqual({name: len(items) for name, items in splits.items()}, {"train": 1, "valid": 1, "test": 1})
+
+    def test_other_datasets_still_import_as_training_images(self):
+        run_import(self.project, self.reco_dataset("Roboflow export"))
+        self.assertFalse(any("split" in frame for frame in self.frames()))
+
+    def test_importing_again_sets_the_roles_of_images_imported_before(self):
+        source = self.reco_dataset()
+        document = ml_worker.load_json(self.project / "project.json")
+        run_import(self.project, source)
+        frames = self.frames()
+        for frame in frames:
+            frame.pop("split")
+        ml_worker.atomic_json(self.project / "project.json", {**document, "frames": frames})
+        summary = run_import(self.project, source)
+        self.assertEqual(summary["rolesSet"], 3)
+        self.assertEqual(sorted(frame["split"] for frame in self.frames()), ["test", "train", "valid"])
+
     def test_boxes_are_clamped_to_the_image(self):
         source = self.root / "clamp"
         (source / "images").mkdir(parents=True)
@@ -303,8 +341,66 @@ class CarryOverImportedFramesTests(unittest.TestCase):
             new_frames = Path(temporary) / "frames.next"
             new_frames.mkdir()
 
-            kept = local_worker.carry_over_imported_frames(root, project, new_frames, "football")
+            kept = local_worker.carry_over_frames(root, project, new_frames, "football", {"v"})
 
             self.assertEqual([frame["id"] for frame in kept], ["i1"])
             self.assertEqual([item["category"] for item in kept[0]["annotations"]], ["player"])
             self.assertTrue((new_frames / "imported" / "abc-a.jpg").is_file())
+
+
+class RefreshKeepsFramesOfMissingVideosTests(unittest.TestCase):
+    """A tester moved the videos to an external drive and refreshed: the labelled images of the
+    videos no longer in the folder must stay, and videos prepared before are not extracted again."""
+
+    def test_frames_of_a_missing_video_and_of_extend_dataset_are_kept(self):
+        local_worker = load_module("label_import_local_worker_keep", ROOT / "local_worker.py")
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "project"
+            (root / "frames").mkdir(parents=True)
+            for name in ("gone-000001.jpg", "al-x-000001.jpg", "here-000001.jpg"):
+                (root / "frames" / name).write_bytes(b"x")
+            project = {"framesPerVideo": 100, "frames": [
+                {"id": "g1", "relativePath": "frames/gone-000001.jpg", "videoID": "gone", "annotations": [{"category": "ball"}]},
+                {"id": "a1", "relativePath": "frames/al-x-000001.jpg", "videoID": "other", "reviewStatus": "candidate", "annotations": []},
+                {"id": "h1", "relativePath": "frames/here-000001.jpg", "videoID": "here", "annotations": []},
+            ]}
+            new_frames = Path(temporary) / "frames.next"
+            new_frames.mkdir()
+            kept = local_worker.carry_over_frames(root, project, new_frames, "basketball", {"here"})
+            self.assertEqual(sorted(frame["id"] for frame in kept), ["a1", "g1"])
+            self.assertEqual(kept[[frame["id"] for frame in kept].index("g1")]["annotations"], [{"category": "ball"}])
+            self.assertTrue((new_frames / "gone-000001.jpg").is_file())
+
+    def test_a_video_prepared_with_the_same_count_is_reused(self):
+        local_worker = load_module("label_import_local_worker_reuse", ROOT / "local_worker.py")
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "frames").mkdir()
+            (root / "frames" / "v-000001.jpg").write_bytes(b"x")
+            project = {"framesPerVideo": 100, "frames": [{"id": "1", "relativePath": "frames/v-000001.jpg", "videoID": "v", "annotations": []}]}
+            self.assertEqual(len(local_worker.reusable_video_frames(root, project, "v", 100)), 1)
+            self.assertIsNone(local_worker.reusable_video_frames(root, project, "v", 200))
+            (root / "frames" / "v-000001.jpg").unlink()
+            self.assertIsNone(local_worker.reusable_video_frames(root, project, "v", 100))
+
+
+class SplitPreviewTests(unittest.TestCase):
+    def test_preview_gives_each_training_image_its_role_and_warns_about_a_missing_test(self):
+        import dataset_split
+        frames = [{"id": f"a{i}", "videoID": "a", "timestamp": i, "annotations": [{"category": "ball"}]} for i in range(10)]
+        frames += [{"id": "candidate", "videoID": "x", "timestamp": 0, "reviewStatus": "candidate", "annotations": [{"category": "ball"}]}]
+        frames += [{"id": f"i{i}", "videoID": "import-1", "timestamp": i, "annotations": [{"category": "ball"}]} for i in range(20)]
+        result = dataset_split.preview(frames, "en")
+        self.assertNotIn("candidate", result["roles"])
+        self.assertEqual(sum(result["counts"].values()), 30)
+        self.assertEqual(result["roles"]["i0"], "train")
+        self.assertTrue(result["warning"])
+        self.assertTrue(any("validation" in problem for problem in result["problems"]))
+
+    def test_three_videos_give_an_independent_test_without_problems(self):
+        import dataset_split
+        frames = [{"id": f"{video}{i}", "videoID": video, "timestamp": i, "annotations": [{"category": "ball"}]} for video in "abc" for i in range(40)]
+        result = dataset_split.preview(frames, "en")
+        self.assertEqual(sorted(result["counts"].values()), [40, 40, 40])
+        self.assertEqual(result["problems"], [])
+

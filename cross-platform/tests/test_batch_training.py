@@ -117,8 +117,11 @@ class BatchRunTests(unittest.TestCase):
                 args = type("Args", (), {"project": str(root), "models": models, "epochs": 5, "auto_epochs": True, "patience": 10, "fresh_start": True, "sweep": True, "anonymize_fraction": 0.0, "image_size": 640, "rfdetr_python": rfdetr_python, "language": "en"})()
                 original_awake = ml_worker.keep_awake
                 ml_worker.keep_awake = lambda: None
+                # The batch skips models below 5 GB free; the test must not depend on this disk.
+                from unittest import mock
                 try:
-                    ml_worker.train_batch(args)
+                    with mock.patch.object(ml_worker.shutil, "disk_usage", return_value=mock.Mock(free=100 * 1024 ** 3)):
+                        ml_worker.train_batch(args)
                 finally:
                     ml_worker.keep_awake = original_awake
             finally:

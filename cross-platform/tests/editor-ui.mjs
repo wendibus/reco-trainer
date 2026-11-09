@@ -109,6 +109,17 @@ try {
  assert(await page.locator('.augment-guide footer input[type=checkbox]').isChecked(),'checkbox shows the hidden state');
  await page.locator('.augment-guide footer input[type=checkbox]').uncheck();await page.locator('.augment-guide .walkthrough-close').click();
  await leaveStudio();await openStudio();await page.locator('.augment-guide').waitFor();await page.keyboard.press('Escape');await leaveStudio();
+ // Training / validation / test: chips filter the list, each image shows its role.
+ state.frames.push({id:'two',relativePath:'two.svg',videoName:'Zweites Video',timestamp:12,width:1600,height:900,reviewStatus:'reviewed',annotations:[{id:'ball2',category:'ball',x:300,y:300,width:25,height:25,source:'manual'}]});
+ state.splits={roles:{one:'train',two:'valid'},counts:{train:1,valid:1,test:0},warning:null,problems:['Keine Testbilder: Für einen unabhängigen Test braucht es mindestens drei Videos.']};
+ await page.locator('.split-chip.split-valid').waitFor({timeout:15000});
+ assert.equal(await page.locator('.frame-list .frame').count(),2);
+ await page.locator('.split-chip.split-valid').click();
+ assert.equal(await page.locator('.frame-list .frame').count(),1,'filter shows only validation images');
+ assert.match(await page.locator('.frame-list .frame .frame-role').first().textContent(),/Validierung/);
+ assert.match(await page.locator('.split-problem').first().textContent(),/Testbilder/);
+ if(process.env.EDITOR_SCREENSHOT_DIR) await page.locator('.frames-section').screenshot({path:resolve(process.env.EDITOR_SCREENSHOT_DIR,'splits.png')});
+ await page.locator('.split-chip.split-all').click();assert.equal(await page.locator('.frame-list .frame').count(),2);
  assert.equal(errors.length,0,errors.join('\n'));
- console.log(JSON.stringify({result:'PASS',expandedPreviewHeight:before.height,collapsedPreviewHeight:after.height,checks:['viewer keeps window height','zoom keeps coordinates and 1.5 px lines','wheel zooms to the mouse','zoom up to 20x','shortcuts space/B/1-9','click without mutation','class mapping and unchanged geometry','undo/redo','persistence after reload','save failure rollback','expand','no browser errors']},null,2));
+ console.log(JSON.stringify({result:'PASS',expandedPreviewHeight:before.height,collapsedPreviewHeight:after.height,checks:['viewer keeps window height','zoom keeps coordinates and 1.5 px lines','wheel zooms to the mouse','zoom up to 20x','shortcuts space/B/1-9','click without mutation','class mapping and unchanged geometry','undo/redo','persistence after reload','save failure rollback','expand','split chips filter by role','no browser errors']},null,2));
 }finally{await browser.close();server.close();}

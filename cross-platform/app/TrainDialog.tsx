@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { SplitSummary, type SplitPreview } from './SplitView';
 
 type Language = 'de' | 'en' | 'es' | 'fr';
 export type TrainSize = 'nano' | 'small' | 'medium' | 'large' | 'yolo-nano' | 'yolo-small' | 'yolo-medium';
@@ -36,7 +37,7 @@ const TEXT = {
   },
 };
 
-export function TrainDialog({ language, current, epochs, freshStart, onCancel, onStart }: { language: Language; current: TrainSize; epochs: number; freshStart: boolean; onCancel: () => void; onStart: (request: TrainRequest) => void }) {
+export function TrainDialog({ language, splits, current, epochs, freshStart, onCancel, onStart }: { language: Language; splits?: SplitPreview | null; current: TrainSize; epochs: number; freshStart: boolean; onCancel: () => void; onStart: (request: TrainRequest) => void }) {
   const t = TEXT[language];
   const [chosen, setChosen] = useState<TrainSize[]>([current]);
   const [auto, setAuto] = useState(false);
@@ -56,6 +57,7 @@ export function TrainDialog({ language, current, epochs, freshStart, onCancel, o
   };
   return <div className="walkthrough-backdrop train-backdrop"><div className="train-dialog" role="dialog" aria-modal="true" aria-label={t.title}>
     <h2>{t.title}</h2>
+    <SplitSummary language={language} splits={splits} />
     <fieldset className="train-models"><legend>{t.which}</legend>
       <div className="train-family"><span className="train-family-title">{t.rfdetr}</span>
         {SIZES.map((size) => <label key={size}><input type="checkbox" checked={chosen.includes(size)} onChange={() => toggle(size)} /> RF-DETR {SIZE_NAMES[size]}{size === current ? ` (${t.current})` : ''}</label>)}

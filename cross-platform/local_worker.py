@@ -30,6 +30,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlparse
 
 import amd_training  # standard library only: RF-DETR training on AMD cards with ROCm (Windows)
+import dataset_split  # standard library only: which images train, validate and test
 import field_geometry  # standard library only: field outline per video
 import model_hub  # standard library only at module level
 import teachers  # standard library only at module level: hardware tiers
@@ -402,6 +403,8 @@ class LocalState:
                 "mlReady": bool(self.project_root and venv_python_path(ml_venv(self.project_root)).is_file()),
                 "benchmark": benchmark_snapshot(self.project_root),
                 "frames": frames,
+                # The split the next training uses, so the image list can show each image's role.
+                "splits": dataset_split.preview(frames, self.language) if self.project and ((self.project.get("augmentation") or {}).get("mode") not in {"mixed", "real-only"}) else None,
                 "log": "\n".join(self.log[-80:]),
                 "simulation": self.simulation,
                 "simulationB": self.simulation_b,
@@ -1213,28 +1216,44 @@ def remove_extracted_frames(frames_dir: Path, prefixes: list[str]) -> None:
             path.unlink(missing_ok=True)
 
 
-def carry_over_imported_frames(root: Path, existing_project: dict | None, frames_dir: Path, sport: str) -> list[dict]:
-    """Keep frames added by "import-labels" when the videos are prepared again.
+def link_or_copy(source: Path, target: Path) -> None:
+    target.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        os.link(source, target)
+    except OSError:
+        shutil.copy2(source, target)
 
-    Preparing videos rebuilds frames/ from the videos only; imported images (stored in
-    frames/imported/, videoID "import-...") would otherwise be dropped.
-    """
-    imported_root = (root / "frames" / "imported").resolve()
+
+def carry_over_frames(root: Path, existing_project: dict | None, frames_dir: Path, sport: str, rebuilt_video_ids: set[str]) -> list[dict]:
+    """Keep every earlier frame that this run does not extract again: imported images, frames
+    added with "Extend dataset" or the independent test, and frames of videos that are no longer
+    in the working folder. Once extracted, the images and their boxes no longer need the video
+    (a tester moved the videos to an external drive and lost a few hundred labelled images)."""
+    frames_root = (root / "frames").resolve()
     kept: list[dict] = []
     for frame in (existing_project or {}).get("frames", []):
-        if not str(frame.get("videoID", "")).startswith("import-"):
+        if str(frame.get("videoID", "")) in rebuilt_video_ids:
             continue
         source = (root / str(frame.get("relativePath", ""))).resolve()
-        if imported_root not in source.parents or not source.is_file():
+        if frames_root not in source.parents or not source.is_file():
             continue
-        target = frames_dir / "imported" / source.name
-        target.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(source, target)
+        link_or_copy(source, frames_dir / source.relative_to(frames_root))
         kept.append({
             **frame,
             "annotations": [item for item in frame.get("annotations", []) if item.get("category") in SPORT_CATEGORIES[sport]],
         })
     return kept
+
+
+def reusable_video_frames(root: Path, existing_project: dict | None, video_id: str, count_per_video: int) -> list[dict] | None:
+    """The frames of a video prepared before with the same number of images, if all are still on
+    disk - so refreshing extracts only new videos and keeps everything else as it is."""
+    if not existing_project or int(existing_project.get("framesPerVideo") or 0) != count_per_video:
+        return None
+    frames = [frame for frame in existing_project.get("frames", []) if str(frame.get("videoID")) == video_id and not frame.get("heldOut") and frame.get("reviewStatus") != "candidate"]
+    if not frames or not all((root / str(frame.get("relativePath", ""))).is_file() for frame in frames):
+        return None
+    return frames
 
 
 def extract_project(sport: str, requested_frames_per_video: int = DEFAULT_FRAMES_PER_VIDEO) -> None:
@@ -1299,12 +1318,26 @@ def extract_project(sport: str, requested_frames_per_video: int = DEFAULT_FRAMES
         frames: list[dict] = []
         completed = 0.0
         frames_target = len(infos) * count_per_video
+        rebuilt_video_ids: set[str] = set()
+        reused_videos = 0
         try:
             for video_index, (video, duration, width, height) in enumerate(infos, start=1):
                 raise_if_cancelled()
                 target = count_per_video
                 video_id = hashlib.sha256(str(video).encode("utf-8")).hexdigest()[:12]
                 done_before = len(frames)
+                reused = reusable_video_frames(root, existing_project, video_id, count_per_video)
+                if reused is not None:
+                    frames_root = (root / "frames").resolve()
+                    for frame in reused:
+                        source = (root / str(frame["relativePath"])).resolve()
+                        link_or_copy(source, temporary_frames / source.relative_to(frames_root))
+                        frames.append({**frame, "videoName": video.name, "annotations": existing_annotations.get(str(frame.get("id")), [])})
+                    rebuilt_video_ids.add(video_id)
+                    reused_videos += 1
+                    completed += duration
+                    STATE.update(progress=min(completed / total_duration, 0.98))
+                    continue
                 STATE.update(
                     operation="extracting",
                     message=localized(f"Extrahiere Trainingsbilder: {video.name}", f"Extracting training images: {video.name}", f"Extrayendo imágenes de entrenamiento: {video.name}", f"Extraction des images d’entraînement : {video.name}"),
@@ -1324,6 +1357,7 @@ def extract_project(sport: str, requested_frames_per_video: int = DEFAULT_FRAMES
                     localized("Frame-Extraktion fehlgeschlagen", "Frame extraction failed", "La extracción de fotogramas falló", "L’extraction des images a échoué"),
                     on_frames=report,
                 )
+                rebuilt_video_ids.add(video_id)
                 for index, image_path in enumerate(generated, start=1):
                     frame_id = str(uuid.uuid5(uuid.NAMESPACE_URL, f"{video_id}:{index}"))
                     frames.append({
@@ -1338,7 +1372,9 @@ def extract_project(sport: str, requested_frames_per_video: int = DEFAULT_FRAMES
                     })
                 completed += duration
                 STATE.update(progress=min(completed / total_duration, 0.98))
-            frames.extend(carry_over_imported_frames(root, existing_project, temporary_frames, sport))
+            carried = carry_over_frames(root, existing_project, temporary_frames, sport, rebuilt_video_ids)
+            missing_videos = {str(frame.get("videoID")) for frame in carried if not str(frame.get("videoID", "")).startswith("import-") and not frame.get("heldOut") and not str(frame.get("relativePath", "")).startswith("frames/al-")}
+            frames.extend(carried)
             root.mkdir(parents=True, exist_ok=True)
             frames_dir = root / "frames"
             previous = root / "frames.previous"
@@ -1368,6 +1404,18 @@ def extract_project(sport: str, requested_frames_per_video: int = DEFAULT_FRAMES
                 f"{len(frames)} echte Frames lokal erstellt.", f"{len(frames)} real frames created locally.",
                 f"{len(frames)} fotogramas reales creados localmente.", f"{len(frames)} images réelles créées localement.",
             )
+            if reused_videos:
+                created += " " + localized(
+                    f"{reused_videos} bereits vorbereitete Videos übernommen, nicht neu extrahiert.", f"{reused_videos} videos prepared earlier were kept, not extracted again.",
+                    f"{reused_videos} vídeos ya preparados se conservaron sin volver a extraerlos.", f"{reused_videos} vidéos déjà préparées ont été conservées sans nouvelle extraction.",
+                )
+            if missing_videos:
+                created += " " + localized(
+                    f"Bilder und Markierungen von {len(missing_videos)} Videos, die nicht mehr im Ordner liegen, bleiben erhalten.",
+                    f"Images and boxes of {len(missing_videos)} videos that are no longer in the folder were kept.",
+                    f"Se conservaron las imágenes y marcas de {len(missing_videos)} vídeos que ya no están en la carpeta.",
+                    f"Les images et annotations de {len(missing_videos)} vidéos qui ne sont plus dans le dossier ont été conservées.",
+                )
             if has_images:
                 summary = import_folder_images(folder, root)
                 project = load_project(root)
@@ -1951,6 +1999,14 @@ def label_import_message(summary: dict, candidates: bool) -> str:
         f"Etiquetas importadas ({label_format}): {images} imágenes, {boxes} cuadros.",
         f"Annotations importées ({label_format}) : {images} images, {boxes} boîtes.",
     )]
+    roles = summary.get("roles") or {}
+    if roles:
+        parts.append(localized(
+            f"Rollen aus dem Reco-Trainer-Datensatz übernommen: {roles.get('train', 0)} Training, {roles.get('valid', 0)} Validierung, {roles.get('test', 0)} Test.",
+            f"Roles kept from the Reco Trainer dataset: {roles.get('train', 0)} training, {roles.get('valid', 0)} validation, {roles.get('test', 0)} test.",
+            f"Roles conservados del conjunto de Reco Trainer: {roles.get('train', 0)} entrenamiento, {roles.get('valid', 0)} validación, {roles.get('test', 0)} prueba.",
+            f"Rôles conservés du jeu Reco Trainer : {roles.get('train', 0)} entraînement, {roles.get('valid', 0)} validation, {roles.get('test', 0)} test.",
+        ))
     if candidates and images:
         parts.append(localized("Als Vorschläge in der Prüfwarteschlange.", "Added as suggestions to the review queue.", "Añadidas como sugerencias a la cola de revisión.", "Ajoutées comme suggestions à la file de vérification."))
     if duplicates:

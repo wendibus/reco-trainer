@@ -1,5 +1,14 @@
 # Änderungen
 
+## 0.31.8
+
+Nach dem Bericht eines Testers, der Videos auf eine externe Platte verschoben und dabei einige hundert markierte Bilder verloren hatte (über den Ordner `dataset` hat er sie wiederhergestellt).
+
+- Behoben: „Frames sicher aktualisieren“ (`extract_project`) baute `frames/` nur aus den Videos neu, die gerade im Ordner lagen. Bilder und Markierungen aller anderen Videos gingen verloren, ebenso Kandidaten aus „Datensatz erweitern“ und dem unabhängigen Test. Nur importierte Bilder blieben. `carry_over_frames` übernimmt jetzt jedes frühere Bild, das dieser Lauf nicht neu extrahiert (per Hardlink, sonst Kopie). `reusable_video_frames` übernimmt Videos mit gleicher Bildzahl, deren Bilder noch vollständig da sind, statt sie neu zu extrahieren. Die Meldung nennt übernommene Videos und Videos, die nicht mehr im Ordner liegen.
+- Neu: `dataset_split.py` (nur Standardbibliothek) enthält `trains_on`, `split_frames` und `preview`. `ml_worker` und `local_worker` nutzen dasselbe Modul. Der Status enthält `splits` (Rolle pro Bild, Anzahlen, Warnung, Probleme); im Studio-Modus ist das `null`. In der Oberfläche (`app/SplitView.tsx`) filtern Chips über der Bildliste nach Training / Validierung / Test / „Nicht im Training“, jedes Bild hat ein Rollen-Tag, und der Trainingsdialog zeigt die Aufteilung samt Problemen (keine Testbilder, weniger als max(10, 5 %) Validierungsbilder).
+- Neu: `import-labels` erkennt Datensätze aus Reco Trainer (`metadata.json` mit `generator: "Reco Trainer"` oder COCO-`info.description` „Local Reco Trainer dataset“) und übernimmt die Rolle aus den Ordnern train/valid/val/test als `frame.split`. `split_frames` legt solche importierten Bilder direkt in ihre Rolle. Ein erneuter Import setzt fehlende Rollen bei schon importierten Bildern (`rolesSet`). Andere Datensätze bleiben Trainingsbilder.
+- Tests: Die Batch-Tests hingen vom freien Platz der Testmaschine ab (Batch überspringt Modelle unter 5 GB frei); `disk_usage` ist jetzt gemockt.
+
 ## 0.31.7
 
 - Behoben: Das Batch-Training auf der AMD-Karte blieb auch mit 0.31.6 nach „Confidence prüfen: 53/53“ von Medium stehen (Tester, RX 7800 XT). Das harte Beenden in 0.31.6 hat also nicht gereicht. Wahrscheinlich hält unter Windows ein vom Prüfschritt gestarteter Prozess die Ausgabe-Pipe offen, und `run_batch_step` las mit `for line in process.stdout` bis EOF. `run_batch_step` liest jetzt auf einem Thread. Ist der Prozess beendet, wartet es höchstens 10 s auf das Ende der Pipe. Hat ein Schritt sein Ergebnis (JSON) geliefert und endet nicht, beendet es ihn nach 60 s samt Unterprozessen (`taskkill /T /F`). Die optionale Confidence-Prüfung wird nach 600 s ohne Ausgabe abgebrochen und als `sweepError` vermerkt.

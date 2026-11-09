@@ -39,6 +39,8 @@ from pathlib import Path
 from typing import Any
 
 import field_geometry  # standard library only: field outline per video
+import dataset_split  # standard library only: which images train, validate and test
+from dataset_split import is_imported_frame, split_frames, stable_bucket, trains_on
 import yolo_training  # standard library only at import; Ultralytics is optional (AGPL-3.0)
 
 # Sibling modules (teachers.py, anonymize.py) must import however this file is loaded -
@@ -2627,84 +2629,8 @@ def consistency_suggest(args: argparse.Namespace) -> None:
     print(json.dumps(summary, ensure_ascii=False))
 
 
-def trains_on(frame: dict[str, Any]) -> bool:
-    """Whether a frame belongs in the training data. A frame without boxes only counts when someone
-    said it is empty (button "Image is empty", or "no ball" in the candidate review, or an imported
-    label file): an untouched frame would otherwise teach that its players and ball are background."""
-    if frame.get("reviewStatus") == "candidate":
-        return False
-    return bool(frame.get("annotations")) or frame.get("reviewStatus") == "reviewed" or bool(frame.get("emptyConfirmed"))
-
-
 def unconfirmed_empty(frames: list[dict[str, Any]]) -> int:
     return sum(1 for frame in frames if frame.get("reviewStatus") != "candidate" and not trains_on(frame))
-
-
-def is_imported_frame(frame: dict[str, Any]) -> bool:
-    return str(frame.get("videoID", "")).startswith("import-")
-
-
-def stable_bucket(value: str) -> int:
-    return int(hashlib.sha256(value.encode("utf-8")).hexdigest()[:8], 16)
-
-
-def split_frames(
-    frames: list[dict[str, Any]], language: str = "de"
-) -> tuple[dict[str, list[dict[str, Any]]], str | None]:
-    # Imported images carry no scene information (file names and simple image signatures do not
-    # reveal it), so they only train next to real videos and never count as an independent test.
-    imported = [frame for frame in frames if is_imported_frame(frame)]
-    by_video: dict[str, list[dict[str, Any]]] = defaultdict(list)
-    for frame in frames:
-        if not is_imported_frame(frame):
-            by_video[frame["videoID"]].append(frame)
-    video_ids = sorted(by_video, key=stable_bucket)
-    output: dict[str, list[dict[str, Any]]] = {"train": [], "valid": [], "test": []}
-    warning = None
-
-    if imported and not video_ids:
-        # File order would put whole dataset versions into one split: mix by a stable hash.
-        ordered = sorted(imported, key=lambda frame: stable_bucket(str(frame["id"])))
-        train_end = max(1, int(len(ordered) * 0.7))
-        valid_end = max(train_end + 1, int(len(ordered) * 0.9))
-        output["train"] = ordered[:train_end]
-        output["valid"] = ordered[train_end:valid_end]
-        output["test"] = ordered[valid_end:]
-        warning = localized(
-            language,
-            "Nur importierte Bilder: Der Split ist gemischt, gleiche Szenen können in Training und Test liegen; Qualitätswerte sind nicht unabhängig.",
-            "Imported images only: the split is mixed, the same scenes can be in training and test; quality metrics are not independent.",
-        )
-        return output, warning
-    output["train"].extend(imported)
-
-    if len(video_ids) >= 3:
-        test_ids = {video_ids[-1]}
-        valid_ids = {video_ids[-2]}
-        for video_id, items in by_video.items():
-            split = "test" if video_id in test_ids else "valid" if video_id in valid_ids else "train"
-            output[split].extend(items)
-    elif len(video_ids) == 2:
-        output["train"].extend(by_video[video_ids[0]])
-        output["valid"].extend(by_video[video_ids[1]])
-        warning = localized(
-            language,
-            "Nur zwei Videos: Es wird noch kein unabhängiger Test-Split erzeugt.",
-            "Only two videos: no independent test split is created yet.",
-        )
-    else:
-        ordered = sorted((frame for frame in frames if not is_imported_frame(frame)), key=lambda frame: frame["timestamp"])
-        train_end = max(1, int(len(ordered) * 0.7))
-        valid_end = max(train_end + 1, int(len(ordered) * 0.9))
-        output["train"].extend(ordered[:train_end])
-        output["valid"] = ordered[train_end:valid_end]
-        output["test"] = ordered[valid_end:]
-        warning = localized(
-            language,
-            "Nur ein Video: temporaler Split als Notlösung; Qualitätswerte sind nicht unabhängig.",
-            "Only one video: a temporal fallback split is used; quality metrics are not independent.",
-        )
-    return output, warning
 
 
 def write_anonymized_copy(anonymizer, source: Path, destination: Path, frame: dict[str, Any]) -> bool:
@@ -5574,6 +5500,38 @@ def parse_coco_labels(source: Path) -> tuple[list[dict[str, Any]], dict[str, int
     return items, stats
 
 
+SPLIT_FOLDER_ROLES = {"train": "train", "valid": "valid", "val": "valid", "validation": "valid", "test": "test"}
+
+
+def reco_split_source(source: Path) -> bool:
+    """A dataset made by Reco Trainer: an "Export dataset" folder (metadata.json) or a copy of a
+    project's own dataset/ folder (its COCO files say so). Both were split per video, so their
+    train/valid/test folders are worth keeping on import - unlike most downloaded datasets, whose
+    split is random and would put near-identical frames in training and test."""
+    for metadata in (source / "metadata.json", source.parent / "metadata.json"):
+        try:
+            if metadata.is_file() and load_json(metadata).get("generator") == "Reco Trainer":
+                return True
+        except (OSError, ValueError, AttributeError):
+            pass
+    for coco in sorted(dataset_rglob(source, "_annotations.coco.json"))[:3]:
+        try:
+            if str((load_json(coco).get("info") or {}).get("description", "")).startswith("Local Reco Trainer dataset"):
+                return True
+        except (OSError, ValueError, AttributeError):
+            pass
+    return False
+
+
+def split_role_of(image: Path, source: Path) -> str | None:
+    try:
+        parts = image.resolve().relative_to(source.resolve()).parts[:-1]
+    except ValueError:
+        return None
+    roles = [SPLIT_FOLDER_ROLES[part.lower()] for part in parts if part.lower() in SPLIT_FOLDER_ROLES]
+    return roles[-1] if roles else None
+
+
 def import_labels(args: argparse.Namespace) -> None:
     """Import YOLO-txt or COCO labelled images from a folder into the project.
 
@@ -5622,13 +5580,16 @@ def import_labels(args: argparse.Namespace) -> None:
         raise SystemExit(localized(args.language, "Keine Bilder mit Labels gefunden.", "No labelled images were found."))
 
     as_candidates = bool(args.candidates)
+    keep_roles = reco_split_source(source)
+    roles_kept: dict[str, int] = defaultdict(int)
     batch_id = "import-" + hashlib.sha256(source.name.encode("utf-8")).hexdigest()[:8]
     frames = document.setdefault("frames", [])
     by_name = {Path(str(frame.get("relativePath", ""))).name: frame for frame in frames}
     known_ids = {str(frame.get("id")) for frame in frames}
+    by_id = {str(frame.get("id")): frame for frame in frames}
     target_dir = project_root / "frames" / "imported"
     skipped_classes: dict[str, int] = defaultdict(int)
-    summary = {"imported": 0, "unlabelled": 0, "matched": 0, "duplicates": 0, "annotations": 0, "format": chosen}
+    summary = {"imported": 0, "unlabelled": 0, "matched": 0, "duplicates": 0, "annotations": 0, "rolesSet": 0, "format": chosen}
     pending_copies: list[tuple[Path, Path]] = []
 
     for order, item in enumerate(items):
@@ -5667,11 +5628,21 @@ def import_labels(args: argparse.Namespace) -> None:
         frame_id = str(uuid.uuid5(uuid.NAMESPACE_URL, f"imported:{digest}"))
         if frame_id in known_ids:
             summary["duplicates"] += 1
+            # Imported before without its role (before 0.31.8): importing again sets it.
+            role = split_role_of(item["image"], source) if keep_roles and not unlabelled else None
+            earlier = by_id.get(frame_id)
+            if role and earlier is not None and is_imported_frame(earlier) and earlier.get("split") not in dataset_split.ROLES:
+                earlier["split"] = role
+                roles_kept[role] += 1
+                summary["rolesSet"] += 1
             continue
         known_ids.add(frame_id)
         safe_name = package_file_slug(item["image"].stem)[:60] + item["image"].suffix.lower()
         destination = target_dir / f"{digest[:10]}-{safe_name}"
         pending_copies.append((item["image"], destination))
+        role = split_role_of(item["image"], source) if keep_roles and not unlabelled else None
+        if role:
+            roles_kept[role] += 1
         frames.append({
             "id": frame_id,
             "relativePath": f"frames/imported/{destination.name}",
@@ -5682,12 +5653,13 @@ def import_labels(args: argparse.Namespace) -> None:
             "height": item["height"],
             "annotations": annotations,
             **({} if unlabelled else {"reviewStatus": "candidate" if as_candidates else "reviewed"}),
+            **({"split": role} if role else {}),
         })
         summary["imported"] += 1
         summary["unlabelled"] += int(unlabelled)
         summary["annotations"] += len(annotations)
 
-    if summary["imported"] or summary["matched"]:
+    if summary["imported"] or summary["matched"] or summary["rolesSet"]:
         target_dir.mkdir(parents=True, exist_ok=True)
         for copied, (source_file, destination) in enumerate(pending_copies):
             if include_unlabelled and copied % 50 == 0:
@@ -5698,6 +5670,7 @@ def import_labels(args: argparse.Namespace) -> None:
         document["updatedAt"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
         atomic_json(project_file(project_root), document)
     summary.update({
+        "roles": dict(roles_kept),
         "skippedClasses": dict(skipped_classes),
         "imagesWithoutLabels": stats["imagesWithoutLabels"],
         "invalidLines": stats["invalidLines"],
@@ -5710,6 +5683,14 @@ def import_labels(args: argparse.Namespace) -> None:
         f"Label import ({chosen}): {summary['imported']} new images, {summary['matched']} existing frames labelled, "
         f"{summary['annotations']} boxes, {summary['duplicates']} skipped (already present).",
     ))
+    if roles_kept:
+        emit(localized(
+            args.language,
+            f"Datensatz aus Reco Trainer: Rollen übernommen ({roles_kept['train']} Training, {roles_kept['valid']} Validierung, {roles_kept['test']} Test).",
+            f"Dataset from Reco Trainer: roles kept ({roles_kept['train']} training, {roles_kept['valid']} validation, {roles_kept['test']} test).",
+            f"Conjunto de Reco Trainer: se conservaron los roles ({roles_kept['train']} entrenamiento, {roles_kept['valid']} validación, {roles_kept['test']} prueba).",
+            f"Jeu de données de Reco Trainer : rôles conservés ({roles_kept['train']} entraînement, {roles_kept['valid']} validation, {roles_kept['test']} test).",
+        ))
     if skipped_classes:
         emit(localized(
             args.language,

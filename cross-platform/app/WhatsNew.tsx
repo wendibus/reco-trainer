@@ -8,6 +8,31 @@ type Item = { title: string; text: string };
  *  number in the header opens it again. Add the next version's entry at the top. */
 export const WHATS_NEW: { version: string; items: Record<Language, Item[]> }[] = [
   {
+    version: '0.31.8',
+    items: {
+      de: [
+        { title: 'Aktualisieren behält Bilder gelöschter Videos', text: '„Frames sicher aktualisieren“ behält jetzt Bilder und Markierungen von Videos, die nicht mehr im Arbeitsordner liegen. Videos lassen sich also nach dem Extrahieren auf eine externe Platte verschieben. Bereits vorbereitete Videos werden nicht neu extrahiert, nur neue.' },
+        { title: 'Training, Validierung und Test sichtbar', text: 'Über der Bildliste zeigen Chips, wie viele Bilder trainieren, validieren und testen; ein Klick filtert die Liste. Jedes Bild zeigt seine Rolle, und der Trainingsdialog warnt bei fehlenden Testbildern oder sehr wenigen Validierungsbildern.' },
+        { title: 'Import übernimmt Rollen aus Reco-Datensätzen', text: 'Exportierte Datensätze und Kopien des Projektordners „dataset“ behalten beim Import ihre Aufteilung in Training, Validierung und Test. Ein erneuter Import setzt die Rollen auch bei schon importierten Bildern.' },
+      ],
+      en: [
+        { title: 'Refreshing keeps images of removed videos', text: '“Safely refresh frames” now keeps the images and boxes of videos that are no longer in the working folder, so videos can move to an external drive once extracted. Videos prepared before are not extracted again, only new ones.' },
+        { title: 'Training, validation and test at a glance', text: 'Chips above the image list show how many images train, validate and test; a click filters the list. Every image shows its role, and the training dialog warns when test images are missing or validation images are very few.' },
+        { title: 'Import keeps the roles of Reco datasets', text: 'Exported datasets and copies of a project’s “dataset” folder keep their training, validation and test roles on import. Importing again sets the roles of images imported before.' },
+      ],
+      es: [
+        { title: 'Actualizar conserva las imágenes de vídeos eliminados', text: '«Actualizar fotogramas de forma segura» conserva ahora las imágenes y marcas de vídeos que ya no están en la carpeta de trabajo, así que los vídeos pueden pasar a un disco externo tras extraerlos. Los vídeos ya preparados no se vuelven a extraer, solo los nuevos.' },
+        { title: 'Entrenamiento, validación y prueba a la vista', text: 'Unas etiquetas sobre la lista de imágenes muestran cuántas imágenes entrenan, validan y prueban; un clic filtra la lista. Cada imagen muestra su rol y el diálogo de entrenamiento avisa si faltan imágenes de prueba o hay muy pocas de validación.' },
+        { title: 'La importación conserva los roles de conjuntos de Reco', text: 'Los conjuntos exportados y las copias de la carpeta «dataset» del proyecto conservan sus roles de entrenamiento, validación y prueba al importarlos. Importar de nuevo asigna los roles también a imágenes ya importadas.' },
+      ],
+      fr: [
+        { title: 'L’actualisation garde les images des vidéos retirées', text: '« Actualiser les images en sécurité » conserve désormais les images et annotations des vidéos qui ne sont plus dans le dossier de travail : les vidéos peuvent donc passer sur un disque externe une fois extraites. Les vidéos déjà préparées ne sont pas réextraites, seules les nouvelles le sont.' },
+        { title: 'Entraînement, validation et test d’un coup d’œil', text: 'Des pastilles au-dessus de la liste d’images indiquent combien d’images servent à l’entraînement, à la validation et au test ; un clic filtre la liste. Chaque image affiche son rôle, et la boîte d’entraînement avertit s’il manque des images de test ou s’il y a très peu d’images de validation.' },
+        { title: 'L’import conserve les rôles des jeux Reco', text: 'Les jeux exportés et les copies du dossier « dataset » d’un projet gardent leurs rôles d’entraînement, de validation et de test à l’import. Un nouvel import attribue aussi les rôles aux images déjà importées.' },
+      ],
+    },
+  },
+  {
     version: '0.31.7',
     items: {
       de: [{ title: 'Batch-Training läuft nach der Confidence-Prüfung weiter', text: 'Auf einer AMD-Karte unter Windows blieb das Batch-Training nach „Confidence prüfen“ des ersten Modells stehen. Der Batch wartet jetzt nicht mehr endlos: Ein Schritt, der sein Ergebnis geliefert hat, aber nicht endet, wird beendet; eine Confidence-Prüfung, die zehn Minuten lang nichts meldet, wird übersprungen. Das trainierte Modell ist zu dem Zeitpunkt schon gespeichert.' }],

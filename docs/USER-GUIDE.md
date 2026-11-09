@@ -156,6 +156,16 @@ The class list shows each class with its key, e.g. "Ball (1)".
 
 Click an existing box (or focus it and press Enter or Space). The class selector above the image now shows that box's class. Choose another class to save the correction, for example player to referee. The box keeps its position and size, becomes a manual label, and no longer shows the old model confidence. Undo and redo also apply to class changes. Use **New box** to return to drawing without changing the selected label. In **Pan** mode, dragging over a box still pans the view.
 
+### Training, validation and test images
+
+Reco Trainer splits your images by **whole videos**: neighbouring frames of one video look almost the same, so frames of one video in training and in validation would make the scores look better than they are. From three videos on, one video becomes validation and one becomes test; the rest train. With fewer videos the app falls back to a time split and says so.
+
+Since 0.31.8 the chips above the image list show how many images train, validate and test (and which are not in training yet, for example unlabelled ones); click a chip to show only those images. Every image shows its role, and the **Train locally** dialog shows the split of the next run with a warning when there are no test images or very few validation images. For more variety in validation and test (other fields, sides, light), add more videos.
+
+**Refreshing keeps your work.** Since 0.31.8 **Safely refresh frames** keeps the images and boxes of videos that are no longer in the working folder, so you can move videos to an external drive once their frames are extracted. Videos that were prepared before are not extracted again; only new videos are. To add videos from another folder and pre-label only those, use **Extend dataset**.
+
+**Importing a Reco Trainer dataset keeps its roles.** An "Export dataset" folder or a copy of a project's own `dataset` folder was split by video already, so **Import labels** keeps its train/valid/test roles. Importing it again sets the roles of images imported before. Other datasets still import as training images, because their split is usually random.
+
 ### Training locally
 
 **The ML environment is set up once per computer.** Since 0.26, **Set up ML** installs it into Reco Trainer's own folder (macOS: `~/Library/Application Support/Reco Trainer/ml-env`, Windows: `%LOCALAPPDATA%\Reco Trainer\ml-env`, Linux: `~/.local/share/reco-trainer/ml-env`), and every working folder uses it. A project that already has its own environment from an earlier version keeps using it, and Reco Trainer remembers it for new working folders, so you don't have to set up ML again. In Docker the environment stays in the project folder.
