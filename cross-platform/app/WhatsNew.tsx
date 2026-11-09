@@ -8,6 +8,15 @@ type Item = { title: string; text: string };
  *  number in the header opens it again. Add the next version's entry at the top. */
 export const WHATS_NEW: { version: string; items: Record<Language, Item[]> }[] = [
   {
+    version: '0.31.5',
+    items: {
+      de: [{ title: 'Saubereres Protokoll beim Training auf der AMD-Karte', text: 'Beim Training auf der AMD-Karte stand am Anfang mehrfach „Unknown command line argument … offload-arch.exe“. Die Meldung kam von einer Hardware-Abfrage von AMD, die an Ordnernamen mit Leerzeichen scheitert. Sie war harmlos und entfällt jetzt; das Training selbst ändert sich nicht.' }],
+      en: [{ title: 'Cleaner log when training on the AMD card', text: 'Training on the AMD card started with several “Unknown command line argument … offload-arch.exe” lines. They came from an AMD hardware query that fails on folder names with spaces. They were harmless and are gone now; training itself is unchanged.' }],
+      es: [{ title: 'Registro más limpio al entrenar en la tarjeta AMD', text: 'El entrenamiento en la tarjeta AMD empezaba con varias líneas «Unknown command line argument … offload-arch.exe». Venían de una consulta de hardware de AMD que falla con nombres de carpeta con espacios. Eran inofensivas y ya no aparecen; el entrenamiento no cambia.' }],
+      fr: [{ title: 'Journal plus propre lors de l’entraînement sur la carte AMD', text: 'L’entraînement sur la carte AMD commençait par plusieurs lignes « Unknown command line argument … offload-arch.exe ». Elles venaient d’une requête matérielle d’AMD qui échoue avec des noms de dossier contenant des espaces. Elles étaient sans conséquence et ont disparu ; l’entraînement lui-même ne change pas.' }],
+    },
+  },
+  {
     version: '0.31.4',
     items: {
       de: [{ title: 'YOLO trainiert auf der AMD-Karte', text: 'Ist „AMD-Training einrichten“ erledigt und „Auf der AMD-Karte trainieren“ an, trainieren jetzt auch YOLO-Modelle auf der Karte. Beim ersten Batch-Training mit YOLO wird YOLO dafür zusätzlich in die AMD-Umgebung installiert (einige hundert MB). Klappt das nicht, trainiert YOLO wie bisher auf der CPU.' }],

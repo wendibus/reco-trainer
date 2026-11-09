@@ -1,5 +1,9 @@
 # Änderungen
 
+## 0.31.5
+
+- Behoben: Jeder Prozess in der ROCm-Umgebung, auch jeder Datenlader, schrieb zwei Zeilen „Unknown command line argument … offload-arch.exe“ ins Protokoll. AMDs `rocm_sdk` (`_dist_info.discover_current_target_family`) ruft `offload-arch` über den Starter im `Scripts`-Ordner auf, und der reicht den Pfad unter Windows ohne Anführungszeichen weiter. Mit Leerzeichen im Pfad scheitert das immer (`Reco Trainer`, beim Tester auch der Benutzername). Danach nahm `rocm_sdk` ohnehin seine Vorgabe `custom`, die einzige Zielfamilie in AMDs Windows-Paketen. `ROCM_TRAINING_ENV` und `ROCM_STEP_ENV` setzen jetzt `ROCM_SDK_TARGET_FAMILY=custom`, ebenso die Prüfungen nach der Einrichtung und vor YOLO. Bestätigt vom Tester: 0.31.4 trainiert RF-DETR und YOLO auf der RX 7800 XT.
+
 ## 0.31.4
 
 - Neu: YOLO trainiert auf der AMD-Karte (Windows, ROCm). Bei einem Batch mit YOLO installiert `local_worker.ensure_yolo_rocm` Ultralytics in derselben gepinnten Version zusätzlich in die ROCm-Umgebung: `--no-deps`, die übrigen Abhängigkeiten unter `rocm-env/constraints.txt`, damit pip AMDs torch behält, und `opencv-python-headless` nur, wenn `cv2` fehlt. Danach läuft der ganze Batch mit dem Python der ROCm-Umgebung, wie ein Batch ohne YOLO. `ml_worker` erkennt die Karte als `cuda`, YOLO trainiert dann mit AMP und der Batchgröße für die Grafikkarte.

@@ -10,6 +10,7 @@ sys.path.insert(0, str(ROOT))
 
 import amd_training
 import local_worker
+import ml_worker
 
 GOOD_CHECK = {"available": True, "backward": True, "matmulDifference": 0.0005, "device": "AMD Radeon RX 7800 XT"}
 
@@ -124,6 +125,13 @@ class WorkerTests(unittest.TestCase):
             report.assert_not_called()
             local_worker.record_job_failure("autolabel", "exited with code 1")
             report.assert_called_once()
+
+
+class TargetFamilyTests(unittest.TestCase):
+    def test_every_rocm_process_skips_the_offload_arch_lookup(self):
+        # AMD's rocm_sdk runs offload-arch unless this is set; on paths with spaces that fails noisily.
+        self.assertEqual(local_worker.ROCM_TRAINING_ENV["ROCM_SDK_TARGET_FAMILY"], "custom")
+        self.assertEqual(ml_worker.ROCM_STEP_ENV, local_worker.ROCM_TRAINING_ENV)
 
 
 class YoloOnCardTests(unittest.TestCase):

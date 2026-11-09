@@ -2316,7 +2316,10 @@ def gpu_environment() -> dict[str, str]:
 
 # --- AMD training with ROCm on Windows (see amd_training.py) ----------------------------------
 
-ROCM_TRAINING_ENV = {"RECO_ONNX_INFERENCE": "off", "PYTHONUTF8": "1"}
+# ROCM_SDK_TARGET_FAMILY: AMD's rocm_sdk otherwise runs offload-arch in every process (data loaders
+# too) to pick the target family, which fails on paths with spaces ("Reco Trainer") and fills the log
+# with "Unknown command line argument". AMD's Windows build only has "custom", its fallback anyway.
+ROCM_TRAINING_ENV = {"RECO_ONNX_INFERENCE": "off", "PYTHONUTF8": "1", "ROCM_SDK_TARGET_FAMILY": "custom"}
 
 
 def rocm_folder() -> Path | None:
@@ -2343,7 +2346,7 @@ def ensure_yolo_rocm(python: Path) -> bool:
     """YOLO in the AMD environment as well. False (and YOLO stays on the CPU) when that fails."""
     def check(code: str) -> bool:
         try:
-            return subprocess.run([str(python), "-c", code], capture_output=True, timeout=300, env={**os.environ, "PYTHONUTF8": "1"}).returncode == 0
+            return subprocess.run([str(python), "-c", code], capture_output=True, timeout=300, env={**os.environ, **ROCM_TRAINING_ENV}).returncode == 0
         except (OSError, subprocess.SubprocessError):
             return False
 
@@ -2443,7 +2446,7 @@ def rocm_setup_action(payload: dict) -> None:
         STATE.update(progress=len(steps) / (len(steps) + 1), message=localized(
             "AMD-Training: prüfe die Karte …", "AMD training: checking the card …", "Entrenamiento AMD: comprobando la tarjeta …", "Entraînement AMD : vérification de la carte …"))
         check = subprocess.run([str(amd_training.venv_python(folder)), "-c", amd_training.VERIFY_SCRIPT], capture_output=True, text=True,
-                               encoding="utf-8", errors="replace", timeout=600, check=False, env={**os.environ, "PYTHONIOENCODING": "utf-8"})
+                               encoding="utf-8", errors="replace", timeout=600, check=False, env={**os.environ, **ROCM_TRAINING_ENV, "PYTHONIOENCODING": "utf-8"})
         try:
             result = json.loads(check.stdout.strip().splitlines()[-1])
         except (ValueError, IndexError):

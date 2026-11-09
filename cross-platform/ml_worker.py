@@ -4330,7 +4330,7 @@ def run_batch_step(command: list[str], prefix: str, index: int, count: int, env:
 
 
 # Same as local_worker.ROCM_TRAINING_ENV: the ROCm environment has no ONNX inference on the card.
-ROCM_STEP_ENV = {"RECO_ONNX_INFERENCE": "off", "PYTHONUTF8": "1"}
+ROCM_STEP_ENV = {"RECO_ONNX_INFERENCE": "off", "PYTHONUTF8": "1", "ROCM_SDK_TARGET_FAMILY": "custom"}
 
 
 def train_batch(args: argparse.Namespace) -> None:
