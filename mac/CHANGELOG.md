@@ -1,5 +1,10 @@
 # Änderungen
 
+## 0.31.6
+
+- Behoben (vermutlich): Beim Tester (RX 7800 XT, 0.31.5) blieb ein Batch aus RF-DETR Medium und YOLO26 Medium nach Medium stehen. Angezeigt wurde zuletzt „Comprobar la confianza: 53/53“, 99 %, YOLO begann nie, der Batch musste abgebrochen werden. Nach dem letzten Bild rechnet der Sweep nur noch kurz und gibt sein Ergebnis aus, also endete entweder dieser Prozess nicht, oder YOLO hing vor seiner ersten Meldung. `ml_worker.main` beendet Prozesse der ROCm-Umgebung unter Windows (`ROCM_SDK_TARGET_FAMILY=custom`) nach getaner Arbeit jetzt mit `os._exit(0)`. Ausgaben werden vorher geleert, alle Dateien sind dann schon atomar geschrieben, und der Treiber wird nicht mehr aufgeräumt.
+- `train-batch` meldet jetzt vor jedem Modell „<Modell>: wird gestartet …“ und setzt den Fortschritt zurück. Bleibt ein Schritt hängen, bevor er sich selbst meldet, sieht man das jetzt.
+
 ## 0.31.5
 
 - Behoben: Jeder Prozess in der ROCm-Umgebung, auch jeder Datenlader, schrieb zwei Zeilen „Unknown command line argument … offload-arch.exe“ ins Protokoll. AMDs `rocm_sdk` (`_dist_info.discover_current_target_family`) ruft `offload-arch` über den Starter im `Scripts`-Ordner auf, und der reicht den Pfad unter Windows ohne Anführungszeichen weiter. Mit Leerzeichen im Pfad scheitert das immer (`Reco Trainer`, beim Tester auch der Benutzername). Danach nahm `rocm_sdk` ohnehin seine Vorgabe `custom`, die einzige Zielfamilie in AMDs Windows-Paketen. `ROCM_TRAINING_ENV` und `ROCM_STEP_ENV` setzen jetzt `ROCM_SDK_TARGET_FAMILY=custom`, ebenso die Prüfungen nach der Einrichtung und vor YOLO. Bestätigt vom Tester: 0.31.4 trainiert RF-DETR und YOLO auf der RX 7800 XT.

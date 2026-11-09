@@ -4358,6 +4358,9 @@ def train_batch(args: argparse.Namespace) -> None:
         started = time.time()
         entry["status"] = "running"
         atomic_json(report_path, report)
+        # Shown right away, so a step that hangs before its first message is still visible.
+        stage(number, len(results), f"{title}: " + localized(args.language, "wird gestartet …", "starting …", "iniciando …", "démarrage …"))
+        print("RECO_PROGRESS 0 1", file=sys.stderr, flush=True)
         # A batch with YOLO runs in the normal environment; RF-DETR can still train on the AMD card.
         rocm = bool(getattr(args, "rfdetr_python", None)) and not yolo_training.is_variant(name)
         command = [args.rfdetr_python if rocm else sys.executable, worker, "train", "--project", str(project_root), "--model", name, "--language", args.language]
@@ -5941,6 +5944,13 @@ def stage(index: int, count: int, label: str) -> None:
     print(f"RECO_STAGE {index} {count} {label}", flush=True)
 
 
+def hard_exit_after_work() -> bool:
+    """A process in the AMD training environment on Windows (local_worker sets
+    ROCM_SDK_TARGET_FAMILY only there). A tester's batch stopped after a finished step whose
+    process never ended."""
+    return os.name == "nt" and os.environ.get("ROCM_SDK_TARGET_FAMILY") == "custom"
+
+
 def main() -> None:
     os.environ.setdefault("PYTORCH_ENABLE_MPS_FALLBACK", "1")
     # A cancel from the app sends SIGTERM to this process group. Turning it into SystemExit
@@ -5949,6 +5959,12 @@ def main() -> None:
     args = build_parser().parse_args()
     try:
         args.func(args)
+        if hard_exit_after_work():
+            # Everything is written and flushed; skip the driver teardown that can keep the
+            # process (and with it a batch training) from ending.
+            sys.stdout.flush()
+            sys.stderr.flush()
+            os._exit(0)
     except SystemExit as stop:
         if isinstance(stop.code, str):
             # A message for the user ("no flagged images", "no model yet"), not a crash: the app

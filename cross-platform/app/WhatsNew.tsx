@@ -8,6 +8,15 @@ type Item = { title: string; text: string };
  *  number in the header opens it again. Add the next version's entry at the top. */
 export const WHATS_NEW: { version: string; items: Record<Language, Item[]> }[] = [
   {
+    version: '0.31.6',
+    items: {
+      de: [{ title: 'Batch-Training auf der AMD-Karte bleibt nicht mehr hängen', text: 'Ein Batch-Training auf der AMD-Karte konnte nach einem fertigen Modell stehen bleiben, bevor das nächste begann. Prozesse in der AMD-Umgebung beenden sich jetzt sofort, sobald alles gespeichert ist. Außerdem zeigt der Batch den Start jedes Modells gleich an.' }],
+      en: [{ title: 'Batch training on the AMD card no longer gets stuck', text: 'A batch training on the AMD card could stop after a finished model, before the next one began. Processes in the AMD environment now end right away once everything is saved. The batch also shows each model’s start immediately.' }],
+      es: [{ title: 'El entrenamiento por lotes en la tarjeta AMD ya no se queda bloqueado', text: 'Un entrenamiento por lotes en la tarjeta AMD podía detenerse tras un modelo terminado, antes de empezar el siguiente. Los procesos del entorno AMD ahora terminan en cuanto todo está guardado. Además, el lote muestra enseguida el inicio de cada modelo.' }],
+      fr: [{ title: 'L’entraînement par lots sur la carte AMD ne se bloque plus', text: 'Un entraînement par lots sur la carte AMD pouvait s’arrêter après un modèle terminé, avant le suivant. Les processus de l’environnement AMD se terminent désormais dès que tout est enregistré. Le lot affiche aussi tout de suite le démarrage de chaque modèle.' }],
+    },
+  },
+  {
     version: '0.31.5',
     items: {
       de: [{ title: 'Saubereres Protokoll beim Training auf der AMD-Karte', text: 'Beim Training auf der AMD-Karte stand am Anfang mehrfach „Unknown command line argument … offload-arch.exe“. Die Meldung kam von einer Hardware-Abfrage von AMD, die an Ordnernamen mit Leerzeichen scheitert. Sie war harmlos und entfällt jetzt; das Training selbst ändert sich nicht.' }],

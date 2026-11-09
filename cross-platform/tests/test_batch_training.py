@@ -145,6 +145,25 @@ class BatchRunTests(unittest.TestCase):
         self.assertEqual(self.interpreters[0][0], sys.executable)
 
 
+    def test_each_model_is_announced_before_its_step_starts(self):
+        import contextlib
+        import io
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            self.run_batch("nano,small", set())
+        self.assertIn("RECO_STAGE 1 2 Nano: starting …", output.getvalue())
+        self.assertIn("RECO_STAGE 2 2 Small: starting …", output.getvalue())
+
+    def test_only_rocm_processes_on_windows_exit_hard(self):
+        from unittest import mock
+        with mock.patch.object(ml_worker.os, "name", "nt"), mock.patch.dict(ml_worker.os.environ, {"ROCM_SDK_TARGET_FAMILY": "custom"}):
+            self.assertTrue(ml_worker.hard_exit_after_work())
+        with mock.patch.object(ml_worker.os, "name", "nt"), mock.patch.dict(ml_worker.os.environ, {"ROCM_SDK_TARGET_FAMILY": ""}):
+            self.assertFalse(ml_worker.hard_exit_after_work())
+        with mock.patch.object(ml_worker.os, "name", "posix"), mock.patch.dict(ml_worker.os.environ, {"ROCM_SDK_TARGET_FAMILY": "custom"}):
+            self.assertFalse(ml_worker.hard_exit_after_work())
+
+
 class StaticContractTests(unittest.TestCase):
     def test_a_training_dialog_opens_instead_of_training_right_away(self):
         page = (ROOT / "app" / "page.tsx").read_text(encoding="utf-8")
