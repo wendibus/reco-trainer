@@ -8,6 +8,15 @@ type Item = { title: string; text: string };
  *  number in the header opens it again. Add the next version's entry at the top. */
 export const WHATS_NEW: { version: string; items: Record<Language, Item[]> }[] = [
   {
+    version: '0.31.3',
+    items: {
+      de: [{ title: 'Batch-Training mit YOLO nutzt die AMD-Karte für RF-DETR', text: 'Enthielt ein Batch-Training auch ein YOLO-Modell, lief bisher der ganze Batch auf der CPU, obwohl „Auf der AMD-Karte trainieren“ eingeschaltet war. Jetzt trainieren die RF-DETR-Modelle des Batches auf der Karte, nur YOLO bleibt auf der CPU.' }],
+      en: [{ title: 'Batch training with YOLO uses the AMD card for RF-DETR', text: 'When a batch training included a YOLO model, the whole batch ran on the CPU, even with “Train on the AMD card” switched on. Now the batch’s RF-DETR models train on the card; only YOLO stays on the CPU.' }],
+      es: [{ title: 'El entrenamiento por lotes con YOLO usa la tarjeta AMD para RF-DETR', text: 'Si un entrenamiento por lotes incluía un modelo YOLO, todo el lote se ejecutaba en la CPU, aunque «Entrenar en la tarjeta AMD» estuviera activado. Ahora los modelos RF-DETR del lote se entrenan en la tarjeta; solo YOLO sigue en la CPU.' }],
+      fr: [{ title: 'L’entraînement par lots avec YOLO utilise la carte AMD pour RF-DETR', text: 'Lorsqu’un entraînement par lots comprenait un modèle YOLO, tout le lot tournait sur le CPU, même avec « Entraîner sur la carte AMD » activé. Désormais, les modèles RF-DETR du lot s’entraînent sur la carte ; seul YOLO reste sur le CPU.' }],
+    },
+  },
+  {
     version: '0.31.2',
     items: {
       de: [{ title: 'Augmentation Studio erkennt Hallen in exportierten Datensätzen', text: 'Bei Datensätzen aus „Datensatz exportieren“ wurde jedes Bild zu einer eigenen Session, weil die Dateinamen absichtlich keine Videonamen enthalten. Jetzt gruppiert das Studio solche Bilder nach Bildgröße und Hallenhintergrund. Viele kleine Sessions erscheinen zusammengefasst, damit die Seite flüssig bleibt. Bitte im Studio einmal neu analysieren.' }],

@@ -2847,13 +2847,19 @@ def ml_action(action: str, payload: dict) -> None:
                 models = [item for item in payload.get("models") or [] if item in {"nano", "small", "medium", "large"} or yolo_training.is_variant(item)]
                 if not models:
                     raise RuntimeError(localized("Mindestens ein Modell auswählen.", "Select at least one model.", "Selecciona al menos un modelo.", "Sélectionnez au moins un modèle."))
+                rocm_python = None
                 if any(yolo_training.is_variant(item) for item in models):
                     ensure_yolo(venv_python, bool(payload.get("yoloLicenseAccepted")))
+                    # YOLO is installed in the normal environment only, so the batch runs there and
+                    # starts just the RF-DETR models with the AMD environment's Python.
+                    if any(not yolo_training.is_variant(item) for item in models):
+                        rocm_python = amd_training.training_python(rocm_folder()) if rocm_status() else None
                 else:
-                    # YOLO is installed in the normal environment only, so a batch with YOLO stays there.
                     executable, rocm_used = rocm_training_executable(executable)
                 backup_project(root, "training")
                 args = ["train-batch", "--project", str(root), "--models", ",".join(models), "--epochs", str(max(1, min(500, int(payload.get("epochs", 100))))), "--patience", str(max(3, min(50, int(payload.get("patience", 10))))), "--language", language]
+                if rocm_python is not None:
+                    args += ["--rfdetr-python", str(rocm_python)]
                 if payload.get("autoEpochs"):
                     args.append("--auto-epochs")
                 if payload.get("freshStart"):

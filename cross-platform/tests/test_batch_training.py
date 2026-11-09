@@ -95,24 +95,26 @@ class ProfileTests(unittest.TestCase):
 class BatchRunTests(unittest.TestCase):
     """The run itself, with a stand-in for the training step: failures and order, no ML needed."""
 
-    def run_batch(self, models: str, fail: set[str]) -> tuple[dict, str]:
+    def run_batch(self, models: str, fail: set[str], rfdetr_python: str | None = None) -> tuple[dict, str]:
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
             (root / "project.json").write_text(json.dumps({"schemaVersion": 1, "sport": "basketball", "frames": []}), encoding="utf-8")
             calls = []
+            interpreters = self.interpreters = []
 
-            def fake_step(command, prefix, index, count):
+            def fake_step(command, prefix, index, count, env=None):
                 calls.append((command[2], command[command.index("--model") + 1]))
+                interpreters.append((command[0], command[2], command[command.index("--model") + 1], env))
                 if command[2] == "train" and command[command.index("--model") + 1] in fail:
                     return 1, None, ["out of memory"]
                 if command[2] == "confidence-sweep":
-                    return 0, json.dumps({"mAP50": {"nano": 0.5, "small": 0.7, "medium": 0.9}[command[command.index("--model") + 1]], "bestThreshold": 0.4}), []
+                    return 0, json.dumps({"mAP50": {"nano": 0.5, "small": 0.7, "medium": 0.9, "yolo-nano": 0.6}[command[command.index("--model") + 1]], "bestThreshold": 0.4}), []
                 return 0, None, []
 
             original = ml_worker.run_batch_step
             ml_worker.run_batch_step = fake_step
             try:
-                args = type("Args", (), {"project": str(root), "models": models, "epochs": 5, "auto_epochs": True, "patience": 10, "fresh_start": True, "sweep": True, "anonymize_fraction": 0.0, "language": "en"})()
+                args = type("Args", (), {"project": str(root), "models": models, "epochs": 5, "auto_epochs": True, "patience": 10, "fresh_start": True, "sweep": True, "anonymize_fraction": 0.0, "image_size": 640, "rfdetr_python": rfdetr_python, "language": "en"})()
                 original_awake = ml_worker.keep_awake
                 ml_worker.keep_awake = lambda: None
                 try:
@@ -132,6 +134,15 @@ class BatchRunTests(unittest.TestCase):
         self.assertEqual(report["recommended"], "medium")
         self.assertTrue(report["finishedAt"])
         self.assertNotIn(("confidence-sweep", "small"), calls)
+
+
+    def test_rfdetr_trains_with_the_amd_python_and_yolo_with_the_normal_one(self):
+        self.run_batch("nano,yolo-nano", set(), rfdetr_python="C:/rocm/python.exe")
+        trains = {model: (python, env) for python, step, model, env in self.interpreters if step == "train"}
+        self.assertEqual(trains["nano"], ("C:/rocm/python.exe", ml_worker.ROCM_STEP_ENV))
+        self.assertEqual(trains["yolo-nano"], (sys.executable, None))
+        self.run_batch("nano", set())
+        self.assertEqual(self.interpreters[0][0], sys.executable)
 
 
 class StaticContractTests(unittest.TestCase):

@@ -4308,10 +4308,10 @@ def recommended_model(results: list[dict[str, Any]]) -> str | None:
     return min(close, key=lambda item: order.index(item["model"]) if item["model"] in order else len(order))["model"]
 
 
-def run_batch_step(command: list[str], prefix: str, index: int, count: int) -> tuple[int, str | None, list[str]]:
+def run_batch_step(command: list[str], prefix: str, index: int, count: int, env: dict[str, str] | None = None) -> tuple[int, str | None, list[str]]:
     """One model in its own process, so running out of memory ends this step and not the night."""
     # stderr comes along: the last line of a crash is what the report has to show.
-    process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding="utf-8", errors="replace", bufsize=1, env={**os.environ, "PYTHONUNBUFFERED": "1"})
+    process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding="utf-8", errors="replace", bufsize=1, env={**os.environ, **(env or {}), "PYTHONUNBUFFERED": "1"})
     last_json, tail = None, []
     for line in process.stdout:
         line = line.rstrip("\n")
@@ -4327,6 +4327,10 @@ def run_batch_step(command: list[str], prefix: str, index: int, count: int) -> t
             if line.strip():
                 tail = [*tail, line][-5:]
     return process.wait(), last_json, tail
+
+
+# Same as local_worker.ROCM_TRAINING_ENV: the ROCm environment has no ONNX inference on the card.
+ROCM_STEP_ENV = {"RECO_ONNX_INFERENCE": "off", "PYTHONUTF8": "1"}
 
 
 def train_batch(args: argparse.Namespace) -> None:
@@ -4354,7 +4358,9 @@ def train_batch(args: argparse.Namespace) -> None:
         started = time.time()
         entry["status"] = "running"
         atomic_json(report_path, report)
-        command = [sys.executable, worker, "train", "--project", str(project_root), "--model", name, "--language", args.language]
+        # A batch with YOLO runs in the normal environment; RF-DETR can still train on the AMD card.
+        rocm = bool(getattr(args, "rfdetr_python", None)) and not yolo_training.is_variant(name)
+        command = [args.rfdetr_python if rocm else sys.executable, worker, "train", "--project", str(project_root), "--model", name, "--language", args.language]
         command += ["--auto-epochs", "--patience", str(args.patience)] if args.auto_epochs else ["--epochs", str(args.epochs)]
         if args.fresh_start:
             command.append("--fresh-start")
@@ -4362,7 +4368,9 @@ def train_batch(args: argparse.Namespace) -> None:
             command += ["--anonymize-fraction", f"{float(args.anonymize_fraction):.2f}"]
         if yolo_training.is_variant(name):
             command += ["--image-size", str(int(getattr(args, "image_size", 640) or 640))]
-        code, _, tail = run_batch_step(command, title, number, len(results))
+        if rocm:
+            emit(localized(args.language, f"{title}: Training auf der AMD-Karte (ROCm).", f"{title}: training on the AMD card (ROCm).", f"{title}: entrenamiento en la tarjeta AMD (ROCm).", f"{title} : entraînement sur la carte AMD (ROCm)."))
+        code, _, tail = run_batch_step(command, title, number, len(results), ROCM_STEP_ENV if rocm else None)
         entry["minutes"] = round((time.time() - started) / 60.0, 1)
         if code != 0:
             entry.update(status="failed", error=tail[-1] if tail else f"exit code {code}")
@@ -5758,6 +5766,7 @@ def build_parser() -> argparse.ArgumentParser:
     batch_parser.add_argument("--sweep", action="store_true", help="find the best confidence of every model afterwards")
     batch_parser.add_argument("--anonymize-fraction", type=float, default=0.0)
     batch_parser.add_argument("--image-size", type=int, default=640, help="YOLO only")
+    batch_parser.add_argument("--rfdetr-python", help="interpreter for the RF-DETR models (AMD training environment)")
     batch_parser.add_argument("--language", choices=["de", "en", "es", "fr"], default="de")
     batch_parser.set_defaults(func=train_batch)
 

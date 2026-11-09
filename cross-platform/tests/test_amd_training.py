@@ -94,9 +94,16 @@ class WorkerTests(unittest.TestCase):
         self.assertNotEqual(calls[0][0][0], str(Path("C:/rocm/python.exe")))
         self.assertIsNone(calls[0][1])
 
-    def test_a_batch_with_yolo_stays_in_the_normal_environment(self):
+    def test_a_batch_with_yolo_trains_only_rfdetr_on_the_card(self):
         calls = self.run_action("train-batch", {"language": "en", "models": ["nano", "yolo-nano"], "yoloLicenseAccepted": True}, Path("C:/rocm/python.exe"))
-        self.assertNotEqual(calls[0][0][0], str(Path("C:/rocm/python.exe")))
+        command = calls[0][0]
+        self.assertNotEqual(command[0], str(Path("C:/rocm/python.exe")))
+        self.assertEqual(command[command.index("--rfdetr-python") + 1], str(Path("C:/rocm/python.exe")))
+        self.assertIsNone(calls[0][1])
+        calls = self.run_action("train-batch", {"language": "en", "models": ["yolo-nano"], "yoloLicenseAccepted": True}, Path("C:/rocm/python.exe"))
+        self.assertNotIn("--rfdetr-python", calls[0][0])
+        calls = self.run_action("train-batch", {"language": "en", "models": ["nano", "yolo-nano"], "yoloLicenseAccepted": True}, None)
+        self.assertNotIn("--rfdetr-python", calls[0][0])
         calls = self.run_action("train-batch", {"language": "en", "models": ["nano", "small"]}, Path("C:/rocm/python.exe"))
         self.assertEqual(calls[0][0][0], str(Path("C:/rocm/python.exe")))
 

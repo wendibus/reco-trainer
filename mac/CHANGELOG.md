@@ -1,5 +1,9 @@
 # Änderungen
 
+## 0.31.3
+
+- Behoben: Ein Batch-Training mit RF-DETR und YOLO lief komplett in der normalen ML-Umgebung, unter Windows mit AMD-Karte also auf der CPU, obwohl „Auf der AMD-Karte trainieren“ an war. Gemeldet von einem Tester mit RX 7800 XT (RF-DETR Medium + YOLO26 Medium): rund 4 Minuten pro Epoche, CPU 90 %, „Compute“ der Karte 0 %, 0,8 GB Grafikspeicher. `local_worker` gibt dem Batch jetzt `--rfdetr-python` mit; `ml_worker train-batch` startet die RF-DETR-Schritte mit dem Python der ROCm-Umgebung und `RECO_ONNX_INFERENCE=off`, YOLO und der Konfidenz-Sweep bleiben in der normalen Umgebung.
+
 ## 0.31.2
 
 - Behoben: Das Augmentation Studio machte bei Datensätzen aus „Datensatz exportieren“ aus jedem Bild eine eigene Session. Der Export benennt Bilder absichtlich `frame-<id>.jpg`, ohne Videonamen, und `session_hint` behielt die Id. Gemeldet mit „Basketball Cleaned“: 4.900 Bilder ergaben 4.900 Sessions, keine Hallenplatte aus mehreren Bildern, Aufteilung nur nach den Export-Ordnern. Jetzt fallen reine Ids weg (auch Roboflows `_jpg.rf.<hash>`), und Bildgröße und Hintergrund entscheiden. Auf demselben Datensatz ergibt das rund 1.500 Sessions; 30 davon mit mindestens 20 Bildern decken zusammen rund 1.850 Bilder ab.
