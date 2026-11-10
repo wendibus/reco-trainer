@@ -210,6 +210,16 @@ A model with a different set of categories than your current one isn't automatic
 
 If one model is your best performer for the ball and a different one is your best for the referee, you can "bake" a combined model: for each category, it uses whichever source model is strongest at it. This isn't a real merge of the underlying weights (RF-DETR doesn't support that) — each source model keeps handling its own assigned categories at inference time — but the result behaves like, and appears in your library as, an ordinary single model.
 
+### Using a model in the Reco app
+
+**Export for Reco** (next to **Train locally**) saves a library model as an ONNX file that the Reco camera app loads directly: in the **AI model (ONNX)** field, or with `--model` on the command line. It works for RF-DETR models, YOLO26 models trained here, and combined models (all their members run inside the one file).
+
+- **Classes.** Only **Ball** is ticked at first. Add **Player** if Reco should also follow the players; Reco looks for them under the COCO name `person`, so the file names them that way. Classes you leave out are not in the file. With only the ball, choose the tracking mode **ball** in Reco (`--tracking ball`).
+- **What the file looks like.** Reco reads every detector as a YOLO end-to-end export: one square input with grey borders (letterbox), one output `[1, 300, 6]` with box, confidence and class, and the class names in the file's `names` metadata. An RF-DETR model is wrapped so it sees the picture the way it was trained (the grey borders are cut off, the picture is squeezed to the model's square), at an input of 960 or 1280 px.
+- **Check.** After writing, Reco Trainer runs the file the way Reco does on up to eight labelled project images and tells you on how many the labelled objects were found at 25 % confidence or more. The file goes into the project under `exports/reco`.
+
+The older **CPU model (ONNX)** export writes RF-DETR's own ONNX layout (two outputs) for your own programs; Reco cannot read it and finds nothing with it.
+
 ### Ball-tracking simulation
 
 This panel plays back a short clip frame by frame, running the active model's ball detection live and color-coding the result: detected (green), interpolated between two real detections (orange), held at the last known position (yellow), or lost entirely. A slider controls how far ahead/behind the interpolation is allowed to look. It's a fast, visual way to sanity-check a model's real-world tracking behavior — including its failure modes — without setting up a full pipeline. Nothing here is saved or used for training; it's purely for your own inspection.

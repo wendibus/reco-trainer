@@ -17,11 +17,13 @@ try {
  let saves=[];let fail=false;
  const original={id:'player1',category:'player',x:400,y:250,width:100,height:240,source:'auto',confidence:0.81};
  const state={connected:true,selectedFolder:'/synthetic',folderName:'Synthetischer UI-Test',sport:'football',operation:'ready',progress:0,message:'Bereit',busy:false,error:null,log:'',mlReady:false,frames:[{id:'one',relativePath:'one.svg',videoName:'Synthetisches Testbild',timestamp:0,width:1600,height:900,reviewStatus:'reviewed',annotations:[structuredClone(original),{id:'ball1',category:'ball',x:900,y:500,width:25,height:25,source:'manual'}]}],modelLibrary:{packages:[],activePackageID:null}};
+ const posted=[];
  await page.route('**/api/**',async route=>{const req=route.request();const path=new URL(req.url()).pathname;
  if(path==='/api/frame')return route.fulfill({contentType:'image/svg+xml',body:'<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900"><rect width="1600" height="900" fill="#448557"/><path d="M70 60H1530V840H70Z M800 60V840" fill="none" stroke="white" stroke-width="5"/><circle cx="800" cy="450" r="100" fill="none" stroke="white" stroke-width="5"/><rect x="400" y="250" width="100" height="240" fill="#307cde"/><circle cx="912" cy="512" r="12" fill="white"/></svg>'});
  if(path==='/api/events')return route.fulfill({contentType:'text/event-stream',body:''});
  if(path==='/api/status')return route.fulfill({json:state});
  if(path==='/api/annotations'){const data=req.postDataJSON();saves.push(data);if(fail){fail=false;return route.fulfill({status:500,json:{error:'Synthetic save failure'}});}state.frames[0].annotations=data.annotations;return route.fulfill({json:{status:state}});}
+ if(req.method()==='POST'){let data=null;try{data=req.postDataJSON();}catch{}posted.push({path,data});}
  return route.fulfill({json:{}});
  });
  await page.route('https://api.github.com/**',r=>r.fulfill({json:{}}));
@@ -120,6 +122,18 @@ try {
  assert.match(await page.locator('.split-problem').first().textContent(),/Testbilder/);
  if(process.env.EDITOR_SCREENSHOT_DIR) await page.locator('.frames-section').screenshot({path:resolve(process.env.EDITOR_SCREENSHOT_DIR,'splits.png')});
  await page.locator('.split-chip.split-all').click();assert.equal(await page.locator('.frame-list .frame').count(),2);
+ // Export for Reco: ball is preselected, players are named person, the choice reaches the worker.
+ state.mlReady=true;state.modelLibrary={packages:[{packageID:'m1',displayName:'Fussball Nano',sport:'football',modelSize:'nano',classes:['ball','player','referee'],isActive:true}],activePackageID:'m1'};
+ const recoButton=page.locator('button',{hasText:'Für Reco exportieren'});
+ await page.waitForFunction(()=>{const b=[...document.querySelectorAll('button')].find(item=>item.textContent==='Für Reco exportieren');return b&&!b.disabled;},null,{timeout:15000});
+ await recoButton.click();await page.locator('.reco-export-dialog').waitFor();
+ assert.deepEqual(await page.locator('.reco-export-classes input[type=checkbox]').evaluateAll(list=>list.map(item=>item.checked)),[true,false,false],'only ball is preselected');
+ assert.match(await page.locator('.reco-export-classes').textContent(),/→ person/);
+ if(process.env.EDITOR_SCREENSHOT_DIR) await page.locator('.reco-export-dialog').screenshot({path:resolve(process.env.EDITOR_SCREENSHOT_DIR,'reco-export.png')});
+ await page.locator('.reco-export-dialog button[type=submit]').click();
+ await page.waitForFunction(()=>!document.querySelector('.reco-export-dialog'));
+ for(let i=0;i<50&&!posted.some(item=>item.path==='/api/export-reco');i++)await page.waitForTimeout(100);
+ const recoPost=posted.find(item=>item.path==='/api/export-reco')?.data;assert.deepEqual({packageID:recoPost?.packageID,classes:recoPost?.classes},{packageID:'m1',classes:['ball']});
  assert.equal(errors.length,0,errors.join('\n'));
- console.log(JSON.stringify({result:'PASS',expandedPreviewHeight:before.height,collapsedPreviewHeight:after.height,checks:['viewer keeps window height','zoom keeps coordinates and 1.5 px lines','wheel zooms to the mouse','zoom up to 20x','shortcuts space/B/1-9','click without mutation','class mapping and unchanged geometry','undo/redo','persistence after reload','save failure rollback','expand','split chips filter by role','no browser errors']},null,2));
+ console.log(JSON.stringify({result:'PASS',expandedPreviewHeight:before.height,collapsedPreviewHeight:after.height,checks:['viewer keeps window height','zoom keeps coordinates and 1.5 px lines','wheel zooms to the mouse','zoom up to 20x','shortcuts space/B/1-9','click without mutation','class mapping and unchanged geometry','undo/redo','persistence after reload','save failure rollback','expand','split chips filter by role','export for Reco preselects ball','no browser errors']},null,2));
 }finally{await browser.close();server.close();}

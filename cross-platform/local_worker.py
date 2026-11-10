@@ -2128,6 +2128,7 @@ def job_output_dirs(root: Path, action: str) -> list[Path]:
     return {
         "export-coreml": [root / "exports" / "coreml"],
         "export-onnx": [root / "exports" / "onnx"],
+        "export-reco": [root / "exports" / "reco"],
         "package-model": [root / "exports" / "share"],
         "combine-models": [root / "exports" / "share", root / "models" / "library"],
         "benchmark": [root / "benchmarks" / "runs"],
@@ -2976,6 +2977,9 @@ def ml_action(action: str, payload: dict) -> None:
                 args = ["export", "--project", str(root), "--model", model, "--format", "coreml", "--language", language]
             elif action == "export-onnx":
                 args = ["export", "--project", str(root), "--model", model, "--format", "onnx", "--language", language]
+            elif action == "export-reco":
+                classes = [str(item) for item in (payload.get("classes") or ["ball"]) if str(item).strip()]
+                args = ["export-reco", "--project", str(root), "--package", str(payload.get("packageID", "")), "--classes", ",".join(classes) or "ball", "--language", language]
             elif action == "consistency-check":
                 iou = min(0.9, max(0.1, float(payload.get("iou", 0.5))))
                 sample = min(0.5, max(0.0, float(payload.get("sample", 0.05))))
@@ -3705,7 +3709,7 @@ class Handler(BaseHTTPRequestHandler):
             elif self.path == "/api/gpu-diagnose":
                 job = JOBS.submit("gpu-diagnose", gpu_diagnose_action, {"trigger": "manual"})
                 self.json_response({"ok": True, "job": job})
-            elif self.path in {"/api/setup", "/api/autolabel", "/api/train", "/api/train-batch", "/api/hub-install", "/api/hub-share", "/api/export-coreml", "/api/export-onnx", "/api/refine-boxes", "/api/package-model", "/api/combine-models", "/api/benchmark", "/api/activate-model", "/api/rename-model", "/api/delete-model", "/api/download-models", "/api/export-dataset", "/api/consistency-check", "/api/consistency-suggest"}:
+            elif self.path in {"/api/setup", "/api/autolabel", "/api/train", "/api/train-batch", "/api/hub-install", "/api/hub-share", "/api/export-coreml", "/api/export-onnx", "/api/export-reco", "/api/refine-boxes", "/api/package-model", "/api/combine-models", "/api/benchmark", "/api/activate-model", "/api/rename-model", "/api/delete-model", "/api/download-models", "/api/export-dataset", "/api/consistency-check", "/api/consistency-suggest"}:
                 action = self.path.removeprefix("/api/")
                 job = JOBS.submit(action, ml_action, action, payload, cancellable=action not in QUICK_ACTIONS)
                 self.json_response({"ok": True, "job": job})

@@ -432,3 +432,10 @@ select { height: 30px; padding: 0 8px; }
 .split-summary { display: grid; gap: 4px; margin: 0 0 12px; font-size: 12px; }
 .split-summary p { margin: 0; }
 .split-summary .split-note { color: var(--label-2); font-size: 11px; line-height: 1.4; }
+
+/* Export for Reco: class checkboxes in a compact list, select like the other dialog fields. */
+.reco-export-dialog select { padding: 7px 9px; font: inherit; font-weight: 400; border: .5px solid var(--control-border); border-radius: var(--radius-control); background: var(--control); color: var(--label); }
+.reco-export-classes { display: grid; gap: 6px; margin: 0; padding: 0; border: 0; min-width: 0; }
+.reco-export-classes legend { padding: 0 0 4px; font-size: 12px; font-weight: 650; color: var(--label); }
+.reco-export-dialog .reco-export-classes label { display: flex; align-items: center; gap: 8px; font-weight: 400; font-size: 13px; }
+.reco-export-dialog .reco-export-classes input { padding: 0; margin: 0; }

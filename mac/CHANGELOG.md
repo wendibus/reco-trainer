@@ -1,5 +1,19 @@
 # Änderungen
 
+## 0.32.0
+
+Nach einem Forumsbericht: Ein in Reco Trainer trainiertes und als ONNX exportiertes Modell (kombiniert aus Ball, Spieler, Tor) erkannte in der Reco-App nichts.
+
+- Ursache 1: Reco (Stitcher/Autocam, `reco-detect`) liest jeden Detektor als YOLO-End-to-End-Export: quadratischer Eingang mit Letterbox (Grau 114, /255), genau eine Ausgabe `[1, N, 6]` (x1, y1, x2, y2 in Eingangspixeln, Sicherheit, Klasse) und Klassennamen als Python-Dict in den Metadaten `names`. Bei mehr als einer Ausgabe nimmt Reco den Decoder für einen externen Balldetektor. Der bisherige Export „CPU-Modell (ONNX)“ schreibt RF-DETRs eigenes Format mit zwei Ausgaben (`dets`, `labels`) ohne `names`, Reco deutet ihn also falsch.
+- Ursache 2: Dieser Export nimmt per `newest_checkpoint()` nur eine einzelne Gewichtsdatei der Modellgröße. Ein kombiniertes Modell hat keine einzelne Datei; exportiert wurde still der letzte Trainingslauf dieser Größe.
+- Neu: „Für Reco exportieren“ (`app/RecoExportDialog.tsx`, `/api/export-reco`, `ml_worker export-reco`, Modul `reco_export.py`). Modell aus der Bibliothek wählen, Klassen ankreuzen (voreingestellt nur Ball), Datei nach `exports/reco/`.
+  - RF-DETR (auch kombiniert): ein Torch-Modul schneidet die grauen Ränder ab (Seitenverhältnis = Median der Projektbilder), staucht auf die Modellauflösung wie im Training, normalisiert, rechnet alle Mitglieder, nimmt je Query die beste gewählte Klasse und gibt die 300 besten Treffer als `[1, 300, 6]` aus. Eingang 960 px (bis Auflösung 640), sonst 1280 px. Export mit `torch.onnx.export` (Opset 17, ohne Dynamo).
+  - YOLO26 (`onnx-yolo`): an die vorhandene Ausgabe werden ONNX-Knoten gehängt, die Klassen umnummerieren und nicht gewählte Klassen auf Sicherheit 0 setzen.
+  - `player` heißt in der Datei `person`, weil Reco Spieler unter diesem Namen sucht.
+  - Danach rechnet ein Probelauf die Datei wie Reco (Letterbox, ONNX Runtime CPU) auf bis zu acht markierten Projektbildern und meldet, auf wie vielen die markierten Objekte ab 25 % gefunden wurden.
+- Geprüft auf echten Basketball-Modellen (RF-DETR Nano einzeln und kombiniert, Ball/Spieler): Boxen fast pixelgleich mit `predict()`, Sicherheiten weichen wegen Letterbox gegenüber Stauchung leicht ab. Klassenfilter an YOLO26n (COCO) geprüft. In der Reco-App selbst nicht getestet, nur gegen deren Quellcode (v0.5.4).
+- Hinweis am alten ONNX-Export: nicht für die Reco-App.
+
 ## 0.31.8
 
 Nach dem Bericht eines Testers, der Videos auf eine externe Platte verschoben und dabei einige hundert markierte Bilder verloren hatte (über den Ordner `dataset` hat er sie wiederhergestellt).

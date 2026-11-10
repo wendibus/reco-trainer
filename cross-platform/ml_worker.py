@@ -42,6 +42,7 @@ import field_geometry  # standard library only: field outline per video
 import dataset_split  # standard library only: which images train, validate and test
 from dataset_split import is_imported_frame, split_frames, stable_bucket, trains_on
 import yolo_training  # standard library only at import; Ultralytics is optional (AGPL-3.0)
+import reco_export  # standard library only at import; torch/onnx only inside the export
 
 # Sibling modules (teachers.py, anonymize.py) must import however this file is loaded -
 # as a script, from the payload, or by tests from another folder.
@@ -5294,6 +5295,116 @@ def export_model(args: argparse.Namespace) -> None:
     ))
 
 
+def export_reco(args: argparse.Namespace) -> None:
+    """Write one library model as an ONNX file for the Reco camera app (see reco_export.py)."""
+    project_root = Path(args.project).resolve()
+    document = require_project(project_root, args.language)
+    language = args.language
+    library_root = (project_root / "models" / "library").resolve()
+    package_dir = (library_root / str(args.package)).resolve()
+    manifest_path = package_dir / "manifest.json"
+    if library_root not in package_dir.parents or not manifest_path.is_file():
+        raise SystemExit(localized(language, f"Modell nicht in der Bibliothek gefunden: {args.package}", f"Model not found in the library: {args.package}",
+                                   f"Modelo no encontrado en la biblioteca: {args.package}", f"Modèle introuvable dans la bibliothèque : {args.package}"))
+    manifest = load_json(manifest_path)
+    label = str(manifest.get("displayName") or manifest.get("packageID") or args.package)
+    known = [str(item) for item in manifest.get("classes", [])]
+    wanted = [item.strip() for item in str(args.classes).split(",") if item.strip()]
+    categories = [item for item in wanted if item in known]
+    if not categories:
+        raise SystemExit(localized(language, f"„{label}“ erkennt keine der gewählten Klassen ({', '.join(wanted)}).", f"“{label}” detects none of the chosen classes ({', '.join(wanted)}).",
+                                   f"«{label}» no detecta ninguna de las clases elegidas ({', '.join(wanted)}).", f"« {label} » ne détecte aucune des classes choisies ({', '.join(wanted)})."))
+    export_dir = project_root / "exports" / "reco"
+    export_dir.mkdir(parents=True, exist_ok=True)
+    target = export_dir / f"{package_file_slug(label)}-{'-'.join(categories)}.onnx"
+    partial = target.with_name(target.name + ".partial")
+    frames = [frame for frame in document.get("frames", []) if trains_on(frame)]
+    emit(localized(language, f"Exportiere „{label}“ für Reco: {', '.join(categories)} …", f"Exporting “{label}” for Reco: {', '.join(categories)} …",
+                   f"Exportando «{label}» para Reco: {', '.join(categories)} …", f"Export de « {label} » pour Reco : {', '.join(categories)} …"))
+    aspect = None
+    try:
+        if is_onnx_manifest(manifest):
+            weight_name = Path(str(manifest.get("weights", {}).get("file", ""))).name
+            source = (package_dir / "weights" / weight_name).resolve()
+            if package_dir not in source.parents or not source.is_file():
+                raise SystemExit(localized(language, "ONNX-Gewichtsdatei fehlt.", "The ONNX weights file is missing.", "Falta el archivo de pesos ONNX.", "Le fichier de poids ONNX est manquant."))
+            class_names = [str(item) for item in manifest.get("classNames", [])] or known
+            try:
+                size = reco_export.filter_yolo_onnx(source, partial, class_names, categories)
+            except ValueError as error:
+                raise SystemExit(localized(language, f"Dieses ONNX-Modell hat nicht das YOLO-Format, das Reco liest ({error}).", f"This ONNX model does not have the YOLO layout Reco reads ({error}).",
+                                           f"Este modelo ONNX no tiene el formato YOLO que lee Reco ({error}).", f"Ce modèle ONNX n’a pas le format YOLO que lit Reco ({error})."))
+        else:
+            members = []
+            sources = manifest.get("ensemble", {}).get("members") if manifest.get("ensemble") else None
+            for member in sources or [None]:
+                if member is None:
+                    size_name = str(manifest.get("modelSize") or "")
+                    if size_name not in MODEL_CLASSES:
+                        raise SystemExit(localized(language, f"Unbekannte Modellgröße in „{label}“.", f"Unknown model size in “{label}”.", f"Tamaño de modelo desconocido en «{label}».", f"Taille de modèle inconnue dans « {label} »."))
+                    weight_path = (package_dir / "weights" / Path(str(manifest.get("weights", {}).get("file", ""))).name).resolve()
+                    if package_dir not in weight_path.parents or not weight_path.is_file():
+                        raise SystemExit(localized(language, f"Gewichtsdatei fehlt: {label}", f"Weights file is missing: {label}", f"Falta el archivo de pesos: {label}", f"Fichier de poids manquant : {label}"))
+                    verify_weights_pickle_safety(weight_path, language, str(args.package))
+                    model = import_model_class(size_name, language)(pretrain_weights=str(weight_path), device="cpu")
+                    member_categories = [item for item in categories]
+                else:
+                    member_categories = [item for item in categories if item in set(member.get("categories", []))]
+                    if not member_categories:
+                        continue
+                    model = ensemble_member_model(package_dir, member, language)
+                class_map = {name.strip().lower(): class_id for class_id, name in rfdetr_class_names(model).items()}
+                missing = [item for item in member_categories if item not in class_map]
+                if missing:
+                    raise SystemExit(localized(language, f"Das Modell kennt diese Klassen nicht: {', '.join(missing)}", f"The model does not know these classes: {', '.join(missing)}",
+                                               f"El modelo no conoce estas clases: {', '.join(missing)}", f"Le modèle ne connaît pas ces classes : {', '.join(missing)}"))
+                network, resolution = reco_export.export_ready_rfdetr(model)
+                members.append({"net": network, "resolution": resolution, "means": list(model.means), "stds": list(model.stds),
+                                "columns": [class_map[item] for item in member_categories], "ids": [float(categories.index(item)) for item in member_categories]})
+            size = reco_export.input_size_for([member["resolution"] for member in members])
+            aspect = reco_export.project_aspect(project_root, frames, image_size)
+            reco_export.export_onnx(reco_export.rfdetr_wrapper(members, size, aspect), size, partial)
+        reco_export.write_metadata(partial, categories, size, {
+            "description": f"Reco Trainer export of {label}",
+            "author": "Reco Trainer",
+            "reco_trainer_package": str(manifest.get("packageID") or args.package),
+            "reco_trainer_sport": str(document.get("sport", "")),
+            **({"reco_trainer_aspect": f"{aspect:.4f}"} if aspect else {}),
+        })
+        labelled = [frame for frame in frames if any(item.get("category") in categories for item in frame.get("annotations", []))]
+        samples = []
+        if labelled:
+            from PIL import Image
+            for frame in labelled[:: max(1, len(labelled) // 8)][:8]:
+                try:
+                    with Image.open(project_root / str(frame["relativePath"])) as source_image:
+                        boxes = [(float(item["x"]), float(item["y"]), float(item["width"]), float(item["height"]))
+                                 for item in frame.get("annotations", []) if item.get("category") in categories]
+                        samples.append((source_image.convert("RGB"), boxes))
+                except (OSError, KeyError, ValueError, TypeError):
+                    continue
+        check = reco_export.check_file(partial, samples)
+        partial.replace(target)
+    finally:
+        partial.unlink(missing_ok=True)
+    names = ", ".join(f"{index} = {reco_export.reco_name(item)}" for index, item in enumerate(categories))
+    emit(localized(language, f"Reco-Modell gespeichert: {target}", f"Reco model saved: {target}", f"Modelo para Reco guardado: {target}", f"Modèle pour Reco enregistré : {target}"))
+    emit(localized(language, f"Eingang {check['inputSize']} × {check['inputSize']} px, eine Ausgabe [1, {reco_export.MAX_DETECTIONS}, 6], Klassen: {names}.",
+                   f"Input {check['inputSize']} × {check['inputSize']} px, one output [1, {reco_export.MAX_DETECTIONS}, 6], classes: {names}.",
+                   f"Entrada {check['inputSize']} × {check['inputSize']} px, una salida [1, {reco_export.MAX_DETECTIONS}, 6], clases: {names}.",
+                   f"Entrée {check['inputSize']} × {check['inputSize']} px, une sortie [1, {reco_export.MAX_DETECTIONS}, 6], classes : {names}."))
+    if check["samples"]:
+        found, total = check["found"], check["samples"]
+        emit(localized(language, f"Probelauf wie in Reco (graue Ränder, ab 25 %): markierte Objekte auf {found} von {total} Projektbildern gefunden.",
+                       f"Test run as in Reco (grey borders, 25 % or more): labelled objects found on {found} of {total} project images.",
+                       f"Prueba como en Reco (bordes grises, desde 25 %): objetos marcados encontrados en {found} de {total} imágenes del proyecto.",
+                       f"Essai comme dans Reco (bords gris, à partir de 25 %) : objets annotés trouvés sur {found} des {total} images du projet."))
+    if "ball" in categories and len(categories) == 1:
+        emit(localized(language, "Nur Ball: in Reco den Tracking-Modus „ball“ wählen (--tracking ball).", "Ball only: choose the tracking mode “ball” in Reco (--tracking ball).",
+                       "Solo balón: en Reco elige el modo de seguimiento «ball» (--tracking ball).", "Ballon seul : dans Reco, choisissez le mode de suivi « ball » (--tracking ball)."))
+    print(json.dumps({"path": str(target), "classes": categories, "inputSize": check["inputSize"], "found": check["found"], "samples": check["samples"]}), flush=True)
+
+
 IMPORT_IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png"}
 
 
@@ -5860,6 +5971,13 @@ def build_parser() -> argparse.ArgumentParser:
     export_parser.add_argument("--format", choices=["onnx", "coreml"], required=True)
     export_parser.add_argument("--language", choices=["de", "en", "es", "fr"], default="de")
     export_parser.set_defaults(func=export_model)
+
+    reco_parser = commands.add_parser("export-reco")
+    reco_parser.add_argument("--project", required=True)
+    reco_parser.add_argument("--package", required=True)
+    reco_parser.add_argument("--classes", default="ball")
+    reco_parser.add_argument("--language", choices=["de", "en", "es", "fr"], default="de")
+    reco_parser.set_defaults(func=export_reco)
 
     package_parser = commands.add_parser("package")
     package_parser.add_argument("--project", required=True)

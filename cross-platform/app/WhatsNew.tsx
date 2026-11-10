@@ -8,6 +8,15 @@ type Item = { title: string; text: string };
  *  number in the header opens it again. Add the next version's entry at the top. */
 export const WHATS_NEW: { version: string; items: Record<Language, Item[]> }[] = [
   {
+    version: '0.32.0',
+    items: {
+      de: [{ title: 'Für Reco exportieren', text: 'Ein neuer Knopf neben „Lokal trainieren“ speichert ein Modell aus der Bibliothek als ONNX-Datei, die die Reco-Kamera-App direkt lädt – auch kombinierte Modelle. Voreingestellt ist nur der Ball; Spieler heißen in der Datei „person“, wie Reco sie sucht. Danach prüft ein Probelauf die Datei auf Bildern des Projekts. Der bisherige ONNX-Export hatte ein Format, mit dem Reco nichts fand.' }],
+      en: [{ title: 'Export for Reco', text: 'A new button next to “Train locally” saves a library model as an ONNX file the Reco camera app loads directly, combined models included. Only the ball is preselected; players are named “person” in the file, the way Reco looks for them. A test run then checks the file on images of the project. The previous ONNX export had a layout in which Reco found nothing.' }],
+      es: [{ title: 'Exportar para Reco', text: 'Un botón nuevo junto a «Entrenar localmente» guarda un modelo de la biblioteca como archivo ONNX que la app de cámara Reco carga directamente, también modelos combinados. Solo el balón viene marcado; los jugadores se llaman «person» en el archivo, como los busca Reco. Después, una prueba comprueba el archivo con imágenes del proyecto. La exportación ONNX anterior tenía un formato en el que Reco no encontraba nada.' }],
+      fr: [{ title: 'Exporter pour Reco', text: 'Un nouveau bouton à côté de « Entraîner localement » enregistre un modèle de la bibliothèque en fichier ONNX que l’app caméra Reco charge directement, modèles combinés compris. Seul le ballon est présélectionné ; les joueurs s’appellent « person » dans le fichier, comme Reco les cherche. Un essai vérifie ensuite le fichier sur des images du projet. L’ancien export ONNX avait un format dans lequel Reco ne trouvait rien.' }],
+    },
+  },
+  {
     version: '0.31.8',
     items: {
       de: [
