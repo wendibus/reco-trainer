@@ -2,8 +2,11 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { hintText } from './hints';
 
 type Language = 'de' | 'en' | 'es' | 'fr';
-type SimulationFrame = { file: string; timestamp: number; width: number; height: number; ball: { x: number; y: number; confidence: number } | null };
-type Simulation = { id?: string; fps: number; frames: SimulationFrame[]; slot?: 'a' | 'b'; video?: string; model?: string; package?: string | null; threshold?: number };
+type SimulationFrame = { file: string; timestamp: number; width: number; height: number; ball: { x: number; y: number; confidence: number; width?: number; height?: number } | null };
+type SceneKind = 'gap' | 'jump' | 'weak' | 'lost';
+/// A stretch of the clip worth a look (teachers.tracking_scenes in the worker); start/end are frame indices.
+type Scene = { id: string; kind: SceneKind; start: number; end: number; startTime: number; endTime: number; picks: Array<{ index: number }> };
+type Simulation = { id?: string; fps: number; frames: SimulationFrame[]; slot?: 'a' | 'b'; video?: string; model?: string; package?: string | null; threshold?: number; scenes?: Scene[]; partial?: { done: number; total: number } };
 type TrackState = 'detected' | 'interpolated' | 'coasting' | 'lost';
 type Resolved = { state: TrackState; x: number | null; y: number | null };
 type Slot = 'a' | 'b';
@@ -17,6 +20,7 @@ type Props = {
   progress: number;
   message?: string;
   error?: string | null;
+  stage?: { index: number; count: number; label: string } | null;
   simulation?: Simulation | null;
   simulationB?: Simulation | null;
   models?: LibraryModel[];
@@ -26,10 +30,10 @@ type Props = {
 };
 
 const text = {
-  de: { title: 'Balltracking-Simulation', intro: 'Kurzes Video wählen und die Ballerkennung Bild für Bild abspielen. Im Vergleich laufen zwei Videos mit zwei Modellen synchron nebeneinander. Videos werden nur lokal verarbeitet. Bilder kommen nur ins Projekt, wenn du Lücken als Prüfkandidaten übernimmst.', pick: 'Video auswählen', empty: 'Wähle oben ein kurzes Video aus, um zu starten.', emptySide: 'Noch keine Simulation auf dieser Seite.', lookahead: 'Wie weit direkt in die Zukunft schauen', frames: 'Bilder', detected: 'Erkannt', interpolated: 'Interpoliert', coasting: 'Gehalten', lost: 'Verloren', compare: 'Zwei Modelle vergleichen', single: 'Nur eine Simulation', model: 'Modell', activeModel: 'Aktives Modell', sameVideo: 'Gleiches Video wie A', tracked: 'Ball verfolgt', avgConfidence: 'Ø Sicherheit', onlyA: 'Nur A erkennt', onlyB: 'Nur B erkennt', both: 'Beide erkennen', sameClip: 'Gleiches Video: Unterschiede Bild für Bild', noBallModels: 'Keine Modelle mit Ball-Klasse in der Bibliothek; es läuft das aktive Modell.', gaps: 'Lücken als Prüfkandidaten übernehmen' },
-  en: { title: 'Ball-tracking simulation', intro: 'Pick a short clip and play back the ball detection frame by frame. In comparison mode, two videos with two models play in sync side by side. Videos are only processed locally. Images only enter the project when you add gaps as review candidates.', pick: 'Select video', empty: 'Select a short video above to get started.', emptySide: 'No simulation on this side yet.', lookahead: 'How far to look directly into the future', frames: 'frames', detected: 'Detected', interpolated: 'Interpolated', coasting: 'Held', lost: 'Lost', compare: 'Compare two models', single: 'Single simulation', model: 'Model', activeModel: 'Active model', sameVideo: 'Same video as A', tracked: 'Ball tracked', avgConfidence: 'Avg. confidence', onlyA: 'Only A detects', onlyB: 'Only B detects', both: 'Both detect', sameClip: 'Same video: frame-by-frame differences', noBallModels: 'No models with a ball class in the library; the active model is used.', gaps: 'Add gaps as review candidates' },
-  es: { title: 'Simulación de seguimiento del balón', intro: 'Elige un vídeo corto y reproduce la detección del balón cuadro a cuadro. En la comparación, dos vídeos con dos modelos se reproducen sincronizados uno al lado del otro. Los vídeos solo se procesan localmente. Las imágenes solo entran en el proyecto cuando añades huecos como candidatos.', pick: 'Seleccionar vídeo', empty: 'Selecciona un vídeo corto arriba para empezar.', emptySide: 'Aún no hay simulación en este lado.', lookahead: 'Hasta dónde mirar directamente al futuro', frames: 'imágenes', detected: 'Detectado', interpolated: 'Interpolado', coasting: 'Mantenido', lost: 'Perdido', compare: 'Comparar dos modelos', single: 'Una sola simulación', model: 'Modelo', activeModel: 'Modelo activo', sameVideo: 'Mismo vídeo que A', tracked: 'Balón seguido', avgConfidence: 'Confianza media', onlyA: 'Solo A detecta', onlyB: 'Solo B detecta', both: 'Ambos detectan', sameClip: 'Mismo vídeo: diferencias imagen por imagen', noBallModels: 'No hay modelos con clase de balón en la biblioteca; se usa el modelo activo.', gaps: 'Añadir huecos como candidatos' },
-  fr: { title: 'Simulation de suivi du ballon', intro: 'Choisissez une courte vidéo et regardez la détection du ballon image par image. En mode comparaison, deux vidéos avec deux modèles sont lues côte à côte de façon synchronisée. Les vidéos ne sont traitées que localement. Les images n’entrent dans le projet que si vous ajoutez des lacunes comme candidates.', pick: 'Sélectionner une vidéo', empty: 'Sélectionnez une courte vidéo ci-dessus pour commencer.', emptySide: 'Pas encore de simulation de ce côté.', lookahead: 'Jusqu’où regarder directement dans le futur', frames: 'images', detected: 'Détecté', interpolated: 'Interpolé', coasting: 'Maintenu', lost: 'Perdu', compare: 'Comparer deux modèles', single: 'Une seule simulation', model: 'Modèle', activeModel: 'Modèle actif', sameVideo: 'Même vidéo que A', tracked: 'Ballon suivi', avgConfidence: 'Confiance moy.', onlyA: 'Seul A détecte', onlyB: 'Seul B détecte', both: 'Les deux détectent', sameClip: 'Même vidéo : différences image par image', noBallModels: 'Aucun modèle avec une classe ballon dans la bibliothèque ; le modèle actif est utilisé.', gaps: 'Ajouter les lacunes comme candidates' },
+  de: { title: 'Balltracking-Simulation', intro: 'Kurzes Video wählen und die Ballerkennung Bild für Bild abspielen. Im Vergleich laufen zwei Videos mit zwei Modellen synchron nebeneinander. Videos werden nur lokal verarbeitet. Bilder kommen nur ins Projekt, wenn du Szenen als Prüfkandidaten übernimmst.', pick: 'Video auswählen', empty: 'Wähle oben ein kurzes Video aus, um zu starten.', emptySide: 'Noch keine Simulation auf dieser Seite.', lookahead: 'Wie weit direkt in die Zukunft schauen', frames: 'Bilder', detected: 'Erkannt', interpolated: 'Interpoliert', coasting: 'Gehalten', lost: 'Verloren', compare: 'Zwei Modelle vergleichen', single: 'Nur eine Simulation', model: 'Modell', activeModel: 'Aktives Modell', sameVideo: 'Gleiches Video wie A', tracked: 'Ball verfolgt', avgConfidence: 'Ø Sicherheit', onlyA: 'Nur A erkennt', onlyB: 'Nur B erkennt', both: 'Beide erkennen', sameClip: 'Gleiches Video: Unterschiede Bild für Bild', noBallModels: 'Keine Modelle mit Ball-Klasse in der Bibliothek; es läuft das aktive Modell.', gaps: 'Lücken als Prüfkandidaten übernehmen', cancel: 'Abbrechen', cancelTitle: 'Simulation abbrechen?', cancelBody: 'Die Bilder, in denen der Ball schon gesucht wurde, kannst du als kürzere Simulation behalten. Oder du löschst alle Bilder dieses Laufs.', cancelBodyEarly: 'Bisher ist noch kein Bild ausgewertet. Beim Abbruch werden die Bilder dieses Laufs gelöscht.', cancelKeep: 'Abbrechen, Ausgewertetes behalten', cancelDelete: 'Abbrechen und Bilder löschen', cancelContinue: 'Weiter simulieren', stepOf: 'Schritt {i} von {n}', partial: 'Abgebrochener Lauf: {done} von {total} Bildern ausgewertet.', scenes: 'Auffällige Szenen', scenesIntro: 'Ein Klick springt zur Szene. Angekreuzte Szenen kommen mit wenigen Bildern als Prüfkandidaten in die Bilderliste; dort prüfst du jedes Bild einzeln.', noScenes: 'Keine auffälligen Szenen gefunden.', kindGap: 'Lücke', kindJump: 'Sprung', kindWeak: 'Unsicher', kindLost: 'Verloren', images: 'Bilder', adopt: '{scenes} Szenen übernehmen ({images} Bilder)', prevScene: '◀ Szene', nextScene: 'Szene ▶' },
+  en: { title: 'Ball-tracking simulation', intro: 'Pick a short clip and play back the ball detection frame by frame. In comparison mode, two videos with two models play in sync side by side. Videos are only processed locally. Images only enter the project when you add scenes as review candidates.', pick: 'Select video', empty: 'Select a short video above to get started.', emptySide: 'No simulation on this side yet.', lookahead: 'How far to look directly into the future', frames: 'frames', detected: 'Detected', interpolated: 'Interpolated', coasting: 'Held', lost: 'Lost', compare: 'Compare two models', single: 'Single simulation', model: 'Model', activeModel: 'Active model', sameVideo: 'Same video as A', tracked: 'Ball tracked', avgConfidence: 'Avg. confidence', onlyA: 'Only A detects', onlyB: 'Only B detects', both: 'Both detect', sameClip: 'Same video: frame-by-frame differences', noBallModels: 'No models with a ball class in the library; the active model is used.', gaps: 'Add gaps as review candidates', cancel: 'Cancel', cancelTitle: 'Cancel the simulation?', cancelBody: 'You can keep the images in which the ball has already been looked for, as a shorter simulation. Or delete all images of this run.', cancelBodyEarly: 'No image has been analysed yet. Cancelling deletes the images of this run.', cancelKeep: 'Cancel, keep what is analysed', cancelDelete: 'Cancel and delete the images', cancelContinue: 'Keep simulating', stepOf: 'Step {i} of {n}', partial: 'Cancelled run: {done} of {total} images analysed.', scenes: 'Notable scenes', scenesIntro: 'A click jumps to the scene. Ticked scenes go into the image list as review candidates, a few images each; there you check every image yourself.', noScenes: 'No notable scenes found.', kindGap: 'Gap', kindJump: 'Jump', kindWeak: 'Unsure', kindLost: 'Lost', images: 'images', adopt: 'Add {scenes} scenes ({images} images)', prevScene: '◀ Scene', nextScene: 'Scene ▶' },
+  es: { title: 'Simulación de seguimiento del balón', intro: 'Elige un vídeo corto y reproduce la detección del balón cuadro a cuadro. En la comparación, dos vídeos con dos modelos se reproducen sincronizados uno al lado del otro. Los vídeos solo se procesan localmente. Las imágenes solo entran en el proyecto cuando añades escenas como candidatas.', pick: 'Seleccionar vídeo', empty: 'Selecciona un vídeo corto arriba para empezar.', emptySide: 'Aún no hay simulación en este lado.', lookahead: 'Hasta dónde mirar directamente al futuro', frames: 'imágenes', detected: 'Detectado', interpolated: 'Interpolado', coasting: 'Mantenido', lost: 'Perdido', compare: 'Comparar dos modelos', single: 'Una sola simulación', model: 'Modelo', activeModel: 'Modelo activo', sameVideo: 'Mismo vídeo que A', tracked: 'Balón seguido', avgConfidence: 'Confianza media', onlyA: 'Solo A detecta', onlyB: 'Solo B detecta', both: 'Ambos detectan', sameClip: 'Mismo vídeo: diferencias imagen por imagen', noBallModels: 'No hay modelos con clase de balón en la biblioteca; se usa el modelo activo.', gaps: 'Añadir huecos como candidatos', cancel: 'Cancelar', cancelTitle: '¿Cancelar la simulación?', cancelBody: 'Puedes conservar las imágenes en las que ya se buscó el balón, como una simulación más corta. O eliminar todas las imágenes de esta ejecución.', cancelBodyEarly: 'Aún no se ha analizado ninguna imagen. Al cancelar se eliminan las imágenes de esta ejecución.', cancelKeep: 'Cancelar y conservar lo analizado', cancelDelete: 'Cancelar y eliminar las imágenes', cancelContinue: 'Seguir simulando', stepOf: 'Paso {i} de {n}', partial: 'Ejecución cancelada: {done} de {total} imágenes analizadas.', scenes: 'Escenas llamativas', scenesIntro: 'Un clic salta a la escena. Las escenas marcadas pasan a la lista de imágenes como candidatas, con pocas imágenes cada una; allí revisas cada imagen.', noScenes: 'No se encontraron escenas llamativas.', kindGap: 'Hueco', kindJump: 'Salto', kindWeak: 'Dudoso', kindLost: 'Perdido', images: 'imágenes', adopt: 'Añadir {scenes} escenas ({images} imágenes)', prevScene: '◀ Escena', nextScene: 'Escena ▶' },
+  fr: { title: 'Simulation de suivi du ballon', intro: 'Choisissez une courte vidéo et regardez la détection du ballon image par image. En mode comparaison, deux vidéos avec deux modèles sont lues côte à côte de façon synchronisée. Les vidéos ne sont traitées que localement. Les images n’entrent dans le projet que si vous ajoutez des scènes comme candidates.', pick: 'Sélectionner une vidéo', empty: 'Sélectionnez une courte vidéo ci-dessus pour commencer.', emptySide: 'Pas encore de simulation de ce côté.', lookahead: 'Jusqu’où regarder directement dans le futur', frames: 'images', detected: 'Détecté', interpolated: 'Interpolé', coasting: 'Maintenu', lost: 'Perdu', compare: 'Comparer deux modèles', single: 'Une seule simulation', model: 'Modèle', activeModel: 'Modèle actif', sameVideo: 'Même vidéo que A', tracked: 'Ballon suivi', avgConfidence: 'Confiance moy.', onlyA: 'Seul A détecte', onlyB: 'Seul B détecte', both: 'Les deux détectent', sameClip: 'Même vidéo : différences image par image', noBallModels: 'Aucun modèle avec une classe ballon dans la bibliothèque ; le modèle actif est utilisé.', gaps: 'Ajouter les lacunes comme candidates', cancel: 'Annuler', cancelTitle: 'Annuler la simulation ?', cancelBody: 'Vous pouvez garder les images dans lesquelles le ballon a déjà été cherché, comme simulation plus courte. Ou supprimer toutes les images de cette exécution.', cancelBodyEarly: 'Aucune image n’est encore analysée. L’annulation supprime les images de cette exécution.', cancelKeep: 'Annuler et garder l’analyse', cancelDelete: 'Annuler et supprimer les images', cancelContinue: 'Continuer la simulation', stepOf: 'Étape {i} sur {n}', partial: 'Exécution annulée : {done} images analysées sur {total}.', scenes: 'Scènes notables', scenesIntro: 'Un clic saute à la scène. Les scènes cochées entrent dans la liste d’images comme candidates, avec quelques images chacune ; vous y vérifiez chaque image.', noScenes: 'Aucune scène notable trouvée.', kindGap: 'Lacune', kindJump: 'Saut', kindWeak: 'Incertain', kindLost: 'Perdu', images: 'images', adopt: 'Ajouter {scenes} scènes ({images} images)', prevScene: '◀ Scène', nextScene: 'Scène ▶' },
 } as const;
 
 /// Resolves raw per-frame ball detections into a track: real detections pass
@@ -65,6 +69,9 @@ function resolve(detections: Array<{ x: number; y: number } | null>, lookaheadFr
   });
 }
 
+const sceneColor: Record<SceneKind, string> = { gap: '#e0902f', jump: '#d9534f', weak: '#c9a700', lost: '#8e8e93' };
+/// Gaps and jumps are the model's clear mistakes, so they start ticked; weak and lost stretches are offered.
+const defaultPicked = (simulation: Simulation | null) => new Set((simulation?.scenes ?? []).filter((scene) => scene.kind === 'gap' || scene.kind === 'jump').map((scene) => scene.id));
 const stateColor: Record<TrackState, string> = { detected: '#2fae6b', interpolated: '#e0902f', coasting: '#e0c22f', lost: 'transparent' };
 
 type Prepared = { simulation: Simulation; frames: SimulationFrame[]; fps: number; duration: number; resolved: Resolved[] };
@@ -118,7 +125,10 @@ export default function BallTrackingPlayer(props: Props) {
   // The worker deletes a slot's old frames before extracting new ones, so that slot's
   // player is hidden while it is being re-simulated instead of requesting missing images.
   // Hidden until that slot reports a new simulation id, or the run fails.
-  const [running, setRunning] = useState<{ slot: Slot; previousId: string } | null>(null);
+  const [running, setRunning] = useState<{ slot: Slot } | null>(null);
+  const [cancelOpen, setCancelOpen] = useState(false);
+  // Ticked scenes per side; they belong to one simulation and start over with the next one.
+  const [picked, setPicked] = useState<Record<Slot, { id: string; scenes: Set<string> }>>({ a: { id: '', scenes: new Set() }, b: { id: '', scenes: new Set() } });
   // Set once gaps were sent to the project, so the worker's result line stays visible afterwards.
   const [gapsSent, setGapsSent] = useState(false);
   const ballClass = props.sport === 'hockey' ? 'puck' : 'ball';
@@ -141,14 +151,31 @@ export default function BallTrackingPlayer(props: Props) {
     return () => clearInterval(id);
   }, [isPlaying, duration, step]);
 
-  async function addGaps(slot: Slot) {
+  const pickedFor = (slot: Slot) => {
+    const stable = slot === 'a' ? a : b;
+    return picked[slot].id === stable.id ? picked[slot].scenes : defaultPicked(stable.simulation);
+  };
+  function toggleScene(slot: Slot, sceneId: string) {
+    const next = new Set(pickedFor(slot));
+    if (next.has(sceneId)) next.delete(sceneId); else next.add(sceneId);
+    setPicked((current) => ({ ...current, [slot]: { id: (slot === 'a' ? a : b).id, scenes: next } }));
+  }
+  function jumpTo(prepared: Prepared, scene: Scene) {
+    setIsPlaying(false);
+    setTime((scene.start + 0.01) / prepared.fps);
+  }
+  async function addScenes(slot: Slot, scenes: string[]) {
     setGapsSent(true);
-    try { await props.post('/api/simulation-gaps', { slot, model: props.modelSize || 'nano', language: props.language }); } catch { /* surfaced via props.error from worker status */ }
+    try { await props.post('/api/simulation-gaps', { slot, scenes, model: props.modelSize || 'nano', language: props.language }); } catch { /* surfaced via props.error from worker status */ }
+  }
+  async function cancelRun(keep: boolean) {
+    setCancelOpen(false);
+    try { await props.post('/api/simulation-cancel', { keep }); } catch { /* surfaced via props.error from worker status */ }
   }
 
   async function run(slot: Slot, sameVideo = false) {
     setGapsSent(false);
-    setRunning({ slot, previousId: slot === 'a' ? a.id : b.id });
+    setRunning({ slot });
     try {
       await props.post('/api/simulate-ball-tracking', {
         slot, sameVideo, model: props.modelSize || 'nano', package: choice[slot] || undefined, threshold: 0.25, language: props.language,
@@ -168,8 +195,9 @@ export default function BallTrackingPlayer(props: Props) {
   }, [sameClip, preparedA, preparedB]);
 
   const simulating = Boolean(props.busy && props.operation?.startsWith('simulation'));
-  const failed = !props.busy && (props.operation === 'error' || props.operation === 'cancelled');
-  const runningSlot = running && !failed && (running.slot === 'a' ? a.id : b.id) === running.previousId ? running.slot : null;
+  const runningSlot = simulating && running ? running.slot : null;
+  // Only frames the detector has finished can be kept; that starts with step 3.
+  const canKeep = (props.stage?.index ?? 0) >= 3;
   const maxFps = Math.max(12, ...shown.map((item) => item.fps));
   const lookaheadSeconds = (lookaheadFrames / maxFps).toFixed(1);
 
@@ -188,8 +216,24 @@ export default function BallTrackingPlayer(props: Props) {
     {compare && !ballModels.length && <div className="ball-tracking-note">{t.noBallModels}</div>}
     <div className="ball-tracking-controls">
       {!compare && <button data-hint={h.pickClip} type="button" className="primary-button" onClick={() => void run('a')} disabled={props.busy}>{t.pick}</button>}
-      {simulating && <div className="ball-tracking-progress"><div className="benchmark-progress"><span style={{ width: `${Math.max(props.progress, .02) * 100}%` }} /></div><small>{props.message} · {Math.round(props.progress * 100)} %</small></div>}
+      {simulating && <div className="ball-tracking-progress">
+        {props.stage && <b className="ball-tracking-step">{t.stepOf.replace('{i}', String(props.stage.index)).replace('{n}', String(props.stage.count))} · {props.stage.label}</b>}
+        <div className="benchmark-progress"><span style={{ width: `${Math.max(props.progress, .02) * 100}%` }} /></div>
+        <small>{props.message} · {Math.round(props.progress * 100)} %</small>
+      </div>}
+      {simulating && <button data-hint={h.simulationCancel} type="button" className="secondary-button" onClick={() => setCancelOpen(true)}>{t.cancel}</button>}
     </div>
+    {cancelOpen && simulating && <div className="walkthrough-backdrop" role="presentation">
+      <section className="onnx-dialog ball-tracking-cancel" role="alertdialog" aria-modal="true" aria-labelledby="simulation-cancel-title">
+        <h2 id="simulation-cancel-title">{t.cancelTitle}</h2>
+        <p>{canKeep ? t.cancelBody : t.cancelBodyEarly}</p>
+        <div className="ball-tracking-cancel-actions">
+          <button data-hint={h.simulationCancelContinue} type="button" className="secondary-button" onClick={() => setCancelOpen(false)}>{t.cancelContinue}</button>
+          <button data-hint={h.simulationCancelDelete} type="button" className="secondary-button" onClick={() => void cancelRun(false)}>{t.cancelDelete}</button>
+          {canKeep && <button data-hint={h.simulationCancelKeep} type="button" className="primary-button" onClick={() => void cancelRun(true)}>{t.cancelKeep}</button>}
+        </div>
+      </section>
+    </div>}
     {props.error && <div className="benchmark-error">{props.error}</div>}
     {gapsSent && !props.busy && !props.error && props.message && <div className="ball-tracking-note">{props.message}</div>}
     {!compare && !preparedA ? <div className="benchmark-empty">{t.empty}</div> : <>
@@ -205,7 +249,7 @@ export default function BallTrackingPlayer(props: Props) {
             </div>}
             {runningSlot === slot ? <div className="benchmark-empty ball-tracking-side-empty">{simulating ? props.message : '…'}</div> : prepared ? <SimulationStage prepared={prepared} index={indexAt(prepared, time)} api={props.api} slot={slot} /> : <div className="benchmark-empty ball-tracking-side-empty">{t.emptySide}</div>}
             {prepared && <SideSummary prepared={prepared} t={t} />}
-            {prepared && <button data-hint={h.simulationGaps} type="button" className="secondary-button" onClick={() => void addGaps(slot)} disabled={props.busy || !prepared.resolved.some((item) => item.state === 'interpolated')}>{t.gaps}</button>}
+            {prepared && <SceneList prepared={prepared} index={indexAt(prepared, time)} picked={pickedFor(slot)} busy={props.busy} t={t} h={h} onJump={(scene) => jumpTo(prepared, scene)} onToggle={(sceneId) => toggleScene(slot, sceneId)} onAdopt={(scenes) => void addScenes(slot, scenes)} />}
           </div>;
         })}
       </div>
@@ -268,6 +312,7 @@ function SideSummary({ prepared, t }: { prepared: Prepared; t: (typeof text)[Lan
   const share = (state: TrackState) => percent(summary.total ? summary.counts[state] / summary.total : 0);
   return <div className="ball-tracking-summary">
     <div className="ball-tracking-summary-title"><b>{prepared.simulation.model || '—'}</b>{prepared.simulation.video && <small>{prepared.simulation.video}</small>}</div>
+    {prepared.simulation.partial && <div className="ball-tracking-note">{t.partial.replace('{done}', String(prepared.simulation.partial.done)).replace('{total}', String(prepared.simulation.partial.total))}</div>}
     <div className="ball-tracking-summary-stats">
       <span><b>{percent(summary.tracked)}</b>{t.tracked}</span>
       <span><b>{share('detected')}</b>{t.detected}</span>
@@ -276,6 +321,44 @@ function SideSummary({ prepared, t }: { prepared: Prepared; t: (typeof text)[Lan
       <span><b>{share('lost')}</b>{t.lost}</span>
       <span><b>{summary.avgConfidence == null ? '—' : percent(summary.avgConfidence)}</b>{t.avgConfidence}</span>
     </div>
+  </div>;
+}
+
+/// The scenes of one simulation: a strip along the clip, a list to jump from, and the choice of
+/// which scenes go into the project as review candidates.
+function SceneList(props: { prepared: Prepared; index: number; picked: Set<string>; busy: boolean; t: (typeof text)[Language]; h: (typeof hintText)[Language]; onJump: (scene: Scene) => void; onToggle: (sceneId: string) => void; onAdopt: (scenes: string[]) => void }) {
+  const { prepared, index, picked, t, h } = props;
+  const scenes = prepared.simulation.scenes ?? [];
+  const total = Math.max(1, prepared.frames.length);
+  const kindName: Record<SceneKind, string> = { gap: t.kindGap, jump: t.kindJump, weak: t.kindWeak, lost: t.kindLost };
+  const kindHint: Record<SceneKind, string> = { gap: h.sceneGap, jump: h.sceneJump, weak: h.sceneWeak, lost: h.sceneLost };
+  const chosen = scenes.filter((scene) => picked.has(scene.id));
+  const images = chosen.reduce((sum, scene) => sum + scene.picks.length, 0);
+  const previous = [...scenes].reverse().find((scene) => scene.end < index);
+  const next = scenes.find((scene) => scene.start > index);
+  if (!scenes.length) return <div className="ball-tracking-scenes"><strong>{t.scenes}</strong><p>{t.noScenes}</p></div>;
+  return <div className="ball-tracking-scenes">
+    <div className="ball-tracking-scenes-head">
+      <strong>{t.scenes} · {scenes.length}</strong>
+      <button data-hint={h.scenePrevious} type="button" className="secondary-button" disabled={!previous} onClick={() => previous && props.onJump(previous)}>{t.prevScene}</button>
+      <button data-hint={h.sceneNext} type="button" className="secondary-button" disabled={!next} onClick={() => next && props.onJump(next)}>{t.nextScene}</button>
+    </div>
+    <div className="ball-tracking-scene-strip">
+      {scenes.map((scene) => <button data-hint={kindHint[scene.kind]} type="button" key={scene.id} aria-label={`${kindName[scene.kind]} ${scene.startTime.toFixed(1)} s`} className={picked.has(scene.id) ? 'picked' : ''} style={{ left: `${(scene.start / total) * 100}%`, width: `max(5px, ${((scene.end - scene.start + 1) / total) * 100}%)`, background: sceneColor[scene.kind] }} onClick={() => props.onJump(scene)} />)}
+      <i style={{ left: `${((index + .5) / total) * 100}%` }} />
+    </div>
+    <p>{t.scenesIntro}</p>
+    <div className="ball-tracking-scene-list">
+      {scenes.map((scene) => <div key={scene.id} className={index >= scene.start && index <= scene.end ? 'ball-tracking-scene current' : 'ball-tracking-scene'}>
+        <input type="checkbox" aria-label={`${kindName[scene.kind]} ${scene.startTime.toFixed(1)} s`} checked={picked.has(scene.id)} disabled={props.busy} onChange={() => props.onToggle(scene.id)} />
+        <button data-hint={kindHint[scene.kind]} type="button" onClick={() => props.onJump(scene)}>
+          <i style={{ background: sceneColor[scene.kind] }} /><b>{kindName[scene.kind]}</b>
+          <span>{scene.startTime.toFixed(1)}–{scene.endTime.toFixed(1)} s</span>
+          <small>{scene.picks.length} {t.images}</small>
+        </button>
+      </div>)}
+    </div>
+    <button data-hint={h.simulationGaps} type="button" className="primary-button" disabled={props.busy || !images} onClick={() => props.onAdopt(chosen.map((scene) => scene.id))}>{t.adopt.replace('{scenes}', String(chosen.length)).replace('{images}', String(images))}</button>
   </div>;
 }
 

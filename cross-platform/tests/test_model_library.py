@@ -1349,6 +1349,7 @@ class SimulateBallTrackingTests(unittest.TestCase):
                 args = type("Args", (), {
                     "project": str(root), "frames_dir": str(frames_dir),
                     "model": "nano", "threshold": 0.25, "language": "en",
+                    "partial": str(Path(temporary) / "partial.jsonl"),
                 })()
                 buffer = io.StringIO()
                 with contextlib.redirect_stdout(buffer):
@@ -1362,6 +1363,13 @@ class SimulateBallTrackingTests(unittest.TestCase):
             self.assertAlmostEqual(by_file["one.jpg"]["x"], 15.0)
             self.assertAlmostEqual(by_file["one.jpg"]["y"], 15.0)
             self.assertIsNone(by_file["two.jpg"])
+            # the box size travels along, so a scene can turn the detection back into a box
+            self.assertGreater(by_file["one.jpg"]["width"], 0)
+            self.assertGreater(by_file["one.jpg"]["height"], 0)
+            # every finished frame is also on disk, for a run that is cancelled before the end
+            lines = [json.loads(line) for line in (Path(temporary) / "partial.jsonl").read_text().splitlines()]
+            self.assertIn("model", lines[0])
+            self.assertEqual([line["file"] for line in lines[1:]], [item["file"] for item in payload["frames"]])
 
     def test_rejects_a_missing_frames_directory(self):
         with tempfile.TemporaryDirectory() as temporary:

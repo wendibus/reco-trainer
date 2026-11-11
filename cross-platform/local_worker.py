@@ -406,8 +406,9 @@ class LocalState:
                 # The split the next training uses, so the image list can show each image's role.
                 "splits": dataset_split.preview(frames, self.language) if self.project and ((self.project.get("augmentation") or {}).get("mode") not in {"mixed", "real-only"}) else None,
                 "log": "\n".join(self.log[-80:]),
-                "simulation": self.simulation,
-                "simulationB": self.simulation_b,
+                # only for the project it was made in: its images live in that project's folder
+                "simulation": self.simulation if (self.simulation or {}).get("root", str(self.project_root)) == str(self.project_root) else None,
+                "simulationB": self.simulation_b if (self.simulation_b or {}).get("root", str(self.project_root)) == str(self.project_root) else None,
                 "detail": self.detail,
                 "stage": self.stage,
             }
@@ -1584,6 +1585,32 @@ def simulation_video(payload: dict) -> Path:
     return select_video_file()
 
 
+# What a cancelled simulation does with the frames it has already analysed. /api/simulation-cancel
+# sets it before it cancels the job; a plain cancel leaves it clear and the frames are deleted.
+SIMULATION_KEEP_PARTIAL = threading.Event()
+
+
+def read_partial_detections(path: Path) -> tuple[str | None, list[dict]]:
+    """The frames a cancelled detection run finished (ml_worker --partial): the model's name
+    and one {"file", "ball"} per frame. A last line cut off by the cancel is ignored."""
+    model: str | None = None
+    frames: list[dict] = []
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return model, frames
+    for line in lines:
+        try:
+            item = json.loads(line)
+        except ValueError:
+            break
+        if isinstance(item, dict) and "file" in item:
+            frames.append(item)
+        elif isinstance(item, dict) and item.get("model"):
+            model = str(item["model"])
+    return model, frames
+
+
 def simulate_ball_tracking(video: Path, payload: dict) -> None:
     """Extract a short clip at near-native frame rate into a scratch directory
     (never added to project.json - this is a read-only diagnostic, not data
@@ -1593,26 +1620,66 @@ def simulate_ball_tracking(video: Path, payload: dict) -> None:
     directory every time (root/.runtime/simulation) rather than one per run,
     since only one simulation is ever shown at a time and there is no reason
     to accumulate throwaway extractions.
+
+    The run has three steps (extract, load the model, detect) and reports them as
+    such. A cancel either keeps the frames analysed so far as a shorter simulation
+    (SIMULATION_KEEP_PARTIAL) or removes everything; it never leaves a simulation
+    behind whose images are gone.
     """
+    slot = simulation_slot(payload)
+    frames_dir: Path | None = None
+    partial_path: Path | None = None
+    rate: float | None = None
+    duration = 0.0
+    output_width = output_height = 0
+    model = str(payload.get("model", "nano"))
+    package = str(payload.get("package") or "").strip()
+    threshold = 0.25
+
+    def stage(index: int, label: str) -> dict:
+        return {"index": index, "count": 3, "label": label}
+
+    def result_for(detected: list[dict], model_label: str | None, total: int | None = None) -> dict:
+        frames = [
+            {
+                "file": item["file"],
+                "timestamp": min(index / (rate or 12.0), duration),
+                "width": output_width,
+                "height": output_height,
+                "ball": item.get("ball"),
+            }
+            for index, item in enumerate(detected)
+        ]
+        return {
+            "id": str(time.time_ns()), "fps": rate, "frames": frames, "slot": slot,
+            "video": video.name, "model": model_label or model, "package": package or None,
+            "threshold": threshold, "root": str(STATE.project_root),
+            "scenes": teachers.tracking_scenes(frames),
+            **({"partial": {"done": len(frames), "total": total}} if total is not None else {}),
+        }
+
+    def publish(result: dict | None, **status) -> None:
+        STATE.update(**({"simulation_b": result} if slot == "b" else {"simulation": result}), **status)
+
     try:
+        SIMULATION_KEEP_PARTIAL.clear()
         root = STATE.project_root
         project = STATE.project
         if root is None or project is None:
             raise RuntimeError(localized("Zuerst ein bestehendes Trainingsprojekt öffnen.", "Open an existing training project first.", "Primero abre un proyecto de entrenamiento existente.", "Ouvrez d’abord un projet d’entraînement existant."))
-        model = str(payload.get("model", "nano"))
         language = payload.get("language", "de")
         if language not in {"de", "en", "es", "fr"}:
             language = "de"
         threshold = min(0.95, max(0.01, float(payload.get("threshold", 0.25))))
-        slot = simulation_slot(payload)
-        package = str(payload.get("package") or "").strip()
         if package and (Path(package).name != package or package in {".", ".."}):
             raise RuntimeError(localized("Ungültige Modell-ID.", "Invalid model ID.", "ID de modelo no válido.", "ID de modèle invalide."))
         venv_python = venv_python_path(ml_venv(root))
         if not venv_python.is_file():
             raise RuntimeError(localized("ML-Umgebung fehlt. Zuerst „ML einrichten“ anklicken.", "The ML environment is missing. Click “Set up ML” first.", "Falta el entorno de ML. Primero haz clic en “Configurar ML”.", "L’environnement ML est manquant. Cliquez d’abord sur « Configurer le ML »."))
 
-        STATE.update(operation="simulation-extract", busy=True, progress=0.01, error=None, log=[], message=localized("Extrahiere Bilder für die Simulation …", "Extracting images for the simulation …", "Extrayendo imágenes para la simulación …", "Extraction des images pour la simulation …"))
+        extract_label = localized("Bilder extrahieren", "Extract images", "Extraer imágenes", "Extraire les images")
+        # This slot's old images are replaced now, so its old simulation must not be shown any more.
+        publish(None, operation="simulation-extract", busy=True, progress=0.01, error=None, log=[], stage=stage(1, extract_label), message=f"{extract_label} …")
         ffmpeg = shutil.which("ffmpeg")
         apple_extractor = native_frame_extractor(root) if not ffmpeg or not shutil.which("ffprobe") else None
         duration, width, height = media_info(video, apple_extractor)
@@ -1626,8 +1693,8 @@ def simulate_ball_tracking(video: Path, payload: dict) -> None:
 
         def watch_extraction() -> None:
             while not extraction_done.wait(0.4):
-                written = sum(1 for _ in frames_dir.glob("sim-*.jpg"))
-                STATE.update(progress=0.01 + 0.39 * min(1.0, written / target_count))
+                written = min(target_count, sum(1 for _ in frames_dir.glob("sim-*.jpg")))
+                STATE.update(progress=0.01 + 0.29 * written / target_count, message=f"{extract_label} … {written}/{target_count}")
 
         threading.Thread(target=watch_extraction, daemon=True).start()
         try:
@@ -1641,50 +1708,89 @@ def simulate_ball_tracking(video: Path, payload: dict) -> None:
         if not generated:
             raise RuntimeError(localized("Es konnten keine Bilder aus dem Video extrahiert werden.", "No images could be extracted from the video.", "No se pudieron extraer imágenes del vídeo.", "Aucune image n’a pu être extraite de la vidéo."))
 
-        STATE.update(operation="simulation-detect", progress=0.4, message=localized("Ballerkennung läuft …", "Ball detection running …", "Detección del balón en curso …", "Détection du ballon en cours …"))
+        load_label = localized("Modell laden", "Load the model", "Cargar el modelo", "Charger le modèle")
+        detect_label = localized("Ball suchen", "Find the ball", "Buscar el balón", "Chercher le ballon")
+        STATE.update(operation="simulation-detect", progress=0.3, stage=stage(2, load_label), message=f"{load_label} …")
         worker = find_ml_worker()
+        partial_path = frames_dir / "detections.jsonl"
+        def detection_progress(done: int, total: int) -> None:
+            STATE.update(progress=0.35 + 0.65 * done / max(total, 1), stage=stage(3, detect_label), message=f"{detect_label} … {done}/{total}")
+
         detections = run_json([
             str(venv_python), str(worker), "simulate-ball-tracking",
             "--project", str(root), "--frames-dir", str(frames_dir),
             "--model", model, "--threshold", str(threshold), "--language", language,
+            "--partial", str(partial_path),
             *(["--package", package] if package else []),
-        ], on_progress=lambda done, total: STATE.update(
-            progress=0.4 + 0.58 * done / max(total, 1),
-            message=localized(f"Ballerkennung läuft … {done}/{total}", f"Ball detection running … {done}/{total}", f"Detección del balón en curso … {done}/{total}", f"Détection du ballon en cours … {done}/{total}"),
-        ))
-        frames = [
-            {
-                "file": item["file"],
-                "timestamp": min(index / rate, duration),
-                "width": output_width,
-                "height": output_height,
-                "ball": item.get("ball"),
-            }
-            for index, item in enumerate(detections.get("frames", []))
-        ]
+        ], on_progress=detection_progress)
+        partial_path.unlink(missing_ok=True)
+        result = result_for(detections.get("frames", []), detections.get("model"))
         STATE.simulation_videos[slot] = video
-        result = {
-            "id": str(time.time_ns()), "fps": rate, "frames": frames, "slot": slot,
-            "video": video.name, "model": detections.get("model") or model, "package": package or None,
-            "threshold": threshold,
-        }
-        STATE.update(
-            **({"simulation_b": result} if slot == "b" else {"simulation": result}),
-            operation="ready", busy=False, progress=1.0,
-            message=localized(f"{len(frames)} Bilder simuliert.", f"{len(frames)} images simulated.", f"{len(frames)} imágenes simuladas.", f"{len(frames)} images simulées."),
-        )
+        count, scenes = len(result["frames"]), len(result["scenes"])
+        publish(result, operation="ready", busy=False, progress=1.0, message=localized(
+            f"{count} Bilder simuliert, {scenes} auffällige Szenen gefunden.", f"{count} images simulated, {scenes} notable scenes found.",
+            f"{count} imágenes simuladas, {scenes} escenas llamativas encontradas.", f"{count} images simulées, {scenes} scènes notables trouvées.",
+        ))
     except OperationCancelled:
-        STATE.update(operation="cancelled", busy=False, progress=0.0, error=None, message=localized("Simulation abgebrochen.", "Simulation cancelled.", "Simulación cancelada.", "Simulation annulée."))
+        model_label, detected = read_partial_detections(partial_path) if partial_path else (None, [])
+        total = sum(1 for _ in frames_dir.glob("sim-*.jpg")) if frames_dir and frames_dir.is_dir() else 0
+        if SIMULATION_KEEP_PARTIAL.is_set() and detected and rate and frames_dir:
+            kept = {str(item["file"]) for item in detected}
+            for path in frames_dir.glob("sim-*.jpg"):
+                if path.name not in kept:
+                    path.unlink(missing_ok=True)
+            partial_path.unlink(missing_ok=True)  # type: ignore[union-attr]
+            STATE.simulation_videos[slot] = video
+            publish(result_for(detected, model_label, total), operation="cancelled", busy=False, progress=0.0, error=None, message=localized(
+                f"Simulation abgebrochen. {len(detected)} von {total} Bildern sind ausgewertet und bleiben erhalten.",
+                f"Simulation cancelled. {len(detected)} of {total} images are analysed and kept.",
+                f"Simulación cancelada. {len(detected)} de {total} imágenes están analizadas y se conservan.",
+                f"Simulation annulée. {len(detected)} images sur {total} sont analysées et conservées.",
+            ))
+        else:
+            wanted = SIMULATION_KEEP_PARTIAL.is_set()
+            if frames_dir is not None:
+                shutil.rmtree(frames_dir, ignore_errors=True)
+            STATE.simulation_videos.pop(slot, None)
+            publish(None, operation="cancelled", busy=False, progress=0.0, error=None, message=localized(
+                "Simulation abgebrochen. Es war noch kein Bild ausgewertet, es gibt nichts zu behalten.",
+                "Simulation cancelled. No image had been analysed yet, so there is nothing to keep.",
+                "Simulación cancelada. Aún no se había analizado ninguna imagen; no hay nada que conservar.",
+                "Simulation annulée. Aucune image n’était encore analysée, il n’y a rien à conserver.",
+            ) if wanted else localized(
+                "Simulation abgebrochen. Die Bilder dieses Laufs wurden gelöscht.", "Simulation cancelled. The images of this run were deleted.",
+                "Simulación cancelada. Se han eliminado las imágenes de esta ejecución.", "Simulation annulée. Les images de cette exécution ont été supprimées.",
+            ))
     except Exception as error:
+        if frames_dir is not None:
+            shutil.rmtree(frames_dir, ignore_errors=True)
+        STATE.simulation_videos.pop(slot, None)
         STATE.append_log(str(error))
-        STATE.update(operation="error", busy=False, error=str(error), message=localized("Balltracking-Simulation fehlgeschlagen.", "Ball-tracking simulation failed.", "La simulación de seguimiento del balón falló.", "La simulation de suivi du ballon a échoué."))
+        publish(None, operation="error", busy=False, error=str(error), message=localized("Balltracking-Simulation fehlgeschlagen.", "Ball-tracking simulation failed.", "La simulación de seguimiento del balón falló.", "La simulation de suivi du ballon a échoué."))
+    finally:
+        SIMULATION_KEEP_PARTIAL.clear()
+
+
+def cancel_simulation(payload: dict) -> dict:
+    """Cancel the running simulation; `keep` decides what happens to the frames analysed so far."""
+    current = JOBS.snapshot()["current"]
+    if not current or current.get("type") != "simulate-ball-tracking":
+        raise RuntimeError(localized("Es läuft keine Simulation.", "No simulation is running.", "No hay ninguna simulación en curso.", "Aucune simulation n’est en cours."))
+    if payload.get("keep"):
+        SIMULATION_KEEP_PARTIAL.set()
+    else:
+        SIMULATION_KEEP_PARTIAL.clear()
+    return JOBS.cancel(str(current["id"]))
 
 
 def simulation_gaps_to_candidates(payload: dict) -> None:
-    """Turn the misses of the last tracking simulation into review candidates: frames where
-    the ball was lost between two detections (teachers.ball_gaps) are looked at again in a
-    window around the expected position, then copied into the project as candidates - with
-    a suggested ball box where the second look found one, empty otherwise.
+    """Turn scenes of the last tracking simulation (teachers.tracking_scenes) into review
+    candidates. payload["scenes"] lists the scene ids the user chose; without it all gaps
+    are taken. A few frames of every chosen scene are copied into the project as candidates:
+    - gap: looked at again in a window around the expected position, with a suggested ball
+      box where that second look found one, empty otherwise;
+    - jump, weak: with the box the detector reported, for the user to confirm or remove;
+    - lost: empty.
 
     This is the only way simulation frames reach the project, and only on request. A video
     that already supplies independent test images is refused: its frames must neither be
@@ -1713,7 +1819,22 @@ def simulation_gaps_to_candidates(payload: dict) -> None:
                 "Cette vidéo fournit déjà des images de test indépendantes. Ses images ne doivent pas être entraînées.",
             ))
         sim_frames = simulation.get("frames", [])
-        picks = teachers.ball_gaps(sim_frames)
+        scenes = simulation.get("scenes")
+        if scenes is None:
+            scenes = teachers.tracking_scenes(sim_frames)
+        chosen = payload.get("scenes")
+        if chosen is None:
+            scenes = [scene for scene in scenes if scene["kind"] == "gap"]
+        else:
+            wanted = {str(item) for item in chosen} if isinstance(chosen, list) else set()
+            scenes = [scene for scene in scenes if scene["id"] in wanted]
+        picks = []
+        taken: set[int] = set()
+        for scene in scenes:
+            for pick in scene["picks"]:
+                if pick["index"] not in taken and len(picks) < 60:
+                    taken.add(pick["index"])
+                    picks.append({**pick, "kind": scene["kind"]})
         known_ids = {str(frame.get("id")) for frame in project.get("frames", [])}
 
         def frame_id(pick: dict) -> str:
@@ -1726,20 +1847,26 @@ def simulation_gaps_to_candidates(payload: dict) -> None:
                 "No new gaps found where the ball is missing between two detections.",
                 "No se encontraron huecos nuevos en los que falte el balón entre dos detecciones.",
                 "Aucune nouvelle lacune où le ballon manque entre deux détections.",
+            ) if chosen is None else localized(
+                "Die gewählten Szenen enthalten keine neuen Bilder; sie sind schon im Projekt.",
+                "The chosen scenes contain no new images; they are already in the project.",
+                "Las escenas elegidas no contienen imágenes nuevas; ya están en el proyecto.",
+                "Les scènes choisies ne contiennent aucune nouvelle image ; elles sont déjà dans le projet.",
             ))
             return
+        searches = [pick for pick in picks if pick["kind"] == "gap"]
         venv_python = venv_python_path(ml_venv(root))
-        if not venv_python.is_file():
+        if searches and not venv_python.is_file():
             raise RuntimeError(localized("ML-Umgebung fehlt. Zuerst „ML einrichten“ anklicken.", "The ML environment is missing. Click “Set up ML” first.", "Falta el entorno de ML. Primero haz clic en “Configurar ML”.", "L’environnement ML est manquant. Cliquez d’abord sur « Configurer le ML »."))
 
         STATE.update(operation="simulation-gaps", busy=True, progress=0.02, error=None, log=[], message=localized(
-            f"Suche den Ball in {len(picks)} Lücken-Bildern …", f"Looking for the ball in {len(picks)} gap images …",
-            f"Buscando el balón en {len(picks)} imágenes con huecos …", f"Recherche du ballon dans {len(picks)} images de lacunes …",
+            f"Suche den Ball in {len(searches)} Lücken-Bildern …", f"Looking for the ball in {len(searches)} gap images …",
+            f"Buscando el balón en {len(searches)} imágenes con huecos …", f"Recherche du ballon dans {len(searches)} images de lacunes …",
         ))
         scratch = root / ".runtime" / f"ball-gaps-{slot}.json"
-        atomic_json(scratch, [{key: pick[key] for key in ("file", "x", "y", "radius")} for pick in picks])  # type: ignore[arg-type]
+        atomic_json(scratch, [{key: pick[key] for key in ("file", "x", "y", "radius")} for pick in searches])  # type: ignore[arg-type]
         package = str(simulation.get("package") or "").strip()
-        found = run_json([
+        found = {"frames": []} if not searches else run_json([
             str(venv_python), str(find_ml_worker()), "recover-ball-gaps",
             "--project", str(root), "--frames-dir", str(frames_dir), "--requests", str(scratch),
             "--model", str(payload.get("model", "nano")), "--language", language,
@@ -1761,8 +1888,16 @@ def simulation_gaps_to_candidates(payload: dict) -> None:
             shutil.copyfile(frames_dir / name, target)
             annotations = []
             ball = balls.get(name)
-            if ball:
+            reported = pick.get("ball") if pick["kind"] in {"jump", "weak"} else None
+            if reported and reported.get("width") and reported.get("height"):
+                # the detector's own box (centre and size), for the user to confirm or remove
+                ball = {
+                    "x": float(reported["x"]) - float(reported["width"]) / 2, "y": float(reported["y"]) - float(reported["height"]) / 2,
+                    "width": float(reported["width"]), "height": float(reported["height"]), "confidence": float(reported.get("confidence") or 0.0),
+                }
+            elif ball:
                 recovered += 1
+            if ball:
                 annotations.append({
                     "id": str(uuid.uuid4()), "category": ball_category,
                     "x": max(float(ball["x"]), 0.0), "y": max(float(ball["y"]), 0.0),
@@ -1773,11 +1908,19 @@ def simulation_gaps_to_candidates(payload: dict) -> None:
                 "id": frame_id(pick), "relativePath": f"frames/{target.name}", "videoID": video_id,
                 "videoName": video.name, "timestamp": timestamp,
                 "width": source.get("width"), "height": source.get("height"),
-                "annotations": annotations, "reviewStatus": "candidate", "origin": "ball-gap",
+                "annotations": annotations, "reviewStatus": "candidate", "origin": f"ball-{pick['kind']}",
             })
         project["frames"] = [*project.get("frames", []), *new_frames]
         project["updatedAt"] = utc_now()
         atomic_json(root / "project.json", project)
+        if chosen is not None:
+            STATE.update(project=project, operation="ready", busy=False, progress=1.0, message=localized(
+                f"{len(new_frames)} Bilder aus {len(scenes)} Szenen als Prüfkandidaten übernommen ({len(searches)} aus Lücken, in {recovered} davon wurde der Ball im Ausschnitt gefunden). Sie stehen jetzt in der Bilderliste zur Prüfung.",
+                f"{len(new_frames)} images from {len(scenes)} scenes added as review candidates ({len(searches)} from gaps; the ball was found in the close-up in {recovered} of them). They are now in the image list for review.",
+                f"{len(new_frames)} imágenes de {len(scenes)} escenas añadidas como candidatas ({len(searches)} de huecos; el balón se encontró en el recorte en {recovered} de ellas). Ya están en la lista de imágenes para revisarlas.",
+                f"{len(new_frames)} images de {len(scenes)} scènes ajoutées comme candidates ({len(searches)} issues de lacunes ; le ballon a été trouvé dans le recadrage pour {recovered} d’entre elles). Elles sont maintenant dans la liste d’images à vérifier.",
+            ))
+            return
         STATE.update(project=project, operation="ready", busy=False, progress=1.0, message=localized(
             f"{len(new_frames)} Lücken-Bilder als Prüfkandidaten übernommen, in {recovered} davon wurde der Ball im Ausschnitt gefunden.",
             f"{len(new_frames)} gap images added as review candidates; the ball was found in the close-up in {recovered} of them.",
@@ -3723,6 +3866,9 @@ class Handler(BaseHTTPRequestHandler):
                 self.json_response({"ok": True, "folder": str(folder), "status": STATE.snapshot()})
             elif self.path == "/api/cancel":
                 job = JOBS.cancel(payload.get("jobId") or None)
+                self.json_response({"ok": True, "job": job})
+            elif self.path == "/api/simulation-cancel":
+                job = cancel_simulation(payload)
                 self.json_response({"ok": True, "job": job})
             elif match := re.fullmatch(r"/api/jobs/([0-9a-f]{12})/cancel", self.path):
                 job = JOBS.cancel(match.group(1))

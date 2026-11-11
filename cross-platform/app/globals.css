@@ -259,6 +259,25 @@ select { height:34px; padding:0 9px; border:1px solid #cbd3df; border-radius:7px
 .ball-tracking-summary-stats b { font-size:13px; color:#15233b; }
 .ball-tracking-difference { display:flex; flex-wrap:wrap; align-items:center; gap:6px 16px; padding:8px 11px; border-radius:9px; background:#eef3fa; font-size:10px; color:#4a5872; }
 .ball-tracking-difference b { color:#15233b; }
+.ball-tracking-step { display:block; margin-bottom:6px; font-size:12px; font-weight:600; color:var(--label); }
+.ball-tracking-cancel p { margin:0; color:var(--label-2); font-size:13px; line-height:1.45; }
+.ball-tracking-cancel-actions { display:flex; flex-wrap:wrap; justify-content:flex-end; gap:8px; margin-top:6px; }
+.ball-tracking-scenes { display:flex; flex-direction:column; gap:8px; padding:11px 12px; border-radius:var(--radius-card); background:var(--content); box-shadow:var(--card-shadow); }
+.ball-tracking-scenes p { margin:0; color:var(--label-2); font-size:11px; line-height:1.4; }
+.ball-tracking-scenes-head { display:flex; align-items:center; gap:8px; font-size:12px; }
+.ball-tracking-scenes-head strong { flex:1; }
+.ball-tracking-scene-strip { position:relative; height:14px; border-radius:7px; background:var(--fill); overflow:hidden; }
+.ball-tracking-scene-strip button { position:absolute; top:0; bottom:0; min-height:0; padding:0; border:0; border-radius:2px; opacity:.45; cursor:pointer; }
+.ball-tracking-scene-strip button.picked { opacity:1; }
+.ball-tracking-scene-strip i { position:absolute; top:0; bottom:0; width:2px; margin-left:-1px; background:var(--label); pointer-events:none; }
+.ball-tracking-scene-list { display:grid; grid-template-columns:repeat(auto-fill, minmax(210px, 1fr)); gap:4px; max-height:190px; overflow:auto; }
+.ball-tracking-scene { display:flex; align-items:center; gap:6px; padding:2px 6px; border-radius:8px; }
+.ball-tracking-scene.current { background:color-mix(in srgb, var(--accent) 16%, transparent); }
+.ball-tracking-scene button { flex:1; display:flex; align-items:center; gap:7px; min-width:0; padding:5px 2px; border:0; background:transparent; color:var(--label); font-size:12px; text-align:left; cursor:pointer; }
+.ball-tracking-scene button i { flex:0 0 auto; width:9px; height:9px; border-radius:50%; }
+.ball-tracking-scene button span { color:var(--label-2); font-variant-numeric:tabular-nums; }
+.ball-tracking-scene button small { margin-left:auto; color:var(--label-3); font-size:11px; }
+.ball-tracking-scenes > .primary-button { align-self:flex-start; }
 .ball-tracking-note { font-size:10px; color:#8a5a12; background:#fff6e5; border-radius:8px; padding:7px 10px; }
 @media (max-width: 900px) { .ball-tracking-sides { grid-template-columns:minmax(0, 1fr); } }
 

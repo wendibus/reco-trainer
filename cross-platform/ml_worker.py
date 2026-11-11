@@ -1237,15 +1237,36 @@ def simulate_ball_tracking(args: argparse.Namespace) -> None:
     batch_size = profile["batch_size"] if device != "cpu" else 1
     threshold = min(0.95, max(0.01, float(args.threshold)))
     results: list[dict[str, Any]] = []
-    for start in range(0, len(image_paths), batch_size):
-        batch = image_paths[start : start + batch_size]
-        detected_batch = normalize_detection_batch(model.predict([str(path) for path in batch], threshold=threshold), len(batch))
-        for path, detections in zip(batch, detected_batch):
-            box = best_ball_box(detections, category_map, ball_category, package_classes, sport)
-            best = {"x": (box["x1"] + box["x2"]) / 2, "y": (box["y1"] + box["y2"]) / 2, "confidence": box["confidence"]} if box else None
-            results.append({"file": path.name, "ball": best})
-        # stderr, not stdout: stdout must stay exactly one JSON blob (see docstring).
-        print(f"RECO_PROGRESS {len(results)} {len(image_paths)}", file=sys.stderr, flush=True)
+    # The model is loaded: "0 of N" tells the caller that detection starts now.
+    print(f"RECO_PROGRESS 0 {len(image_paths)}", file=sys.stderr, flush=True)
+    # Every finished frame is also appended to --partial, one JSON object per line, so a
+    # cancelled run can keep what it has (the single JSON blob below never appears then).
+    partial_path = Path(args.partial) if getattr(args, "partial", None) else None
+    partial = partial_path.open("w", encoding="utf-8") if partial_path else None
+    try:
+        if partial:
+            partial.write(json.dumps({"model": model_label}, ensure_ascii=False) + "\n")
+            partial.flush()
+        for start in range(0, len(image_paths), batch_size):
+            batch = image_paths[start : start + batch_size]
+            detected_batch = normalize_detection_batch(model.predict([str(path) for path in batch], threshold=threshold), len(batch))
+            for path, detections in zip(batch, detected_batch):
+                box = best_ball_box(detections, category_map, ball_category, package_classes, sport)
+                # x/y is the centre; width/height let a caller turn the detection back into a box.
+                best = {
+                    "x": (box["x1"] + box["x2"]) / 2, "y": (box["y1"] + box["y2"]) / 2, "confidence": box["confidence"],
+                    "width": box["x2"] - box["x1"], "height": box["y2"] - box["y1"],
+                } if box else None
+                results.append({"file": path.name, "ball": best})
+                if partial:
+                    partial.write(json.dumps(results[-1], ensure_ascii=False) + "\n")
+            if partial:
+                partial.flush()
+            # stderr, not stdout: stdout must stay exactly one JSON blob (see docstring).
+            print(f"RECO_PROGRESS {len(results)} {len(image_paths)}", file=sys.stderr, flush=True)
+    finally:
+        if partial:
+            partial.close()
 
     print(json.dumps({"frames": results, "model": model_label}, ensure_ascii=False))
 
@@ -6178,6 +6199,7 @@ def build_parser() -> argparse.ArgumentParser:
     simulate_parser.add_argument("--threshold", type=float, default=0.25)
     simulate_parser.add_argument("--package", default="", help="library package ID to use instead of the active model")
     simulate_parser.add_argument("--language", choices=["de", "en", "es", "fr"], default="de")
+    simulate_parser.add_argument("--partial", default=None, help="file that receives every finished frame as a JSON line, for a cancelled run")
     simulate_parser.set_defaults(func=simulate_ball_tracking)
 
     gaps_parser = commands.add_parser("recover-ball-gaps")

@@ -322,3 +322,122 @@ def ball_gaps(
         stride = len(picks) / limit
         picks = [picks[int(position * stride)] for position in range(limit)]
     return picks
+
+
+SCENE_KINDS = ("gap", "jump", "weak", "lost")
+
+
+def tracking_scenes(
+    frames: list[dict[str, Any]],
+    max_gap_seconds: float = 1.5,
+    max_jump_ratio: float = 0.25,
+    jump_base_ratio: float = 0.12,
+    jump_ratio_per_second: float = 0.6,
+    weak_confidence: float = 0.4,
+    min_weak_frames: int = 3,
+    per_scene: int = 3,
+    limit: int = 40,
+) -> list[dict[str, Any]]:
+    """Stretches of one densely sampled clip (the tracking simulation) that are worth a look,
+    because the detector most likely got something wrong there:
+
+    - "gap":  the ball is missing between two detections that lie close together in time and
+              place - a miss, and the two detections say roughly where the ball must be.
+    - "jump": two detections lie further apart than a ball travels in the time between them
+              (jump_base_ratio of the frame width plus jump_ratio_per_second for every second) -
+              at least one of them is something else (a head, a lamp, a second ball).
+    - "weak": the ball is found several frames in a row, but only with low confidence.
+    - "lost": no ball for longer than max_gap_seconds - out of view, or missed for long.
+
+    frames: [{"file", "timestamp", "width", "ball": {"x", "y", "confidence", ...} | None}, ...]
+    in playback order. Returns at most `limit` scenes in playback order (when there are more,
+    gaps and jumps are kept first):
+    {"id", "kind", "start", "end", "startTime", "endTime", "picks": [...]} with frame indices
+    `start`..`end` inclusive. `picks` are at most `per_scene` frames to put before the user:
+    {"index", "file"} plus "x", "y", "radius" (where to search again) for a gap, or "ball" (what
+    the detector reported) for a jump or a weak stretch."""
+    def time_of(index: int) -> float:
+        return float(frames[index].get("timestamp") or 0.0)
+
+    def spread(first: int, last: int) -> list[int]:
+        count = min(max(per_scene, 1), last - first + 1)
+        if count <= 0:
+            return []
+        return sorted({first + round((step + 1) * (last - first + 2) / (count + 1)) - 1 for step in range(count)})
+
+    def scene(kind: str, start: int, end: int, picks: list[dict[str, Any]]) -> dict[str, Any]:
+        return {"id": f"{kind}-{start}", "kind": kind, "start": start, "end": end,
+                "startTime": time_of(start), "endTime": time_of(end), "picks": picks}
+
+    def plain(indices: list[int]) -> list[dict[str, Any]]:
+        return [{"index": index, "file": str(frames[index].get("file", ""))} for index in indices]
+
+    def reported(indices: list[int]) -> list[dict[str, Any]]:
+        return [{"index": index, "file": str(frames[index].get("file", "")), "ball": frames[index]["ball"]} for index in indices]
+
+    scenes: list[dict[str, Any]] = []
+    anchors = [index for index, frame in enumerate(frames) if frame.get("ball")]
+    if not frames:
+        return scenes
+
+    # no ball at all before the first or after the last detection
+    edges = [(0, (anchors[0] if anchors else len(frames)) - 1)]
+    if anchors:
+        edges.append((anchors[-1] + 1, len(frames) - 1))
+    for first, last in edges:
+        if last >= first and time_of(last) - time_of(first) >= max_gap_seconds:
+            scenes.append(scene("lost", first, last, plain(spread(first, last))))
+
+    jumps: list[list[int]] = []
+    for start, end in zip(anchors, anchors[1:]):
+        first, second = frames[start], frames[end]
+        elapsed = time_of(end) - time_of(start)
+        width = float(first.get("width") or 0.0)
+        if elapsed <= 0 or width <= 0:
+            continue
+        x0, y0 = float(first["ball"]["x"]), float(first["ball"]["y"])
+        x1, y1 = float(second["ball"]["x"]), float(second["ball"]["y"])
+        distance = ((x1 - x0) ** 2 + (y1 - y0) ** 2) ** 0.5
+        missing = end - start - 1
+        if elapsed > max_gap_seconds:
+            if missing >= 1:
+                scenes.append(scene("lost", start + 1, end - 1, plain(spread(start + 1, end - 1))))
+        elif distance > (jump_base_ratio + jump_ratio_per_second * elapsed) * width:
+            # Further than a ball travels in that time. Neighbouring jumps (there and back, or
+            # several within half a second) are one scene around the odd detections.
+            if jumps and time_of(start) - time_of(jumps[-1][1]) <= 0.5:
+                jumps[-1][1] = end
+            else:
+                jumps.append([start, end])
+        elif missing >= 1 and distance <= max_jump_ratio * width:
+            picks = []
+            for index in spread(start + 1, end - 1):
+                share = min(max((time_of(index) - time_of(start)) / elapsed, 0.0), 1.0)
+                picks.append({
+                    "index": index, "file": str(frames[index].get("file", "")),
+                    "x": x0 + (x1 - x0) * share, "y": y0 + (y1 - y0) * share,
+                    # A thrown ball leaves the straight line, so search well beyond it.
+                    "radius": max(distance / 2, 0.08 * width),
+                })
+            scenes.append(scene("gap", start + 1, end - 1, picks))
+    for start, end in jumps:
+        involved = [index for index in anchors if start <= index <= end]
+        if len(involved) > max(per_scene, 1):
+            stride = (len(involved) - 1) / (max(per_scene, 1) - 1) if per_scene > 1 else 0
+            involved = sorted({involved[round(position * stride)] for position in range(max(per_scene, 1))})
+        scenes.append(scene("jump", start, end, reported(involved)))
+
+    run: list[int] = []
+    for index in [*range(len(frames)), None]:  # type: ignore[list-item]
+        ball = frames[index].get("ball") if index is not None else None
+        if ball and float(ball.get("confidence") or 0.0) < weak_confidence:
+            run.append(index)
+            continue
+        if len(run) >= max(min_weak_frames, 1):
+            scenes.append(scene("weak", run[0], run[-1], reported(spread(run[0], run[-1]))))
+        run = []
+
+    if len(scenes) > limit > 0:
+        rank = {kind: position for position, kind in enumerate(SCENE_KINDS)}
+        scenes = sorted(scenes, key=lambda item: (rank[item["kind"]], item["start"]))[:limit]
+    return sorted(scenes, key=lambda item: (item["start"], SCENE_KINDS.index(item["kind"])))

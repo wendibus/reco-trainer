@@ -8,6 +8,27 @@ type Item = { title: string; text: string };
  *  number in the header opens it again. Add the next version's entry at the top. */
 export const WHATS_NEW: { version: string; items: Record<Language, Item[]> }[] = [
   {
+    version: '0.34.0',
+    items: {
+      de: [
+        { title: 'Simulation: Fortschritt in Schritten, Abbruch mit Wahl', text: 'Die Balltracking-Simulation zeigt jetzt drei Schritte mit Zähler und Restzeit: Bilder extrahieren, Modell laden, Ball suchen. Beim Abbrechen wählst du, ob die schon ausgewerteten Bilder als kürzere Simulation bleiben oder alle Bilder des Laufs gelöscht werden.' },
+        { title: 'Auffällige Szenen anspringen und auswählen', text: 'Nach dem Lauf listet die Simulation Szenen, in denen das Modell wahrscheinlich danebenliegt: Lücke (Ball fehlt kurz), Sprung (Fund springt weiter, als ein Ball fliegt), Unsicher und Verloren. Ein Klick springt zur Szene. Angekreuzte Szenen kommen mit wenigen Bildern als Prüfkandidaten in die Bilderliste, wo du jedes Bild einzeln prüfst. Lücken und Sprünge sind vorab angekreuzt.' },
+      ],
+      en: [
+        { title: 'Simulation: progress in steps, cancel with a choice', text: 'The ball-tracking simulation now shows three steps with a counter and the time left: extract images, load the model, find the ball. When you cancel, you choose whether the images analysed so far stay as a shorter simulation or all images of the run are deleted.' },
+        { title: 'Jump to notable scenes and choose them', text: 'After the run the simulation lists scenes where the model is probably wrong: gap (ball briefly missing), jump (the detection moves further than a ball travels), unsure and lost. A click jumps to the scene. Ticked scenes go into the image list as review candidates, a few images each, where you check every image yourself. Gaps and jumps are ticked to begin with.' },
+      ],
+      es: [
+        { title: 'Simulación: progreso por pasos y cancelación con elección', text: 'La simulación de seguimiento del balón muestra ahora tres pasos con contador y tiempo restante: extraer imágenes, cargar el modelo, buscar el balón. Al cancelar eliges si las imágenes ya analizadas se conservan como una simulación más corta o si se eliminan todas las imágenes de la ejecución.' },
+        { title: 'Saltar a las escenas llamativas y elegirlas', text: 'Tras la ejecución, la simulación enumera las escenas en las que el modelo probablemente se equivoca: hueco (falta el balón un momento), salto (la detección se mueve más de lo que vuela un balón), dudoso y perdido. Un clic salta a la escena. Las escenas marcadas pasan a la lista de imágenes como candidatas, con pocas imágenes cada una, y allí revisas cada imagen. Los huecos y los saltos vienen marcados.' },
+      ],
+      fr: [
+        { title: 'Simulation : progression par étapes, annulation avec choix', text: 'La simulation de suivi du ballon affiche désormais trois étapes avec compteur et temps restant : extraire les images, charger le modèle, chercher le ballon. En annulant, vous choisissez de garder les images déjà analysées comme simulation plus courte ou de supprimer toutes les images de l’exécution.' },
+        { title: 'Sauter aux scènes notables et les choisir', text: 'Après l’exécution, la simulation liste les scènes où le modèle se trompe probablement : lacune (le ballon manque brièvement), saut (la détection se déplace plus loin que ne vole un ballon), incertain et perdu. Un clic saute à la scène. Les scènes cochées entrent dans la liste d’images comme candidates, avec quelques images chacune, où vous vérifiez chaque image. Les lacunes et les sauts sont cochés au départ.' },
+      ],
+    },
+  },
+  {
     version: '0.33.0',
     items: {
       de: [

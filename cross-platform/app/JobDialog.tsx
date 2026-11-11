@@ -24,6 +24,8 @@ type Props = {
   onJobEnded?: (job: Job) => void;
   /** Optional extra content for a finished job (for example "Show folder" after an export). */
   renderResult?: (job: Job, close: () => void) => React.ReactNode;
+  /** Cancels a running tracking simulation; `keep` keeps the frames analysed so far as a shorter simulation. */
+  cancelSimulation?: (keep: boolean) => Promise<unknown>;
 };
 
 /** The localized name of a job type ("autolabel" -> "Auto-labeling"). */
@@ -39,6 +41,7 @@ const text: Record<Language, {
   elapsed: (value: string) => string; remaining: (value: string) => string; queued: (count: number) => string;
   cancel: string; cancelling: string; confirmCancel: string; confirmCancelTraining: string; minimize: string; restore: string; close: string;
   done: string; failed: string; cancelled: string; working: string;
+  simAsk: string; simAskEarly: string; simKeep: string; simDelete: string; simContinue: string;
 }> = {
   de: {
     titles: { 'train-batch': 'Batch-Training', 'hub-install': 'Modell aus dem Hub laden', 'hub-share': 'Modell im Hub teilen', 'augment-analyze': 'Augmentation: Analyse', 'augment-generate': 'Augmentation: Bilder erzeugen', prepare: 'Videos vorbereiten', 'active-learning': 'Datensatz erweitern', 'independent-validation': 'Unabhängigen Test vorbereiten', 'simulate-ball-tracking': 'Balltracking-Simulation', 'import-model': 'Modell importieren', 'import-onnx': 'ONNX-Modell importieren', 'import-labels': 'Labels importieren', setup: 'ML einrichten', 'gpu-test': 'Grafikkarte testen', 'gpu-diagnose': 'Grafikkarte diagnostizieren', autolabel: 'Automatisch markieren', train: 'Lokal trainieren', 'export-coreml': 'Apple-Modell exportieren', 'export-onnx': 'CPU-Modell exportieren', 'export-reco': 'Für Reco exportieren', 'refine-boxes': 'Boxen verfeinern', 'package-model': 'Austauschpaket erstellen', 'combine-models': 'Modelle kombinieren', benchmark: 'Modellvergleich', 'activate-model': 'Modell aktivieren', 'rename-model': 'Modell umbenennen', 'delete-model': 'Modell löschen', 'export-dataset': 'Datensatz exportieren', 'download-models': 'Modelle herunterladen', 'consistency-check': 'Konsistenz prüfen', 'consistency-suggest': 'Vorschläge berechnen' },
@@ -48,6 +51,7 @@ const text: Record<Language, {
     cancel: 'Abbrechen', cancelling: 'Wird abgebrochen …', confirmCancel: 'Diesen Vorgang wirklich abbrechen? Halbfertige Dateien werden entfernt, das Projekt bleibt unverändert.',
     confirmCancelTraining: 'Training wirklich abbrechen? Der zuletzt gespeicherte Checkpoint bleibt erhalten; ein neues Training setzt dort fort.',
     minimize: 'Minimieren', restore: 'Fortschritt anzeigen', close: 'Schließen', done: 'Fertig', failed: 'Fehlgeschlagen', cancelled: 'Abgebrochen', working: 'Bitte warten …',
+    simAsk: 'Simulation abbrechen? Die Bilder, in denen der Ball schon gesucht wurde, kannst du als kürzere Simulation behalten.', simAskEarly: 'Simulation abbrechen? Bisher ist noch kein Bild ausgewertet; die Bilder dieses Laufs werden gelöscht.', simKeep: 'Abbrechen, Ausgewertetes behalten', simDelete: 'Abbrechen und Bilder löschen', simContinue: 'Weiter simulieren',
   },
   en: {
     titles: { 'train-batch': 'Batch training', 'hub-install': 'Load a model from the hub', 'hub-share': 'Share a model in the hub', 'augment-analyze': 'Augmentation: analysis', 'augment-generate': 'Augmentation: generating images', prepare: 'Preparing videos', 'active-learning': 'Extending the dataset', 'independent-validation': 'Preparing an independent test', 'simulate-ball-tracking': 'Ball-tracking simulation', 'import-model': 'Importing a model', 'import-onnx': 'Importing an ONNX model', 'import-labels': 'Importing labels', setup: 'Setting up ML', 'gpu-test': 'Testing the graphics card', 'gpu-diagnose': 'Diagnosing the graphics card', autolabel: 'Auto-labeling', train: 'Training locally', 'export-coreml': 'Exporting the Apple model', 'export-onnx': 'Exporting the CPU model', 'export-reco': 'Exporting for Reco', 'refine-boxes': 'Refining boxes', 'package-model': 'Creating an exchange package', 'combine-models': 'Combining models', benchmark: 'Model comparison', 'activate-model': 'Activating a model', 'rename-model': 'Renaming a model', 'delete-model': 'Deleting a model', 'export-dataset': 'Exporting the dataset', 'download-models': 'Downloading models', 'consistency-check': 'Checking consistency', 'consistency-suggest': 'Computing suggestions' },
@@ -57,6 +61,7 @@ const text: Record<Language, {
     cancel: 'Cancel', cancelling: 'Cancelling …', confirmCancel: 'Really cancel this operation? Half-written files are removed; the project stays unchanged.',
     confirmCancelTraining: 'Really cancel training? The last saved checkpoint is kept; a new training run continues from there.',
     minimize: 'Minimize', restore: 'Show progress', close: 'Close', done: 'Done', failed: 'Failed', cancelled: 'Cancelled', working: 'Please wait …',
+    simAsk: 'Cancel the simulation? You can keep the images in which the ball has already been looked for, as a shorter simulation.', simAskEarly: 'Cancel the simulation? No image has been analysed yet; the images of this run are deleted.', simKeep: 'Cancel, keep what is analysed', simDelete: 'Cancel and delete the images', simContinue: 'Keep simulating',
   },
   es: {
     titles: { 'train-batch': 'Entrenamiento por lotes', 'hub-install': 'Cargar un modelo del hub', 'hub-share': 'Compartir un modelo en el hub', 'augment-analyze': 'Augmentation: análisis', 'augment-generate': 'Augmentation: generando imágenes', prepare: 'Preparando vídeos', 'active-learning': 'Ampliando el conjunto de datos', 'independent-validation': 'Preparando una prueba independiente', 'simulate-ball-tracking': 'Simulación de seguimiento del balón', 'import-model': 'Importando un modelo', 'import-onnx': 'Importando un modelo ONNX', 'import-labels': 'Importando etiquetas', setup: 'Configurando ML', 'gpu-test': 'Probando la gráfica', 'gpu-diagnose': 'Diagnosticando la gráfica', autolabel: 'Marcado automático', train: 'Entrenando localmente', 'export-coreml': 'Exportando el modelo Apple', 'export-onnx': 'Exportando el modelo CPU', 'export-reco': 'Exportando para Reco', 'refine-boxes': 'Refinando cuadros', 'package-model': 'Creando un paquete de intercambio', 'combine-models': 'Combinando modelos', benchmark: 'Comparación de modelos', 'activate-model': 'Activando un modelo', 'rename-model': 'Renombrando un modelo', 'delete-model': 'Eliminando un modelo', 'export-dataset': 'Exportando el conjunto de datos', 'download-models': 'Descargando modelos', 'consistency-check': 'Comprobando coherencia', 'consistency-suggest': 'Calculando sugerencias' },
@@ -66,6 +71,7 @@ const text: Record<Language, {
     cancel: 'Cancelar', cancelling: 'Cancelando …', confirmCancel: '¿Cancelar esta operación? Los archivos a medio escribir se eliminan; el proyecto no cambia.',
     confirmCancelTraining: '¿Cancelar el entrenamiento? Se conserva el último checkpoint guardado; un nuevo entrenamiento continúa desde ahí.',
     minimize: 'Minimizar', restore: 'Mostrar progreso', close: 'Cerrar', done: 'Listo', failed: 'Error', cancelled: 'Cancelado', working: 'Espera …',
+    simAsk: '¿Cancelar la simulación? Puedes conservar las imágenes en las que ya se buscó el balón, como una simulación más corta.', simAskEarly: '¿Cancelar la simulación? Aún no se ha analizado ninguna imagen; se eliminan las imágenes de esta ejecución.', simKeep: 'Cancelar y conservar lo analizado', simDelete: 'Cancelar y eliminar las imágenes', simContinue: 'Seguir simulando',
   },
   fr: {
     titles: { 'train-batch': 'Entraînement par lots', 'hub-install': 'Charger un modèle du hub', 'hub-share': 'Partager un modèle dans le hub', 'augment-analyze': 'Augmentation : analyse', 'augment-generate': 'Augmentation : génération des images', prepare: 'Préparation des vidéos', 'active-learning': 'Extension du jeu de données', 'independent-validation': 'Préparation d’un test indépendant', 'simulate-ball-tracking': 'Simulation de suivi du ballon', 'import-model': 'Import d’un modèle', 'import-onnx': 'Import d’un modèle ONNX', 'import-labels': 'Import des annotations', setup: 'Configuration du ML', 'gpu-test': 'Test de la carte graphique', 'gpu-diagnose': 'Diagnostic de la carte graphique', autolabel: 'Marquage automatique', train: 'Entraînement local', 'export-coreml': 'Export du modèle Apple', 'export-onnx': 'Export du modèle CPU', 'export-reco': 'Export pour Reco', 'refine-boxes': 'Affinage des boîtes', 'package-model': 'Création d’un paquet d’échange', 'combine-models': 'Combinaison de modèles', benchmark: 'Comparaison des modèles', 'activate-model': 'Activation d’un modèle', 'rename-model': 'Renommage d’un modèle', 'delete-model': 'Suppression d’un modèle', 'export-dataset': 'Export du jeu de données', 'download-models': 'Téléchargement des modèles', 'consistency-check': 'Vérification de la cohérence', 'consistency-suggest': 'Calcul des suggestions' },
@@ -75,6 +81,7 @@ const text: Record<Language, {
     cancel: 'Annuler', cancelling: 'Annulation …', confirmCancel: 'Vraiment annuler cette opération ? Les fichiers incomplets sont supprimés ; le projet reste inchangé.',
     confirmCancelTraining: 'Vraiment annuler l’entraînement ? Le dernier checkpoint enregistré est conservé ; un nouvel entraînement reprend à partir de là.',
     minimize: 'Réduire', restore: 'Afficher la progression', close: 'Fermer', done: 'Terminé', failed: 'Échec', cancelled: 'Annulé', working: 'Veuillez patienter …',
+    simAsk: 'Annuler la simulation ? Vous pouvez garder les images dans lesquelles le ballon a déjà été cherché, comme simulation plus courte.', simAskEarly: 'Annuler la simulation ? Aucune image n’est encore analysée ; les images de cette exécution sont supprimées.', simKeep: 'Annuler et garder l’analyse', simDelete: 'Annuler et supprimer les images', simContinue: 'Continuer la simulation',
   },
 };
 
@@ -87,11 +94,13 @@ export function formatDuration(seconds: number): string {
 }
 
 /** Progress window for every long operation: live via server-sent events, cancellable, minimizable. */
-export function JobDialog({ api, language, fallback, cancel, onJobEnded, renderResult }: Props) {
+export function JobDialog({ api, language, fallback, cancel, onJobEnded, renderResult, cancelSimulation }: Props) {
   const t = text[language];
   const [live, setLive] = useState<Jobs | null>(null);
   const [minimizedJob, setMinimizedJob] = useState<string | null>(null);
   const [cancelRequested, setCancelRequested] = useState<string | null>(null);
+  // The job whose cancel is waiting for the keep / delete answer (tracking simulation only).
+  const [simulationAsk, setSimulationAsk] = useState<string | null>(null);
   const [shownJobs, setShownJobs] = useState<Set<string>>(new Set());
   const [finishedJob, setFinishedJob] = useState<Job | null>(null);
   const [, setTick] = useState(0);
@@ -138,7 +147,14 @@ export function JobDialog({ api, language, fallback, cancel, onJobEnded, renderR
 
   const title = (job: Job) => t.titles[job.type] ?? t.fallbackTitle;
 
+  async function answerSimulation(job: Job, keep: boolean) {
+    setSimulationAsk(null);
+    setCancelRequested(job.id);
+    try { await cancelSimulation?.(keep); } catch { setCancelRequested(null); }
+  }
+
   async function requestCancel(job: Job) {
+    if (job.type === 'simulate-ball-tracking' && cancelSimulation) { setSimulationAsk(job.id); return; }
     if (!window.confirm(job.type === 'train' || job.type === 'train-batch' ? t.confirmCancelTraining : t.confirmCancel)) return;
     setCancelRequested(job.id);
     try { await cancel(job.id); } catch { setCancelRequested(null); }
@@ -186,8 +202,17 @@ export function JobDialog({ api, language, fallback, cancel, onJobEnded, renderR
       <span>{t.elapsed(formatDuration(elapsed))}{remaining !== null ? ` · ${t.remaining(formatDuration(remaining))}` : ''}</span>
     </div>
     {jobs.queue.length > 0 && <small>{t.queued(jobs.queue.length)}</small>}
-    <div className="onnx-actions">
-      {current.cancellable && <button data-hint={hintText[language].cancelJob} type="button" className="secondary-button" disabled={cancelling} onClick={() => void requestCancel(current)}>{cancelling ? t.cancelling : t.cancel}</button>}
-    </div>
+    {simulationAsk === current.id && !cancelling
+      ? <>
+        <p className="progress-dialog-message">{(current.stage?.index ?? 0) >= 3 ? t.simAsk : t.simAskEarly}</p>
+        <div className="onnx-actions">
+          <button data-hint={hintText[language].simulationCancelContinue} type="button" className="secondary-button" onClick={() => setSimulationAsk(null)}>{t.simContinue}</button>
+          <button data-hint={hintText[language].simulationCancelDelete} type="button" className="secondary-button" onClick={() => void answerSimulation(current, false)}>{t.simDelete}</button>
+          {(current.stage?.index ?? 0) >= 3 && <button data-hint={hintText[language].simulationCancelKeep} type="button" className="primary-button" onClick={() => void answerSimulation(current, true)}>{t.simKeep}</button>}
+        </div>
+      </>
+      : <div className="onnx-actions">
+        {current.cancellable && <button data-hint={hintText[language].cancelJob} type="button" className="secondary-button" disabled={cancelling} onClick={() => void requestCancel(current)}>{cancelling ? t.cancelling : t.cancel}</button>}
+      </div>}
   </section></div>;
 }

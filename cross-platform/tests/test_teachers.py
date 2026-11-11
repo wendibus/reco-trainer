@@ -187,5 +187,82 @@ class BallGapTests(unittest.TestCase):
         self.assertGreater(picks[-1]["index"], 60)
 
 
+class TrackingSceneTests(unittest.TestCase):
+    """Stretches of a simulated clip worth a look: gaps, jumps, weak and lost stretches."""
+
+    @staticmethod
+    def clip(balls, fps=12.0, width=1920):
+        return [
+            {"file": f"sim-{index:04d}.jpg", "timestamp": index / fps, "width": width, "height": 1080,
+             "ball": {"x": ball[0], "y": ball[1], "confidence": ball[2] if len(ball) > 2 else .9} if ball else None}
+            for index, ball in enumerate(balls)
+        ]
+
+    def kinds(self, frames, **options):
+        return [(scene["kind"], scene["start"], scene["end"]) for scene in teachers.tracking_scenes(frames, **options)]
+
+    def test_a_short_gap_is_a_scene_with_the_expected_position(self):
+        scenes = teachers.tracking_scenes(self.clip([(100, 100), None, None, None, (300, 200)]))
+        self.assertEqual([(scene["kind"], scene["start"], scene["end"]) for scene in scenes], [("gap", 1, 3)])
+        self.assertEqual([pick["index"] for pick in scenes[0]["picks"]], [1, 2, 3])
+        self.assertAlmostEqual(scenes[0]["picks"][1]["x"], 200)
+        self.assertAlmostEqual(scenes[0]["picks"][1]["y"], 150)
+        self.assertGreaterEqual(scenes[0]["picks"][1]["radius"], 0.08 * 1920)
+        self.assertEqual(scenes[0]["id"], "gap-1")
+
+    def test_a_detection_far_from_its_neighbours_is_one_jump_scene(self):
+        frames = self.clip([(100, 100), (110, 100), (1500, 900), (120, 100), (130, 100)])
+        scenes = teachers.tracking_scenes(frames)
+        self.assertEqual([(scene["kind"], scene["start"], scene["end"]) for scene in scenes], [("jump", 1, 3)])
+        self.assertEqual([pick["index"] for pick in scenes[0]["picks"]], [1, 2, 3])
+        self.assertEqual(scenes[0]["picks"][1]["ball"]["x"], 1500)
+
+    def test_a_jump_across_missing_frames_is_not_a_gap(self):
+        self.assertEqual(self.kinds(self.clip([(100, 100), None, (1500, 900)])), [("jump", 0, 2)])
+
+    def test_a_fast_pass_is_no_jump_and_jumps_close_together_are_one_scene(self):
+        # 900 px in one second is a pass; the same distance from one frame to the next is not
+        self.assertEqual(self.kinds(self.clip([(100, 500)] + [None] * 11 + [(1000, 500)])), [])
+        self.assertEqual(self.kinds(self.clip([(100, 500), (1000, 500)])), [("jump", 0, 1)])
+        flicker = self.clip([(100, 100), (1500, 900), (110, 100), (112, 100), (114, 100), (1500, 900), (120, 100)])
+        self.assertEqual(self.kinds(flicker), [("jump", 0, 6)])
+
+    def test_several_weak_detections_in_a_row_are_a_scene(self):
+        frames = self.clip([(100, 100, .9), (105, 100, .3), (110, 100, .3), (115, 100, .35), (120, 100, .9)])
+        scenes = teachers.tracking_scenes(frames)
+        self.assertEqual([(scene["kind"], scene["start"], scene["end"]) for scene in scenes], [("weak", 1, 3)])
+        self.assertTrue(all("ball" in pick for pick in scenes[0]["picks"]))
+        self.assertEqual(self.kinds(self.clip([(100, 100, .9), (105, 100, .3), (110, 100, .9)])), [])
+
+    def test_a_long_stretch_without_the_ball_is_lost_also_at_the_edges(self):
+        middle = self.clip([(100, 100)] + [None] * 30 + [(120, 100)])
+        self.assertEqual(self.kinds(middle), [("lost", 1, 30)])
+        scenes = teachers.tracking_scenes(middle)
+        self.assertEqual(len(scenes[0]["picks"]), 3)
+        self.assertNotIn("x", scenes[0]["picks"][0])
+        edges = self.clip([None] * 24 + [(100, 100), (110, 100)] + [None] * 24)
+        self.assertEqual(self.kinds(edges), [("lost", 0, 23), ("lost", 26, 49)])
+        self.assertEqual(self.kinds(self.clip([None] * 5 + [(100, 100)])), [])
+
+    def test_no_ball_at_all_is_one_lost_scene_and_an_empty_clip_none(self):
+        self.assertEqual(self.kinds(self.clip([None] * 40)), [("lost", 0, 39)])
+        self.assertEqual(teachers.tracking_scenes([]), [])
+
+    def test_the_limit_keeps_gaps_before_weak_stretches(self):
+        balls = []
+        for _ in range(4):
+            balls += [(100, 100, .9), None, (110, 100, .9), (112, 100, .3), (114, 100, .3), (116, 100, .3)]
+        frames = self.clip(balls + [(100, 100, .9)])
+        self.assertEqual(len(teachers.tracking_scenes(frames)), 8)
+        kept = teachers.tracking_scenes(frames, limit=4)
+        self.assertEqual([scene["kind"] for scene in kept], ["gap"] * 4)
+        self.assertEqual([scene["start"] for scene in kept], sorted(scene["start"] for scene in kept))
+
+    def test_gap_scenes_cover_the_frames_ball_gaps_picks(self):
+        frames = self.clip([(100, 100), None, None, (140, 100), (150, 100), None, (170, 100)])
+        from_scenes = [pick["index"] for scene in teachers.tracking_scenes(frames) if scene["kind"] == "gap" for pick in scene["picks"]]
+        self.assertEqual(from_scenes, [pick["index"] for pick in teachers.ball_gaps(frames)])
+
+
 if __name__ == "__main__":
     unittest.main()

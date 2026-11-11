@@ -1,5 +1,18 @@
 # Änderungen
 
+## 0.34.0
+
+Balltracking-Simulation: stimmiger Fortschritt, Abbruch mit Wahl, auffällige Szenen statt „alle Lücken".
+
+- Fortschritt: Der Lauf meldet drei Schritte über `stage` (Bilder extrahieren, Modell laden, Ball suchen) mit Zähler. `ml_worker simulate-ball-tracking` meldet nach dem Laden des Modells `RECO_PROGRESS 0 N`; vorher stand der Balken während des Ladens bei 40 %. Anteile jetzt 30 % Extraktion, 5 % Modell, 65 % Erkennung.
+- Abbruch: `/api/simulation-cancel` mit `keep`. Die Erkennung schreibt jedes fertige Bild zusätzlich als JSON-Zeile nach `detections.jsonl` (`--partial`). Mit `keep` wird daraus eine kürzere Simulation (`partial: {done, total}`), die übrigen extrahierten Bilder werden gelöscht; ohne `keep` wird der Ordner des Laufs entfernt. Der Auftragsdialog stellt die Frage statt der allgemeinen Rückfrage; „behalten" gibt es ab Schritt 3.
+- Behoben: Ein abgebrochener oder fehlgeschlagener Lauf ließ die vorige Simulation stehen, deren Bilder beim Start schon gelöscht waren. Jetzt wird die Simulation des Slots beim Start geleert. Außerdem trägt eine Simulation den Projektordner (`root`) und wird in einem anderen Projekt nicht mehr angezeigt.
+- Szenen: `teachers.tracking_scenes` findet in den Erkennungen eines Clips vier Arten: `gap` (Ball fehlt bis 1,5 s zwischen zwei nahen Erkennungen), `jump` (Abstand größer als 12 % der Bildbreite plus 60 % je Sekunde; Sprünge innerhalb einer halben Sekunde sind eine Szene), `weak` (mindestens drei Bilder in Folge unter 0,4 Sicherheit), `lost` (länger als 1,5 s kein Ball, auch am Anfang und Ende). Je Szene höchstens drei Bilder, höchstens 40 Szenen.
+- Oberfläche: Leiste über die Länge des Clips, Liste zum Anspringen, Auswahl je Szene, „vorige/nächste Szene". Lücken und Sprünge sind vorab angekreuzt.
+- Übernahme: `/api/simulation-gaps` nimmt `scenes` (IDs). Lücken werden wie bisher im Ausschnitt nachgesucht; bei Sprung und Unsicher kommt die vom Modell gemeldete Box als Vorschlag mit (die Erkennung liefert dafür jetzt Breite und Höhe); Verloren kommt leer. Herkunft `ball-gap`, `ball-jump`, `ball-weak`, `ball-lost`. Ohne `scenes` gilt das alte Verhalten (alle Lücken). Höchstens 60 Bilder je Übernahme.
+- Geprüft mit einem echten Modell (RF-DETR Small, Basketball) an einem 20-Sekunden-Ausschnitt: 240 Bilder, 19 Szenen (9 Sprünge, 5 Lücken, 5 unsichere); Abbruch mit Behalten (56 von 240) und mit Löschen; Übernahme von 29 Bildern aus 13 Szenen, in allen 6 Lücken-Bildern fand die Nachsuche den Ball.
+- Offen: Die Simulation liegt nur im Arbeitsspeicher und ist nach einem Neustart weg. Bei Sprüngen ist die mitgegebene Box meist der Fehlfund und muss gelöscht werden. Schwelle 0,25 und 300 Bilder sind fest.
+
 ## 0.33.0
 
 Zwei Schritte auf dem Weg zu besserem Balltracking in der Reco-App: die Bilder finden, an denen das Modell scheitert, und das Modell so exportieren, dass Recos Standardschwelle passt.

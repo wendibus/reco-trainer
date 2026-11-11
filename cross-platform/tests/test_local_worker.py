@@ -707,6 +707,85 @@ class SimulationSlotTests(unittest.TestCase):
             self.assertEqual(local_worker.STATE.simulation_videos["b"], video)
             local_worker.STATE.update(project_root=None, project=None, simulation=None, simulation_b=None)
 
+    def run_cancelled(self, keep: bool, analysed: int):
+        """Simulate a run of four frames that is cancelled after `analysed` frames."""
+        self.temporary = tempfile.TemporaryDirectory()
+        root = Path(self.temporary.name)
+        local_worker.STATE.update(project_root=root, project={"sport": "basketball", "frames": []}, simulation={"id": "old", "frames": []}, language="en")
+        venv_python = local_worker.venv_python_path(local_worker.ml_venv(root))
+        venv_python.parent.mkdir(parents=True, exist_ok=True)
+        venv_python.write_text("")
+        video = root / "clip.mp4"
+        video.write_bytes(b"video")
+        stages: list[tuple[int, str]] = []
+
+        def fake_extract(_video, _duration, _width, _height, _count, frames_dir, prefix, *_rest):
+            for index in range(4):
+                (frames_dir / f"{prefix}-{index + 1:04d}.jpg").write_bytes(b"jpg")
+            return 4, 12.0, 320, 180
+
+        def fake_run_json(command, on_progress=None):
+            partial = Path(command[command.index("--partial") + 1])
+            lines = [json.dumps({"model": "Model A"})] + [
+                json.dumps({"file": f"sim-{index + 1:04d}.jpg", "ball": {"x": 10.0, "y": 10.0, "confidence": .9} if index == 0 else None})
+                for index in range(analysed)
+            ]
+            partial.write_text("\n".join(lines) + ('\n{"file": "sim-00' if analysed else ""), encoding="utf-8")  # last line cut off
+            on_progress(0, 4)
+            stages.append((local_worker.STATE.stage["index"], local_worker.STATE.message))
+            if keep:
+                local_worker.SIMULATION_KEEP_PARTIAL.set()
+            raise local_worker.OperationCancelled()
+
+        originals = (local_worker.extract_frames_for_video, local_worker.run_json, local_worker.media_info, local_worker.native_frame_extractor)
+        local_worker.extract_frames_for_video = fake_extract
+        local_worker.run_json = fake_run_json
+        local_worker.media_info = lambda *_: (1.0, 320, 180)
+        local_worker.native_frame_extractor = lambda *_: None
+        try:
+            local_worker.simulate_ball_tracking(video, {"slot": "a", "language": "en"})
+        finally:
+            (local_worker.extract_frames_for_video, local_worker.run_json, local_worker.media_info, local_worker.native_frame_extractor) = originals
+        return root, stages
+
+    def tearDown(self):
+        local_worker.STATE.update(project_root=None, project=None, simulation=None, simulation_b=None, simulation_videos={}, error=None, language="de", stage=None)
+        if getattr(self, "temporary", None):
+            self.temporary.cleanup()
+
+    def test_cancel_and_keep_shows_the_analysed_frames_as_a_shorter_simulation(self):
+        root, stages = self.run_cancelled(keep=True, analysed=2)
+        simulation = local_worker.STATE.simulation
+        self.assertEqual([frame["file"] for frame in simulation["frames"]], ["sim-0001.jpg", "sim-0002.jpg"])
+        self.assertEqual(simulation["partial"], {"done": 2, "total": 4})
+        self.assertEqual(simulation["model"], "Model A")
+        frames_dir = local_worker.simulation_frames_dir(root, "a")
+        self.assertEqual(sorted(path.name for path in frames_dir.iterdir()), ["sim-0001.jpg", "sim-0002.jpg"])
+        self.assertEqual(local_worker.STATE.operation, "cancelled")
+        self.assertIn("2 of 4", local_worker.STATE.message)
+        self.assertEqual(stages[0][0], 3)
+        self.assertFalse(local_worker.SIMULATION_KEEP_PARTIAL.is_set())
+
+    def test_cancel_and_delete_leaves_no_simulation_and_no_images(self):
+        root, _ = self.run_cancelled(keep=False, analysed=2)
+        self.assertIsNone(local_worker.STATE.simulation)
+        self.assertFalse(local_worker.simulation_frames_dir(root, "a").exists())
+        self.assertNotIn("a", local_worker.STATE.simulation_videos)
+        self.assertIn("deleted", local_worker.STATE.message)
+
+    def test_keep_without_an_analysed_frame_says_there_is_nothing_to_keep(self):
+        root, _ = self.run_cancelled(keep=True, analysed=0)
+        self.assertIsNone(local_worker.STATE.simulation)
+        self.assertFalse(local_worker.simulation_frames_dir(root, "a").exists())
+        self.assertIn("nothing to keep", local_worker.STATE.message)
+
+    def test_a_simulation_is_only_shown_in_the_project_it_was_made_in(self):
+        with tempfile.TemporaryDirectory() as first, tempfile.TemporaryDirectory() as second:
+            local_worker.STATE.update(project_root=Path(first), project={"sport": "basketball", "frames": []}, simulation={"id": "1", "frames": [], "root": first})
+            self.assertEqual(local_worker.STATE._snapshot()["simulation"]["id"], "1")
+            local_worker.STATE.update(project_root=Path(second))
+            self.assertIsNone(local_worker.STATE._snapshot()["simulation"])
+
     def test_rejects_a_package_id_with_a_path(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -1113,6 +1192,46 @@ class SimulationGapCandidateTests(unittest.TestCase):
         self.assertEqual(self.commands[0][self.commands[0].index("--package") + 1], "pkg-a")
         self.assertFalse((self.root / ".runtime" / "ball-gaps-a.json").exists())
         self.assertIn("4 gap images", local_worker.STATE.message)
+
+    def scene_clip(self):
+        """A clip with one gap, one jump (with box sizes) and a long stretch without the ball."""
+        frames_dir = local_worker.simulation_frames_dir(self.root, "a")
+        balls = [(100, 100), None, (120, 100), (1500, 900), (130, 100)] + [None] * 24 + [(140, 100)]
+        sim_frames = []
+        for index, ball in enumerate(balls):
+            name = f"sim-{index + 1:04d}.jpg"
+            (frames_dir / name).write_bytes(b"jpg-%d" % index)
+            sim_frames.append({"file": name, "timestamp": index / 12, "width": 1920, "height": 1080,
+                               "ball": {"x": ball[0], "y": ball[1], "confidence": .8, "width": 20.0, "height": 16.0} if ball else None})
+        scenes = local_worker.teachers.tracking_scenes(sim_frames)
+        local_worker.STATE.update(simulation={"id": "2", "fps": 12.0, "frames": sim_frames, "package": "pkg-a", "scenes": scenes})
+        return {scene["kind"]: scene["id"] for scene in scenes}
+
+    def test_only_the_chosen_scenes_are_added_each_in_its_own_way(self):
+        ids = self.scene_clip()
+        self.assertEqual(set(ids), {"gap", "jump", "lost"})
+        local_worker.simulation_gaps_to_candidates({"slot": "a", "language": "en", "scenes": [ids["jump"], ids["lost"]]})
+        self.assertIsNone(local_worker.STATE.error)
+        saved = json.loads((self.root / "project.json").read_text())["frames"]
+        self.assertEqual(sorted({frame["origin"] for frame in saved}), ["ball-jump", "ball-lost"])
+        self.assertEqual(self.commands, [])  # no gap chosen: no second look, no ML run
+        jump = [frame for frame in saved if frame["origin"] == "ball-jump"]
+        self.assertEqual(len(jump), 3)
+        odd = next(frame for frame in jump if frame["annotations"][0]["x"] > 1000)
+        box = odd["annotations"][0]
+        self.assertEqual((box["x"], box["y"], box["width"], box["height"], box["source"]), (1490.0, 892.0, 20.0, 16.0, "auto"))
+        self.assertTrue(all(not frame["annotations"] for frame in saved if frame["origin"] == "ball-lost"))
+        self.assertTrue(all(frame["reviewStatus"] == "candidate" for frame in saved))
+        self.assertIn("from 2 scenes", local_worker.STATE.message)
+
+    def test_a_chosen_gap_is_searched_again_and_no_choice_adds_nothing(self):
+        ids = self.scene_clip()
+        local_worker.simulation_gaps_to_candidates({"slot": "a", "language": "en", "scenes": []})
+        self.assertEqual(json.loads((self.root / "project.json").read_text())["frames"], [])
+        local_worker.simulation_gaps_to_candidates({"slot": "a", "language": "en", "scenes": [ids["gap"]]})
+        saved = json.loads((self.root / "project.json").read_text())["frames"]
+        self.assertEqual([frame["origin"] for frame in saved], ["ball-gap"])
+        self.assertEqual(len(self.commands), 1)
 
     def test_a_second_run_adds_nothing_twice(self):
         local_worker.simulation_gaps_to_candidates({"slot": "a", "language": "en"})
