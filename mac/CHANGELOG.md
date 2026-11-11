@@ -1,5 +1,20 @@
 # Änderungen
 
+## 0.33.0
+
+Zwei Schritte auf dem Weg zu besserem Balltracking in der Reco-App: die Bilder finden, an denen das Modell scheitert, und das Modell so exportieren, dass Recos Standardschwelle passt.
+
+- Lückensuche in der Balltracking-Simulation: Knopf „Lücken als Prüfkandidaten übernehmen“ (`app/BallTrackingPlayer.tsx`, `/api/simulation-gaps`, `ml_worker recover-ball-gaps`, `teachers.ball_gaps`).
+  - Eine Lücke sind Bilder ohne Ball zwischen zwei Erkennungen, höchstens 1,5 s lang und mit einem Sprung von höchstens einem Viertel der Bildbreite. Je Lücke bis zu drei Bilder, je Lauf höchstens 60.
+  - Um die erwartete Position wird ein Ausschnitt (mindestens 384 px) noch einmal mit demselben Modell durchsucht (Schwelle 0,15). Ein Fund wird als automatischer Vorschlag eingetragen.
+  - Die Bilder landen als `frames/gap-<Video>-<ms>.jpg` im Projekt, Status Prüfkandidat, Herkunft `ball-gap`. Doppelte werden über eine feste ID je Video und Zeitpunkt übersprungen, vorher wird das Projekt gesichert.
+  - Videos, die Bilder im unabhängigen Test haben, werden abgelehnt, damit der Test unabhängig bleibt.
+  - Der Einleitungstext der Simulation sagt jetzt, dass Bilder nur über diesen Knopf ins Projekt kommen.
+- Reco-Export, Sicherheiten (nur RF-DETR): Reco nimmt jeden Fund ab 0,10. Nach dem Schreiben läuft die Datei wie in Reco auf bis zu 200 Validierungsbildern; je Klasse wird die beste Schwelle bestimmt (F1, bei Ball und Puck F2, also Trefferquote doppelt gewichtet) und die Sicherheit stückweise linear so umgerechnet, dass diese Schwelle bei 0,10 liegt. Die Reihenfolge der Funde bleibt gleich. Klassen mit weniger als zehn markierten Objekten bleiben unverändert. Die Schwellen stehen in den Metadaten (`reco_trainer_thresholds`, `reco_trainer_calibrated_to`). `--raw-scores` auf der Kommandozeile schaltet das ab; in der Oberfläche gibt es dafür keinen Schalter.
+- Reco-Export, Seitenverhältnis: Es zählt das häufigste Bildformat des Projekts statt des Medians der ersten 40 Bilder. Haben mehr als 10 % der Bilder ein anderes Format, warnt der Export.
+- Gemessen an 128 Kamerabildern eines Fußballprojekts bei Recos Schwelle 0,10 (markiert: 14,5 Personen je Bild): RF-DETR Small vorher 86 % der Bälle, 0,47 falsche Bälle und 23,6 Personen je Bild; umgerechnet 75 %, 0,05 und 12,0. Nano vorher 84 %, 0,61 und 32,4; umgerechnet 61 %, 0,08 und 11,5.
+- Grenzen: Die Schwellen stammen aus Validierungsbildern des eigenen Projekts und sind für fremde Hallen eher zu streng; wer mehr Bälle will, senkt Recos Schwelle. Beides ist nicht in der Reco-App selbst erprobt, die Lückensuche nur mit Tests und nachgestellten Daten, nicht mit einem echten Video.
+
 ## 0.32.0
 
 Nach einem Forumsbericht: Ein in Reco Trainer trainiertes und als ONNX exportiertes Modell (kombiniert aus Ball, Spieler, Tor) erkannte in der Reco-App nichts.

@@ -1054,5 +1054,84 @@ class CudaSetupTests(unittest.TestCase):
             self.assertNotIn("--extra-index-url", self.commands[0])
 
 
+class SimulationGapCandidateTests(unittest.TestCase):
+    """Misses of a tracking simulation become review candidates, and only on request."""
+
+    def setUp(self):
+        self.temporary = tempfile.TemporaryDirectory()
+        self.root = Path(self.temporary.name)
+        self.video = self.root / "clip.mp4"
+        self.video.write_bytes(b"video")
+        self.video_id = local_worker.hashlib.sha256(str(self.video).encode("utf-8")).hexdigest()[:12]
+        frames_dir = local_worker.simulation_frames_dir(self.root, "a")
+        frames_dir.mkdir(parents=True)
+        balls = [(100, 100), None, None, None, (300, 200), None, (320, 200)]
+        sim_frames = []
+        for index, ball in enumerate(balls):
+            name = f"sim-{index + 1:04d}.jpg"
+            (frames_dir / name).write_bytes(b"jpg-%d" % index)
+            sim_frames.append({"file": name, "timestamp": index / 12, "width": 1920, "height": 1080, "ball": {"x": ball[0], "y": ball[1], "confidence": .8} if ball else None})
+        venv_python = local_worker.venv_python_path(local_worker.ml_venv(self.root))
+        venv_python.parent.mkdir(parents=True, exist_ok=True)
+        venv_python.write_text("")
+        self.project = {"sport": "basketball", "frames": []}
+        local_worker.atomic_json(self.root / "project.json", self.project)
+        local_worker.STATE.update(
+            project_root=self.root, project=self.project, language="en", error=None,
+            simulation={"id": "1", "fps": 12.0, "frames": sim_frames, "package": "pkg-a"}, simulation_videos={"a": self.video},
+        )
+        self.commands: list[list[str]] = []
+        self.original_run_json = local_worker.run_json
+
+        def fake_run_json(command, on_progress=None):
+            self.commands.append(command)
+            requests = json.loads(Path(command[command.index("--requests") + 1]).read_text())
+            return {"frames": [
+                {"file": item["file"], "ball": {"x": 190.0, "y": 140.0, "width": 12.0, "height": 12.0, "confidence": .3} if item["file"] == "sim-0003.jpg" else None}
+                for item in requests
+            ]}
+
+        local_worker.run_json = fake_run_json
+
+    def tearDown(self):
+        local_worker.run_json = self.original_run_json
+        local_worker.STATE.update(project_root=None, project=None, simulation=None, simulation_b=None, simulation_videos={}, language="de", error=None, busy=False)
+        self.temporary.cleanup()
+
+    def test_gap_frames_become_candidates_with_the_recovered_ball(self):
+        local_worker.simulation_gaps_to_candidates({"slot": "a", "language": "en"})
+        self.assertIsNone(local_worker.STATE.error)
+        saved = json.loads((self.root / "project.json").read_text())["frames"]
+        self.assertEqual(len(saved), 4)  # three of the first gap, one of the second
+        self.assertTrue(all(frame["reviewStatus"] == "candidate" and frame["videoID"] == self.video_id and frame["origin"] == "ball-gap" and not frame.get("heldOut") for frame in saved))
+        self.assertTrue(all((self.root / frame["relativePath"]).is_file() for frame in saved))
+        with_ball = [frame for frame in saved if frame["annotations"]]
+        self.assertEqual(len(with_ball), 1)
+        box = with_ball[0]["annotations"][0]
+        self.assertEqual((box["category"], box["source"], box["x"], box["width"]), ("ball", "auto", 190.0, 12.0))
+        self.assertAlmostEqual(with_ball[0]["timestamp"], 2 / 12)
+        self.assertEqual(self.commands[0][self.commands[0].index("--package") + 1], "pkg-a")
+        self.assertFalse((self.root / ".runtime" / "ball-gaps-a.json").exists())
+        self.assertIn("4 gap images", local_worker.STATE.message)
+
+    def test_a_second_run_adds_nothing_twice(self):
+        local_worker.simulation_gaps_to_candidates({"slot": "a", "language": "en"})
+        local_worker.simulation_gaps_to_candidates({"slot": "a", "language": "en"})
+        self.assertEqual(len(self.commands), 1)
+        self.assertEqual(len(json.loads((self.root / "project.json").read_text())["frames"]), 4)
+
+    def test_a_video_with_independent_test_images_is_refused(self):
+        self.project["frames"].append({"id": "held", "videoID": self.video_id, "heldOut": True, "annotations": []})
+        local_worker.simulation_gaps_to_candidates({"slot": "a", "language": "en"})
+        self.assertIn("independent test images", local_worker.STATE.error)
+        self.assertEqual(self.commands, [])
+        self.assertEqual(len(self.project["frames"]), 1)
+
+    def test_without_a_simulation_it_fails_clearly(self):
+        local_worker.STATE.update(simulation=None)
+        local_worker.simulation_gaps_to_candidates({"slot": "a", "language": "en"})
+        self.assertIn("Simulate a video first", local_worker.STATE.error)
+
+
 if __name__ == "__main__":
     unittest.main()

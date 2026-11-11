@@ -8,6 +8,27 @@ type Item = { title: string; text: string };
  *  number in the header opens it again. Add the next version's entry at the top. */
 export const WHATS_NEW: { version: string; items: Record<Language, Item[]> }[] = [
   {
+    version: '0.33.0',
+    items: {
+      de: [
+        { title: 'Lücken aus der Balltracking-Simulation', text: 'Unter dem Player gibt es „Lücken als Prüfkandidaten übernehmen“. Bilder, in denen der Ball zwischen zwei Erkennungen fehlt, werden im Ausschnitt noch einmal durchsucht und kommen als Prüfkandidaten ins Projekt, mit Vorschlag, wenn der Ball dort gefunden wurde. So markierst du genau die Bilder, an denen das Modell scheitert. Videos des unabhängigen Tests bleiben ausgenommen.' },
+        { title: 'Reco-Export passt die Sicherheiten an', text: 'Reco nimmt ohne Einstellung jeden Fund ab 10 %; RF-DETR-Modelle melden bei dieser Schwelle viele falsche Bälle und Spieler. Der Export misst jetzt auf den Validierungsbildern die beste Schwelle je Klasse und rechnet die Sicherheiten so um, dass sie in der Datei bei 10 % liegt. Beim Ball zählt die Trefferquote doppelt. Außerdem richtet sich die Datei nach dem häufigsten Bildformat des Projekts und warnt bei gemischten Formaten.' },
+      ],
+      en: [
+        { title: 'Gaps from the ball-tracking simulation', text: 'Below the player there is “Add gaps as review candidates”. Images where the ball is missing between two detections are searched again in a close-up and enter the project as review candidates, with a suggestion when the ball was found there. This way you label exactly the images the model fails on. Videos of the independent test are left out.' },
+        { title: 'Reco export fits the confidences', text: 'Without a setting, Reco accepts every detection from 10 %; at that threshold RF-DETR models report many false balls and players. The export now measures the best threshold per class on the validation images and rescales the confidences so that it sits at 10 % in the file. For the ball, finding it counts double. The file also follows the most common image shape of the project and warns about mixed shapes.' },
+      ],
+      es: [
+        { title: 'Huecos de la simulación de seguimiento del balón', text: 'Debajo del reproductor está «Añadir huecos como candidatos». Las imágenes en las que falta el balón entre dos detecciones se vuelven a examinar en un recorte y entran en el proyecto como candidatas, con una propuesta si el balón se encontró allí. Así marcas justo las imágenes en las que falla el modelo. Los vídeos de la prueba independiente quedan fuera.' },
+        { title: 'La exportación para Reco ajusta las confianzas', text: 'Sin ajuste, Reco acepta toda detección a partir del 10 %; con ese umbral los modelos RF-DETR dan muchos balones y jugadores falsos. La exportación mide ahora en las imágenes de validación el mejor umbral por clase y reescala las confianzas para que quede en el 10 % en el archivo. En el balón, encontrarlo cuenta el doble. Además, el archivo sigue el formato de imagen más frecuente del proyecto y avisa si hay formatos mezclados.' },
+      ],
+      fr: [
+        { title: 'Lacunes de la simulation de suivi du ballon', text: 'Sous le lecteur se trouve « Ajouter les lacunes comme candidates ». Les images où le ballon manque entre deux détections sont examinées à nouveau dans un recadrage et entrent dans le projet comme candidates, avec une proposition si le ballon y a été trouvé. Vous annotez ainsi précisément les images sur lesquelles le modèle échoue. Les vidéos du test indépendant sont exclues.' },
+        { title: 'L’export pour Reco ajuste les confiances', text: 'Sans réglage, Reco accepte toute détection à partir de 10 % ; à ce seuil, les modèles RF-DETR signalent beaucoup de faux ballons et joueurs. L’export mesure désormais sur les images de validation le meilleur seuil par classe et recalcule les confiances pour qu’il se trouve à 10 % dans le fichier. Pour le ballon, le trouver compte double. Le fichier suit aussi le format d’image le plus fréquent du projet et avertit en cas de formats mélangés.' },
+      ],
+    },
+  },
+  {
     version: '0.32.0',
     items: {
       de: [{ title: 'Für Reco exportieren', text: 'Ein neuer Knopf neben „Lokal trainieren“ speichert ein Modell aus der Bibliothek als ONNX-Datei, die die Reco-Kamera-App direkt lädt – auch kombinierte Modelle. Voreingestellt ist nur der Ball; Spieler heißen in der Datei „person“, wie Reco sie sucht. Danach prüft ein Probelauf die Datei auf Bildern des Projekts. Der bisherige ONNX-Export hatte ein Format, mit dem Reco nichts fand.' }],

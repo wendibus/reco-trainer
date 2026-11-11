@@ -8,6 +8,7 @@ the ML environment; torch/transformers are imported inside the functions that ne
   * Sam2Refiner         - tightens boxes with SAM 2 (Apache-2.0), box prompt -> mask -> box
   * Florence2Detector   - a weak second teacher (MIT) with the RF-DETR predict() interface
   * interpolate_ball()  - fills a missing ball between two nearby detections of one video
+  * ball_gaps()         - frames of a densely sampled clip where the ball was missed between two detections
 """
 from __future__ import annotations
 
@@ -267,3 +268,57 @@ def interpolate_ball(frames: list[dict[str, Any]], max_gap_seconds: float = 1.0,
                 })
                 added += 1
     return added
+
+
+def ball_gaps(
+    frames: list[dict[str, Any]],
+    max_gap_seconds: float = 1.5,
+    max_jump_ratio: float = 0.25,
+    per_gap: int = 3,
+    limit: int = 60,
+) -> list[dict[str, Any]]:
+    """Frames of one densely sampled clip (the tracking simulation) where the detector missed
+    the ball between two frames in which it found it. These are the model's own failures, and
+    the two detections around them say roughly where the ball must be.
+
+    frames: [{"file", "timestamp", "width", "ball": {"x", "y"} | None}, ...] in playback order.
+    Returns at most `limit` picks, at most `per_gap` evenly spread over each gap (neighbouring
+    frames of a dense clip are near-duplicates): {"index", "file", "x", "y", "radius"} with the
+    straight-line position and how far around it to search. A gap is skipped when it lasts
+    longer than max_gap_seconds or the ball moved further than max_jump_ratio of the frame
+    width - then a cut, a wrong detection or a ball out of view is more likely than a miss."""
+    anchors = [index for index, frame in enumerate(frames) if frame.get("ball")]
+    picks: list[dict[str, Any]] = []
+    for start, end in zip(anchors, anchors[1:]):
+        missing = end - start - 1
+        if missing < 1:
+            continue
+        first, second = frames[start], frames[end]
+        t0, t1 = float(first.get("timestamp") or 0.0), float(second.get("timestamp") or 0.0)
+        if t1 - t0 <= 0 or t1 - t0 > max_gap_seconds:
+            continue
+        width = float(first.get("width") or 0.0)
+        if width <= 0:
+            continue
+        x0, y0 = float(first["ball"]["x"]), float(first["ball"]["y"])
+        x1, y1 = float(second["ball"]["x"]), float(second["ball"]["y"])
+        jump = ((x1 - x0) ** 2 + (y1 - y0) ** 2) ** 0.5
+        if jump > max_jump_ratio * width:
+            continue
+        count = min(max(per_gap, 1), missing)
+        chosen = sorted({start + round((step + 1) * (missing + 1) / (count + 1)) for step in range(count)})
+        for index in chosen:
+            if not start < index < end:
+                continue
+            share = (float(frames[index].get("timestamp") or 0.0) - t0) / (t1 - t0)
+            share = min(max(share, 0.0), 1.0)
+            picks.append({
+                "index": index, "file": str(frames[index].get("file", "")),
+                "x": x0 + (x1 - x0) * share, "y": y0 + (y1 - y0) * share,
+                # A thrown ball leaves the straight line, so search well beyond it.
+                "radius": max(jump / 2, 0.08 * width),
+            })
+    if len(picks) > limit > 0:
+        stride = len(picks) / limit
+        picks = [picks[int(position * stride)] for position in range(limit)]
+    return picks

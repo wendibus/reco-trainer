@@ -54,12 +54,38 @@ class NamesAndGeometryTests(unittest.TestCase):
         self.assertEqual(reco_export.input_size_for([384]), 960)
         self.assertEqual(reco_export.input_size_for([384, 704]), 1280)
 
-    def test_project_aspect_is_the_median_of_the_images(self):
+    def test_project_aspect_is_the_most_common_shape_of_the_images(self):
         sizes = {"a.jpg": (1920, 1080), "b.jpg": (1280, 720), "c.jpg": (640, 480)}
         frames = [{"relativePath": name} for name in sizes] + [{"note": "no path"}]
-        aspect = reco_export.project_aspect(Path("/x"), frames, lambda path: sizes[path.name])
+        aspect, share = reco_export.project_aspect(Path("/x"), frames, lambda path: sizes[path.name])
         self.assertAlmostEqual(aspect, 16 / 9)
-        self.assertAlmostEqual(reco_export.project_aspect(Path("/x"), [], lambda path: None), 16 / 9)
+        self.assertAlmostEqual(share, 2 / 3)
+        self.assertEqual(reco_export.project_aspect(Path("/x"), [], lambda path: None), (16 / 9, 1.0))
+
+    def test_panoramas_at_the_start_do_not_decide_the_shape(self):
+        frames = [{"width": 6468, "height": 1212}] * 60 + [{"width": 1920, "height": 1080}] * 360 + [{"width": 740, "height": 416}] * 60
+        aspect, share = reco_export.project_aspect(Path("/x"), frames, lambda path: self.fail("sizes are in the project"))
+        self.assertAlmostEqual(aspect, 16 / 9, places=2)
+        self.assertAlmostEqual(share, 420 / 480)  # 740 x 416 is 16:9 as well
+
+    def test_calibrated_score_puts_the_best_threshold_on_recos_default(self):
+        self.assertAlmostEqual(reco_export.calibrated_score(0.40, 0.40), 0.10)
+        self.assertAlmostEqual(reco_export.calibrated_score(0.0, 0.40), 0.0)
+        self.assertAlmostEqual(reco_export.calibrated_score(1.0, 0.40), 1.0)
+        self.assertAlmostEqual(reco_export.calibrated_score(0.20, 0.40), 0.05)
+        self.assertLess(reco_export.calibrated_score(0.39, 0.40), reco_export.calibrated_score(0.41, 0.40))
+        self.assertAlmostEqual(reco_export.calibrated_score(0.37, 0.10), 0.37)  # Reco's default: unchanged
+
+    def test_the_ball_prefers_recall_other_classes_use_f1(self):
+        self.assertAlmostEqual(reco_export.operating_score("player", 0.5, 1.0), 2 / 3)
+        careful, eager = (0.95, 0.60), (0.70, 0.85)
+        self.assertGreater(reco_export.operating_score("ball", *eager), reco_export.operating_score("ball", *careful))
+        self.assertGreater(reco_export.operating_score("puck", *eager), reco_export.operating_score("puck", *careful))
+        self.assertEqual(reco_export.operating_score("ball", 0.0, 0.0), 0.0)
+
+    def test_thresholds_need_enough_labelled_objects(self):
+        per_class = {"ball": {"threshold": 0.35, "f1": 0.8, "groundTruth": 40}, "player": {"threshold": 0.5, "f1": 0.9, "groundTruth": 4}, "referee": {"threshold": 0.95, "f1": 0.5, "groundTruth": 30}}
+        self.assertEqual(reco_export.calibrated_thresholds(per_class, ["ball", "player", "referee", "hoop"]), [0.35, 0.10, 0.90, 0.10])
 
 
 @unittest.skipUnless(HAS_ONNX, "onnx / onnxruntime / Pillow are not installed")
@@ -124,6 +150,32 @@ class YoloFilterTests(unittest.TestCase):
             picture = Image.new("RGB", (640, 360))
             result = reco_export.check_file(target, [(picture, [(100, 300, 20, 20)]), (picture, [(400, 50, 20, 20)])])
             self.assertEqual((result["found"], result["samples"], result["inputSize"]), (1, 2, 64))
+
+
+@unittest.skipUnless(HAS_ONNX, "onnx / onnxruntime / Pillow are not installed")
+class ScoreCalibrationTests(unittest.TestCase):
+    def test_file_rescales_scores_per_class_and_keeps_boxes_and_classes(self):
+        rows = [[1, 2, 3, 4, 0.40, 0], [5, 6, 7, 8, 0.20, 0], [9, 9, 9, 9, 0.70, 1], [1, 1, 2, 2, 0.30, 1], [3, 3, 4, 4, 1.0, 0]]
+        with tempfile.TemporaryDirectory() as temp:
+            source = YoloFilterTests().yolo_file(Path(temp), rows)
+            target = Path(temp) / "calibrated.onnx"
+            reco_export.calibrate_scores(source, target, [0.40, 0.10])
+            session = onnxruntime.InferenceSession(str(target), providers=["CPUExecutionProvider"])
+            self.assertEqual(len(session.get_outputs()), 1)
+            data = session.run(None, {"images": np.zeros((1, 3, 64, 64), dtype=np.float32)})[0][0]
+        np.testing.assert_allclose(data[:, :4], np.array(rows, dtype=np.float32)[:, :4])
+        np.testing.assert_allclose(data[:, 5], [0, 0, 1, 1, 0])
+        np.testing.assert_allclose(data[:, 4], [0.10, 0.05, 0.70, 0.30, 1.0], atol=1e-6)
+
+    def test_detect_like_reco_maps_boxes_back_to_the_image(self):
+        with tempfile.TemporaryDirectory() as temp:
+            source = YoloFilterTests().yolo_file(Path(temp), [[16, 24, 32, 40, 0.9, 0], [0, 0, 1, 1, 0.01, 0]])
+            session, size = reco_export.open_file(source)
+            rows = reco_export.detect_like_reco(session, size, Image.new("RGB", (640, 320)), 0.05)
+        self.assertEqual(size, 64)
+        self.assertEqual(len(rows), 1)  # 640 x 320 in 64: scale 0.1, 16 rows of grey above
+        np.testing.assert_allclose(rows[0][:4], [160, 80, 320, 240])
+        self.assertEqual(rows[0][5], 0)
 
 
 class RecoExportCommandTests(unittest.TestCase):

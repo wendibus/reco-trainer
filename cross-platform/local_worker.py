@@ -1680,6 +1680,120 @@ def simulate_ball_tracking(video: Path, payload: dict) -> None:
         STATE.update(operation="error", busy=False, error=str(error), message=localized("Balltracking-Simulation fehlgeschlagen.", "Ball-tracking simulation failed.", "La simulación de seguimiento del balón falló.", "La simulation de suivi du ballon a échoué."))
 
 
+def simulation_gaps_to_candidates(payload: dict) -> None:
+    """Turn the misses of the last tracking simulation into review candidates: frames where
+    the ball was lost between two detections (teachers.ball_gaps) are looked at again in a
+    window around the expected position, then copied into the project as candidates - with
+    a suggested ball box where the second look found one, empty otherwise.
+
+    This is the only way simulation frames reach the project, and only on request. A video
+    that already supplies independent test images is refused: its frames must neither be
+    trained on nor change the test."""
+    scratch: Path | None = None
+    try:
+        root = STATE.project_root
+        project = STATE.project
+        if root is None or project is None:
+            raise RuntimeError(localized("Zuerst ein bestehendes Trainingsprojekt öffnen.", "Open an existing training project first.", "Primero abre un proyecto de entrenamiento existente.", "Ouvrez d’abord un projet d’entraînement existant."))
+        language = payload.get("language", "de")
+        if language not in {"de", "en", "es", "fr"}:
+            language = "de"
+        slot = simulation_slot(payload)
+        simulation = STATE.simulation_b if slot == "b" else STATE.simulation
+        video = STATE.simulation_videos.get(slot)
+        frames_dir = simulation_frames_dir(root, slot)
+        if not simulation or video is None or not frames_dir.is_dir():
+            raise RuntimeError(localized("Zuerst ein Video simulieren.", "Simulate a video first.", "Primero simula un vídeo.", "Simulez d’abord une vidéo."))
+        video_id = hashlib.sha256(str(video).encode("utf-8")).hexdigest()[:12]
+        if any(str(frame.get("videoID")) == video_id and frame.get("heldOut") for frame in project.get("frames", [])):
+            raise RuntimeError(localized(
+                "Dieses Video liefert bereits unabhängige Testbilder. Seine Bilder dürfen nicht ins Training.",
+                "This video already supplies independent test images. Its images must not be trained on.",
+                "Este vídeo ya aporta imágenes de prueba independientes. Sus imágenes no deben entrenarse.",
+                "Cette vidéo fournit déjà des images de test indépendantes. Ses images ne doivent pas être entraînées.",
+            ))
+        sim_frames = simulation.get("frames", [])
+        picks = teachers.ball_gaps(sim_frames)
+        known_ids = {str(frame.get("id")) for frame in project.get("frames", [])}
+
+        def frame_id(pick: dict) -> str:
+            return str(uuid.uuid5(uuid.NAMESPACE_URL, f"ball-gap:{video_id}:{round(float(sim_frames[pick['index']]['timestamp']) * 1000)}"))
+
+        picks = [pick for pick in picks if frame_id(pick) not in known_ids and (frames_dir / Path(pick["file"]).name).is_file()]
+        if not picks:
+            STATE.update(operation="ready", busy=False, progress=1.0, message=localized(
+                "Keine neuen Lücken gefunden, in denen der Ball zwischen zwei Erkennungen fehlt.",
+                "No new gaps found where the ball is missing between two detections.",
+                "No se encontraron huecos nuevos en los que falte el balón entre dos detecciones.",
+                "Aucune nouvelle lacune où le ballon manque entre deux détections.",
+            ))
+            return
+        venv_python = venv_python_path(ml_venv(root))
+        if not venv_python.is_file():
+            raise RuntimeError(localized("ML-Umgebung fehlt. Zuerst „ML einrichten“ anklicken.", "The ML environment is missing. Click “Set up ML” first.", "Falta el entorno de ML. Primero haz clic en “Configurar ML”.", "L’environnement ML est manquant. Cliquez d’abord sur « Configurer le ML »."))
+
+        STATE.update(operation="simulation-gaps", busy=True, progress=0.02, error=None, log=[], message=localized(
+            f"Suche den Ball in {len(picks)} Lücken-Bildern …", f"Looking for the ball in {len(picks)} gap images …",
+            f"Buscando el balón en {len(picks)} imágenes con huecos …", f"Recherche du ballon dans {len(picks)} images de lacunes …",
+        ))
+        scratch = root / ".runtime" / f"ball-gaps-{slot}.json"
+        atomic_json(scratch, [{key: pick[key] for key in ("file", "x", "y", "radius")} for pick in picks])  # type: ignore[arg-type]
+        package = str(simulation.get("package") or "").strip()
+        found = run_json([
+            str(venv_python), str(find_ml_worker()), "recover-ball-gaps",
+            "--project", str(root), "--frames-dir", str(frames_dir), "--requests", str(scratch),
+            "--model", str(payload.get("model", "nano")), "--language", language,
+            *(["--package", package] if package else []),
+        ], on_progress=lambda done, total: STATE.update(progress=0.02 + 0.9 * done / max(total, 1)))
+        balls = {str(item.get("file")): item.get("ball") for item in found.get("frames", [])}
+
+        backup_project(root, "ball-gaps")
+        target_dir = root / "frames"
+        target_dir.mkdir(parents=True, exist_ok=True)
+        ball_category = "puck" if project.get("sport") == "hockey" else "ball"
+        new_frames: list[dict] = []
+        recovered = 0
+        for pick in picks:
+            source = sim_frames[pick["index"]]
+            name = Path(pick["file"]).name
+            timestamp = float(source.get("timestamp") or 0.0)
+            target = target_dir / f"gap-{video_id}-{round(timestamp * 1000):08d}.jpg"
+            shutil.copyfile(frames_dir / name, target)
+            annotations = []
+            ball = balls.get(name)
+            if ball:
+                recovered += 1
+                annotations.append({
+                    "id": str(uuid.uuid4()), "category": ball_category,
+                    "x": max(float(ball["x"]), 0.0), "y": max(float(ball["y"]), 0.0),
+                    "width": max(float(ball["width"]), 1.0), "height": max(float(ball["height"]), 1.0),
+                    "confidence": float(ball["confidence"]), "source": "auto",
+                })
+            new_frames.append({
+                "id": frame_id(pick), "relativePath": f"frames/{target.name}", "videoID": video_id,
+                "videoName": video.name, "timestamp": timestamp,
+                "width": source.get("width"), "height": source.get("height"),
+                "annotations": annotations, "reviewStatus": "candidate", "origin": "ball-gap",
+            })
+        project["frames"] = [*project.get("frames", []), *new_frames]
+        project["updatedAt"] = utc_now()
+        atomic_json(root / "project.json", project)
+        STATE.update(project=project, operation="ready", busy=False, progress=1.0, message=localized(
+            f"{len(new_frames)} Lücken-Bilder als Prüfkandidaten übernommen, in {recovered} davon wurde der Ball im Ausschnitt gefunden.",
+            f"{len(new_frames)} gap images added as review candidates; the ball was found in the close-up in {recovered} of them.",
+            f"{len(new_frames)} imágenes con huecos añadidas como candidatas; el balón se encontró en el recorte en {recovered} de ellas.",
+            f"{len(new_frames)} images de lacunes ajoutées comme candidates ; le ballon a été trouvé dans le recadrage pour {recovered} d’entre elles.",
+        ))
+    except OperationCancelled:
+        STATE.update(operation="cancelled", busy=False, progress=0.0, error=None, message=localized("Abgebrochen. Es wurden keine neuen Bilder übernommen.", "Cancelled. No new images were added.", "Cancelado. No se añadieron imágenes nuevas.", "Annulé. Aucune nouvelle image n’a été ajoutée."))
+    except Exception as error:
+        STATE.append_log(str(error))
+        STATE.update(operation="error", busy=False, error=str(error), message=localized("Lücken konnten nicht übernommen werden.", "The gaps could not be added.", "No se pudieron añadir los huecos.", "Les lacunes n’ont pas pu être ajoutées."))
+    finally:
+        if scratch is not None:
+            scratch.unlink(missing_ok=True)
+
+
 def find_ml_worker() -> Path:
     candidates = [
         BASE_DIR / "ml_worker.py",
@@ -3650,6 +3764,9 @@ class Handler(BaseHTTPRequestHandler):
                 video = simulation_video(payload)
                 job = JOBS.submit("simulate-ball-tracking", simulate_ball_tracking, video, payload)
                 self.json_response({"ok": True, "video": str(video), "job": job})
+            elif self.path == "/api/simulation-gaps":
+                job = JOBS.submit("simulation-gaps", simulation_gaps_to_candidates, payload)
+                self.json_response({"ok": True, "job": job})
             elif self.path == "/api/consistency-review":
                 review_consistency_frame(payload)
                 self.json_response({"ok": True, "status": STATE.snapshot()})

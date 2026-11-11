@@ -1610,5 +1610,63 @@ class EvaluateTrainedModelTests(unittest.TestCase):
         self.assertEqual(ml_worker.evaluate_trained_model(Failing(), None, None, "cpu", Path("."), "en"), {})
 
 
+class RecoverBallGapsTests(unittest.TestCase):
+    """The second look at a simulation gap: the model only sees a window around the expected
+    position, and the box it finds there comes back in full-frame pixels."""
+
+    def test_window_stays_inside_the_image_and_keeps_a_minimum_size(self):
+        self.assertEqual(ml_worker.gap_search_window(1000, 500, 50, 1920, 1080), (808, 308, 1192, 692))
+        self.assertEqual(ml_worker.gap_search_window(10, 10, 50, 1920, 1080), (0, 0, 384, 384))
+        self.assertEqual(ml_worker.gap_search_window(1915, 1075, 300, 1920, 1080), (1320, 480, 1920, 1080))
+        self.assertEqual(ml_worker.gap_search_window(100, 100, 50, 320, 180), (10, 0, 190, 180))
+
+    def test_box_from_the_window_is_shifted_back_into_the_frame(self):
+        from PIL import Image
+        seen: list[tuple[int, int]] = []
+
+        class FakeModel:
+            def __init__(self, **_): pass
+            def predict(self, paths, threshold):
+                with Image.open(paths[0]) as crop:
+                    seen.append(crop.size)
+                if len(seen) == 1:
+                    return [SimulateBallTrackingTests._Detections(["sports ball", "person"], [[100.0, 120.0, 110.0, 132.0], [0.0, 0.0, 50.0, 90.0]], [.4, .9])]
+                return [SimulateBallTrackingTests._Detections([], [], [])]
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "project"
+            ml_worker.atomic_json(root / "project.json", {"sport": "basketball", "frames": []})
+            frames_dir = Path(temporary) / "frames"
+            frames_dir.mkdir()
+            for name in ("sim-0002.jpg", "sim-0005.jpg"):
+                Image.new("RGB", (1920, 1080), (20, 90, 40)).save(frames_dir / name)
+            requests = Path(temporary) / "requests.json"
+            requests.write_text(json.dumps([
+                {"file": "sim-0002.jpg", "x": 1000, "y": 500, "radius": 50},
+                {"file": "sim-0005.jpg", "x": 1000, "y": 500, "radius": 400},
+                {"file": "../outside.jpg", "x": 1, "y": 1, "radius": 1},
+            ]))
+            original_import, original_device = ml_worker.import_model_class, ml_worker.detect_device
+            try:
+                ml_worker.import_model_class = lambda *_: FakeModel
+                ml_worker.detect_device = lambda: "cpu"
+                args = type("Args", (), {
+                    "project": str(root), "frames_dir": str(frames_dir), "requests": str(requests),
+                    "model": "nano", "threshold": 0.15, "language": "en",
+                })()
+                buffer = io.StringIO()
+                with contextlib.redirect_stdout(buffer), contextlib.redirect_stderr(io.StringIO()):
+                    ml_worker.recover_ball_gaps(args)
+                payload = json.loads(buffer.getvalue())
+            finally:
+                ml_worker.import_model_class, ml_worker.detect_device = original_import, original_device
+
+            self.assertEqual(seen, [(384, 384), (800, 800)])
+            first, second, outside = payload["frames"]
+            self.assertEqual(first["ball"], {"x": 908.0, "y": 428.0, "width": 10.0, "height": 12.0, "confidence": .4})
+            self.assertIsNone(second["ball"])
+            self.assertEqual(outside, {"file": "outside.jpg", "ball": None})
+
+
 if __name__ == "__main__":
     unittest.main()

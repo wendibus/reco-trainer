@@ -1231,18 +1231,40 @@ def simulate_ball_tracking(args: argparse.Namespace) -> None:
     category_map = detection_category_map([ball_category])
     device = detect_device()
 
+    model, model_size, package_classes, model_label = simulation_ball_model(args, project_root, ball_category)
+
+    profile = training_profile(model_size, device)
+    batch_size = profile["batch_size"] if device != "cpu" else 1
+    threshold = min(0.95, max(0.01, float(args.threshold)))
+    results: list[dict[str, Any]] = []
+    for start in range(0, len(image_paths), batch_size):
+        batch = image_paths[start : start + batch_size]
+        detected_batch = normalize_detection_batch(model.predict([str(path) for path in batch], threshold=threshold), len(batch))
+        for path, detections in zip(batch, detected_batch):
+            box = best_ball_box(detections, category_map, ball_category, package_classes, sport)
+            best = {"x": (box["x1"] + box["x2"]) / 2, "y": (box["y1"] + box["y2"]) / 2, "confidence": box["confidence"]} if box else None
+            results.append({"file": path.name, "ball": best})
+        # stderr, not stdout: stdout must stay exactly one JSON blob (see docstring).
+        print(f"RECO_PROGRESS {len(results)} {len(image_paths)}", file=sys.stderr, flush=True)
+
+    print(json.dumps({"frames": results, "model": model_label}, ensure_ascii=False))
+
+
+def simulation_ball_model(args: argparse.Namespace, project_root: Path, ball_category: str) -> tuple[Any, str, set[str] | None, str]:
+    """The model a tracking simulation runs: a chosen library package, the ball member of
+    the active combined model, or the active model. Returns (model, size used for the batch
+    profile, the package's classes or None, display name)."""
     # model_instance()/ensemble_member_model() call emit() internally (e.g.
     # "Loading trained model: ...") - fine for every other action, which
-    # streams progress, but this action's contract is exactly one JSON blob
-    # and nothing else on stdout (see docstring). Suppress emit() for the
-    # duration of model loading and inference, restoring it before returning
-    # so a caught SystemExit's localized() text still displays normally.
+    # streams progress, but the simulation actions' contract is exactly one JSON
+    # blob and nothing else on stdout. Suppress emit() while the model loads,
+    # restoring it before returning so a caught SystemExit's localized() text
+    # still displays normally.
     global emit
     original_emit = emit
     emit = lambda _message: None
     package_id = str(getattr(args, "package", "") or "").strip()
     package_classes: set[str] | None = None
-    model_label = ""
     try:
         active_manifest = None if package_id else active_model_manifest(project_root, args.model)
         ensemble = (active_manifest or {}).get("ensemble") if active_manifest else None
@@ -1265,36 +1287,86 @@ def simulate_ball_tracking(args: argparse.Namespace) -> None:
             model_size = args.model
     finally:
         emit = original_emit
+    return model, model_size, package_classes, model_label
 
-    profile = training_profile(model_size, device)
-    batch_size = profile["batch_size"] if device != "cpu" else 1
+
+def best_ball_box(detections: Any, category_map: dict[str, str], ball_category: str, package_classes: set[str] | None, sport: str) -> dict[str, float] | None:
+    """The most confident ball/puck detection of one image as {"x1", "y1", "x2", "y2", "confidence"}."""
+    detection_data = (getattr(detections, "data", {}) or {})
+    names = detection_data.get("class_name")
+    best: dict[str, float] | None = None
+    for index, box in enumerate(detections.xyxy):
+        class_id = int(detections.class_id[index]) if getattr(detections, "class_id", None) is not None else None
+        detected_name = str(names[index]) if names is not None else "sports ball" if class_id == 32 else ""
+        if category_map.get(detected_name) != ball_category:
+            if package_classes is None or benchmark_detection_category(detected_name, class_id, sport, package_classes) != ball_category:
+                continue
+        confidence = float(detections.confidence[index])
+        if best is not None and confidence <= best["confidence"]:
+            continue
+        x1, y1, x2, y2 = [float(value) for value in box]
+        best = {"x1": x1, "y1": y1, "x2": x2, "y2": y2, "confidence": confidence}
+    return best
+
+
+def gap_search_window(x: float, y: float, radius: float, width: int, height: int, minimum: int = 384) -> tuple[int, int, int, int]:
+    """Square window (left, top, right, bottom) around a predicted ball position, at least
+    `minimum` pixels wide so the model still sees some surroundings, moved back inside the
+    image at its edges."""
+    side = int(min(max(2 * radius, minimum), width, height))
+    left = int(min(max(x - side / 2, 0), width - side))
+    top = int(min(max(y - side / 2, 0), height - side))
+    return left, top, left + side, top + side
+
+
+def recover_ball_gaps(args: argparse.Namespace) -> None:
+    """Second look at simulation frames in which the ball was missed between two detections
+    (teachers.ball_gaps picks them): cut a window around the expected position out of the
+    frame and run the same model on that window alone. The detector scales every image down
+    to its input size, so a ball of a few pixels is several times larger in the window than
+    it was in the full frame.
+
+    --requests is a JSON file [{"file", "x", "y", "radius"}, ...]. Prints exactly one JSON
+    blob (the contract simulate_ball_tracking uses): {"frames": [{"file", "ball": {"x", "y",
+    "width", "height", "confidence"} | null}], "model"} with boxes in full-frame pixels.
+    Nothing is written to the project - the caller decides what becomes a review candidate."""
+    project_root = Path(args.project).resolve()
+    document = require_project(project_root, args.language)
+    frames_dir = Path(args.frames_dir).resolve()
+    requests = load_json(Path(args.requests))
+    if not isinstance(requests, list) or not requests:
+        raise SystemExit(localized(args.language, "Keine Lücken zum Nachsuchen übergeben.", "No gaps were passed for the second look."))
+
+    sport = str(document["sport"])
+    ball_category = "puck" if sport == "hockey" else "ball"
+    category_map = detection_category_map([ball_category])
+    model, _model_size, package_classes, model_label = simulation_ball_model(args, project_root, ball_category)
     threshold = min(0.95, max(0.01, float(args.threshold)))
+    from PIL import Image
+
     results: list[dict[str, Any]] = []
-    for start in range(0, len(image_paths), batch_size):
-        batch = image_paths[start : start + batch_size]
-        detected_batch = normalize_detection_batch(model.predict([str(path) for path in batch], threshold=threshold), len(batch))
-        for path, detections in zip(batch, detected_batch):
-            detection_data = (getattr(detections, "data", {}) or {})
-            names = detection_data.get("class_name")
-            best: dict[str, float] | None = None
-            for index, box in enumerate(detections.xyxy):
-                if names is not None:
-                    detected_name = str(names[index])
-                else:
-                    class_id = int(detections.class_id[index]) if getattr(detections, "class_id", None) is not None else None
-                    detected_name = "sports ball" if class_id == 32 else ""
-                if category_map.get(detected_name) != ball_category:
-                    class_id = int(detections.class_id[index]) if getattr(detections, "class_id", None) is not None else None
-                    if package_classes is None or benchmark_detection_category(detected_name, class_id, sport, package_classes) != ball_category:
-                        continue
-                confidence = float(detections.confidence[index])
-                if best is not None and confidence <= best["confidence"]:
-                    continue
-                x1, y1, x2, y2 = [float(value) for value in box]
-                best = {"x": (x1 + x2) / 2, "y": (y1 + y2) / 2, "confidence": confidence}
-            results.append({"file": path.name, "ball": best})
-        # stderr, not stdout: stdout must stay exactly one JSON blob (see docstring).
-        print(f"RECO_PROGRESS {len(results)} {len(image_paths)}", file=sys.stderr, flush=True)
+    with tempfile.TemporaryDirectory(prefix="reco-gaps-") as scratch:
+        for number, request in enumerate(requests, start=1):
+            name = Path(str(request.get("file", ""))).name
+            source = (frames_dir / name).resolve()
+            ball = None
+            if frames_dir in source.parents and source.is_file():
+                with Image.open(source) as image:
+                    window = gap_search_window(float(request["x"]), float(request["y"]), float(request.get("radius") or 0.0), image.width, image.height)
+                    crop_path = Path(scratch) / f"{number:04d}.png"
+                    image.convert("RGB").crop(window).save(crop_path)
+                detections = normalize_detection_batch(model.predict([str(crop_path)], threshold=threshold), 1)[0]
+                crop_path.unlink(missing_ok=True)
+                box = best_ball_box(detections, category_map, ball_category, package_classes, sport)
+                if box:
+                    ball = {
+                        "x": window[0] + box["x1"], "y": window[1] + box["y1"],
+                        "width": max(box["x2"] - box["x1"], 1.0), "height": max(box["y2"] - box["y1"], 1.0),
+                        "confidence": box["confidence"],
+                    }
+            results.append({"file": name, "ball": ball})
+            # stderr, not stdout: stdout must stay exactly one JSON blob (see docstring).
+            print(f"RECO_PROGRESS {len(results)} {len(requests)}", file=sys.stderr, flush=True)
 
     print(json.dumps({"frames": results, "model": model_label}, ensure_ascii=False))
 
@@ -5295,6 +5367,48 @@ def export_model(args: argparse.Namespace) -> None:
     ))
 
 
+RECO_CALIBRATION_IMAGES = 200
+
+
+def reco_score_thresholds(path: Path, project_root: Path, document: dict[str, Any], categories: list[str], language: str) -> tuple[list[float], int] | None:
+    """The confidence per class at which this Reco file works best on the project's validation
+    images, run the way Reco runs it: (thresholds by class id, images used). None without
+    validation images of these classes - then the scores stay as the model gives them."""
+    try:
+        valid, _ = sweep_validation_frames(project_root, document, language)
+    except (OSError, KeyError, ValueError, TypeError):
+        return None
+    valid = [frame for frame in valid if any(item.get("category") in categories for item in frame.get("annotations", []))]
+    if not valid:
+        return None
+    valid = valid[:: max(1, len(valid) // RECO_CALIBRATION_IMAGES)][:RECO_CALIBRATION_IMAGES]
+    from PIL import Image
+    session, size = reco_export.open_file(path)
+    predictions: list[dict[str, Any]] = []
+    used: list[dict[str, Any]] = []
+    for frame in valid:
+        try:
+            with Image.open(project_root / str(frame["relativePath"])) as source_image:
+                rows = reco_export.detect_like_reco(session, size, source_image.convert("RGB"), SWEEP_THRESHOLDS[0])
+        except (OSError, KeyError, ValueError, TypeError):
+            continue
+        used.append(frame)
+        predictions.extend({"frameID": str(frame.get("id")), "category": categories[class_id], "confidence": confidence, "box": [x1, y1, x2, y2]}
+                           for x1, y1, x2, y2, confidence, class_id in rows if 0 <= class_id < len(categories))
+    if not used:
+        return None
+    per_class: dict[str, dict[str, Any]] = {}
+    for threshold in SWEEP_THRESHOLDS:
+        kept = [item for item in predictions if item["confidence"] >= threshold]
+        result = evaluate_predictions(used, kept, categories)["perClass"]
+        for name in categories:
+            entry = result[name]
+            score = reco_export.operating_score(name, float(entry["precision"]), float(entry["recall"]))
+            if name not in per_class or score >= per_class[name]["f1"]:
+                per_class[name] = {"threshold": threshold, "f1": score, "groundTruth": entry["groundTruth"]}
+    return reco_export.calibrated_thresholds(per_class, categories), len(used)
+
+
 def export_reco(args: argparse.Namespace) -> None:
     """Write one library model as an ONNX file for the Reco camera app (see reco_export.py)."""
     project_root = Path(args.project).resolve()
@@ -5322,6 +5436,9 @@ def export_reco(args: argparse.Namespace) -> None:
     emit(localized(language, f"Exportiere „{label}“ für Reco: {', '.join(categories)} …", f"Exporting “{label}” for Reco: {', '.join(categories)} …",
                    f"Exportando «{label}» para Reco: {', '.join(categories)} …", f"Export de « {label} » pour Reco : {', '.join(categories)} …"))
     aspect = None
+    aspect_share = 1.0
+    thresholds: list[float] | None = None
+    calibration_images = 0
     try:
         if is_onnx_manifest(manifest):
             weight_name = Path(str(manifest.get("weights", {}).get("file", ""))).name
@@ -5362,14 +5479,29 @@ def export_reco(args: argparse.Namespace) -> None:
                 members.append({"net": network, "resolution": resolution, "means": list(model.means), "stds": list(model.stds),
                                 "columns": [class_map[item] for item in member_categories], "ids": [float(categories.index(item)) for item in member_categories]})
             size = reco_export.input_size_for([member["resolution"] for member in members])
-            aspect = reco_export.project_aspect(project_root, frames, image_size)
+            aspect, aspect_share = reco_export.project_aspect(project_root, frames, image_size)
             reco_export.export_onnx(reco_export.rfdetr_wrapper(members, size, aspect), size, partial)
+            if not getattr(args, "raw_scores", False):
+                emit(localized(language, "Passe die Sicherheiten an Recos Schwelle an …", "Fitting the confidences to Reco's threshold …",
+                               "Ajustando las confianzas al umbral de Reco …", "Ajustement des confiances au seuil de Reco …"))
+                measured = reco_score_thresholds(partial, project_root, document, categories, language)
+                if measured is not None:
+                    thresholds, calibration_images = measured
+                    if any(abs(value - reco_export.RECO_DEFAULT_CONFIDENCE) > 1e-6 for value in thresholds):
+                        uncalibrated = partial.with_name(partial.name + ".raw")
+                        partial.replace(uncalibrated)
+                        try:
+                            reco_export.calibrate_scores(uncalibrated, partial, thresholds)
+                        finally:
+                            uncalibrated.unlink(missing_ok=True)
         reco_export.write_metadata(partial, categories, size, {
             "description": f"Reco Trainer export of {label}",
             "author": "Reco Trainer",
             "reco_trainer_package": str(manifest.get("packageID") or args.package),
             "reco_trainer_sport": str(document.get("sport", "")),
             **({"reco_trainer_aspect": f"{aspect:.4f}"} if aspect else {}),
+            **({"reco_trainer_thresholds": ", ".join(f"{reco_export.reco_name(item)}={value:.2f}" for item, value in zip(categories, thresholds)),
+                "reco_trainer_calibrated_to": f"{reco_export.RECO_DEFAULT_CONFIDENCE:.2f}"} if thresholds else {}),
         })
         labelled = [frame for frame in frames if any(item.get("category") in categories for item in frame.get("annotations", []))]
         samples = []
@@ -5383,7 +5515,9 @@ def export_reco(args: argparse.Namespace) -> None:
                         samples.append((source_image.convert("RGB"), boxes))
                 except (OSError, KeyError, ValueError, TypeError):
                     continue
-        check = reco_export.check_file(partial, samples)
+        # A calibrated file is checked at the threshold Reco uses without any setting.
+        check_threshold = reco_export.RECO_DEFAULT_CONFIDENCE if thresholds else 0.25
+        check = reco_export.check_file(partial, samples, check_threshold)
         partial.replace(target)
     finally:
         partial.unlink(missing_ok=True)
@@ -5395,14 +5529,36 @@ def export_reco(args: argparse.Namespace) -> None:
                    f"Entrée {check['inputSize']} × {check['inputSize']} px, une sortie [1, {reco_export.MAX_DETECTIONS}, 6], classes : {names}."))
     if check["samples"]:
         found, total = check["found"], check["samples"]
-        emit(localized(language, f"Probelauf wie in Reco (graue Ränder, ab 25 %): markierte Objekte auf {found} von {total} Projektbildern gefunden.",
-                       f"Test run as in Reco (grey borders, 25 % or more): labelled objects found on {found} of {total} project images.",
-                       f"Prueba como en Reco (bordes grises, desde 25 %): objetos marcados encontrados en {found} de {total} imágenes del proyecto.",
-                       f"Essai comme dans Reco (bords gris, à partir de 25 %) : objets annotés trouvés sur {found} des {total} images du projet."))
+        percent = round(check_threshold * 100)
+        emit(localized(language, f"Probelauf wie in Reco (graue Ränder, ab {percent} %): markierte Objekte auf {found} von {total} Projektbildern gefunden.",
+                       f"Test run as in Reco (grey borders, {percent} % or more): labelled objects found on {found} of {total} project images.",
+                       f"Prueba como en Reco (bordes grises, desde {percent} %): objetos marcados encontrados en {found} de {total} imágenes del proyecto.",
+                       f"Essai comme dans Reco (bords gris, à partir de {percent} %) : objets annotés trouvés sur {found} des {total} images du projet."))
+    if thresholds:
+        listed = ", ".join(f"{reco_export.reco_name(item)} {round(value * 100)} %" for item, value in zip(categories, thresholds))
+        emit(localized(language,
+                       f"Sicherheiten angepasst ({calibration_images} Validierungsbilder): Die beste Schwelle je Klasse ({listed}) liegt in der Datei bei 10 %, Recos Standard. In Reco die Schwelle auf 0,10 lassen.",
+                       f"Confidences fitted ({calibration_images} validation images): the best threshold per class ({listed}) sits at 10 % in the file, Reco's default. Leave Reco's threshold at 0.10.",
+                       f"Confianzas ajustadas ({calibration_images} imágenes de validación): el mejor umbral por clase ({listed}) queda en el 10 % en el archivo, el valor por defecto de Reco. Deja el umbral de Reco en 0,10.",
+                       f"Confiances ajustées ({calibration_images} images de validation) : le meilleur seuil par classe ({listed}) se trouve à 10 % dans le fichier, la valeur par défaut de Reco. Laissez le seuil de Reco à 0,10."))
+    elif aspect is not None and not getattr(args, "raw_scores", False):
+        emit(localized(language,
+                       "Keine Validierungsbilder dieser Klassen: Die Sicherheiten bleiben unverändert. Recos Standardschwelle 0,10 ist für RF-DETR meist zu niedrig; dort eher 0,25 bis 0,5 einstellen.",
+                       "No validation images of these classes: the confidences stay unchanged. Reco's default threshold 0.10 is usually too low for RF-DETR; set 0.25 to 0.5 there.",
+                       "Sin imágenes de validación de estas clases: las confianzas no cambian. El umbral por defecto de Reco, 0,10, suele ser demasiado bajo para RF-DETR; ajusta allí entre 0,25 y 0,5.",
+                       "Aucune image de validation de ces classes : les confiances restent inchangées. Le seuil par défaut de Reco, 0,10, est souvent trop bas pour RF-DETR ; réglez-y plutôt 0,25 à 0,5."))
+    if aspect is not None and aspect_share < 0.9:
+        other = round((1 - aspect_share) * 100)
+        emit(localized(language,
+                       f"Achtung: Die Datei ist für Kamerabilder im Format {aspect:.2f}:1 gebaut, {other} % der Projektbilder haben ein anderes Format. Reco sieht die rohen Kamerabilder; für Kameras mit anderem Format ein eigenes Projekt verwenden.",
+                       f"Note: the file is built for camera images shaped {aspect:.2f}:1; {other} % of the project images have another shape. Reco sees the raw camera images; use a separate project for cameras with another shape.",
+                       f"Atención: el archivo está hecho para imágenes de cámara con formato {aspect:.2f}:1; el {other} % de las imágenes del proyecto tiene otro formato. Reco ve las imágenes de cámara sin procesar; usa un proyecto aparte para cámaras con otro formato.",
+                       f"Attention : le fichier est conçu pour des images de caméra au format {aspect:.2f}:1 ; {other} % des images du projet ont un autre format. Reco voit les images brutes des caméras ; utilisez un projet séparé pour les caméras d’un autre format."))
     if "ball" in categories and len(categories) == 1:
         emit(localized(language, "Nur Ball: in Reco den Tracking-Modus „ball“ wählen (--tracking ball).", "Ball only: choose the tracking mode “ball” in Reco (--tracking ball).",
                        "Solo balón: en Reco elige el modo de seguimiento «ball» (--tracking ball).", "Ballon seul : dans Reco, choisissez le mode de suivi « ball » (--tracking ball)."))
-    print(json.dumps({"path": str(target), "classes": categories, "inputSize": check["inputSize"], "found": check["found"], "samples": check["samples"]}), flush=True)
+    print(json.dumps({"path": str(target), "classes": categories, "inputSize": check["inputSize"], "found": check["found"], "samples": check["samples"],
+                      "thresholds": dict(zip(categories, thresholds)) if thresholds else None}), flush=True)
 
 
 IMPORT_IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png"}
@@ -5977,6 +6133,7 @@ def build_parser() -> argparse.ArgumentParser:
     reco_parser.add_argument("--package", required=True)
     reco_parser.add_argument("--classes", default="ball")
     reco_parser.add_argument("--language", choices=["de", "en", "es", "fr"], default="de")
+    reco_parser.add_argument("--raw-scores", action="store_true", help="keep the model's own confidences instead of fitting them to Reco's 0.10 threshold")
     reco_parser.set_defaults(func=export_reco)
 
     package_parser = commands.add_parser("package")
@@ -6022,6 +6179,16 @@ def build_parser() -> argparse.ArgumentParser:
     simulate_parser.add_argument("--package", default="", help="library package ID to use instead of the active model")
     simulate_parser.add_argument("--language", choices=["de", "en", "es", "fr"], default="de")
     simulate_parser.set_defaults(func=simulate_ball_tracking)
+
+    gaps_parser = commands.add_parser("recover-ball-gaps")
+    gaps_parser.add_argument("--project", required=True)
+    gaps_parser.add_argument("--frames-dir", required=True)
+    gaps_parser.add_argument("--requests", required=True, help="JSON file with the gap frames to look at again")
+    gaps_parser.add_argument("--model", choices=MODEL_CLASSES, default="nano")
+    gaps_parser.add_argument("--threshold", type=float, default=0.15)
+    gaps_parser.add_argument("--package", default="", help="library package ID to use instead of the active model")
+    gaps_parser.add_argument("--language", choices=["de", "en", "es", "fr"], default="de")
+    gaps_parser.set_defaults(func=recover_ball_gaps)
 
     list_models_parser = commands.add_parser("list-models")
     list_models_parser.add_argument("--project", required=True)

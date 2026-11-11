@@ -10,6 +10,12 @@ Reco (the stitcher/autocam) reads every detector as a YOLO end-to-end export:
 RF-DETR models (also combined ones) are wrapped in a small module that undoes the
 letterbox, normalizes like RF-DETR, runs every member and writes that layout. YOLO
 models trained in Reco Trainer already have it; only the classes are filtered and renamed.
+
+Reco applies one confidence threshold to every class, 0.10 unless the user changes it. RF-DETR
+scores are not laid out for that: at 0.10 it reports many false balls and people. So the scores
+of an RF-DETR export are rescaled per class (calibrate_scores) until the threshold that worked
+best on the project's validation images sits exactly at Reco's 0.10. "Best" is the F1 score,
+for the ball an F-score that counts recall double (operating_score).
 """
 from __future__ import annotations
 
@@ -20,6 +26,9 @@ from typing import Any
 # Reco looks for players as "person" (COCO name); everything else keeps its Reco Trainer name.
 RECO_NAMES = {"player": "person"}
 MAX_DETECTIONS = 300
+RECO_DEFAULT_CONFIDENCE = 0.10
+# A class needs this many labelled validation objects before its scores are rescaled.
+MIN_CALIBRATION_OBJECTS = 10
 GREY = 114.0 / 255.0
 
 
@@ -53,19 +62,32 @@ def input_size_for(resolutions: list[int]) -> int:
     return 960 if max(resolutions) <= 640 else 1280
 
 
-def project_aspect(project_root: Path, frames: list[dict[str, Any]], image_size) -> float:
-    """Width/height of the project's images (median of up to 40), the shape the model was trained on."""
-    ratios = []
+def project_aspect(project_root: Path, frames: list[dict[str, Any]], image_size) -> tuple[float, float]:
+    """(width/height, share): the most common shape of the project's images and the share of images
+    that have it. The file is built for that one shape - it cuts Reco's grey borders off at fixed
+    rows - so it has to be the shape of the camera, not of whatever images happen to come first
+    (a project can also hold panoramas or downscaled clips). Sizes come from project.json; only
+    frames without one are opened, at most 40 of them."""
+    shapes: dict[float, list[float]] = {}
+    opened = 0
     for frame in frames:
-        relative = frame.get("relativePath")
-        if not relative:
-            continue
-        size = image_size(project_root / str(relative))
-        if size and size[1]:
-            ratios.append(size[0] / size[1])
-        if len(ratios) >= 40:
-            break
-    return float(statistics.median(ratios)) if ratios else 16 / 9
+        width, height = frame.get("width"), frame.get("height")
+        if not (isinstance(width, (int, float)) and isinstance(height, (int, float)) and width > 0 and height > 0):
+            relative = frame.get("relativePath")
+            if not relative or opened >= 40:
+                continue
+            opened += 1
+            size = image_size(project_root / str(relative))
+            if not size or not size[1]:
+                continue
+            width, height = size
+        ratio = float(width) / float(height)
+        shapes.setdefault(round(ratio, 2), []).append(ratio)
+    if not shapes:
+        return 16 / 9, 1.0
+    total = sum(len(items) for items in shapes.values())
+    most = max(shapes.values(), key=len)
+    return float(statistics.median(most)), len(most) / total
 
 
 def letterbox_image(image: Any, size: int):
@@ -221,9 +243,84 @@ def export_onnx(module: Any, size: int, target: Path) -> None:
                           opset_version=17, do_constant_folding=True, export_params=True, **options)
 
 
-def check_file(path: Path, samples: list[tuple[Any, list[tuple[float, float, float, float]]]], threshold: float = 0.25) -> dict[str, Any]:
-    """Run the file like Reco does: one output [1, N, 6], square input, names readable. samples =
-    [(PIL image, labelled boxes x, y, w, h)]: counts images where a detection's centre lies in a box."""
+# Reco follows a single ball and checks it against its last position and the players, so a
+# false ball costs little and a missed one loses the play: recall counts double for it (F2).
+RECALL_WEIGHT = {"ball": 2.0, "puck": 2.0}
+
+
+def operating_score(category: str, precision: float, recall: float) -> float:
+    """How good a threshold is for Reco: F1, for the ball an F-score that favours recall."""
+    beta = RECALL_WEIGHT.get(category, 1.0) ** 2
+    return (1 + beta) * precision * recall / max(beta * precision + recall, 1e-12)
+
+
+def calibrated_thresholds(per_class: dict[str, dict[str, Any]], categories: list[str]) -> list[float]:
+    """Per output class id, the confidence that should land on Reco's default: the class's best
+    threshold from the validation sweep, or Reco's default itself (= leave the scores alone) when
+    too few labelled objects back it."""
+    thresholds = []
+    for category in categories:
+        entry = per_class.get(category) or {}
+        best = float(entry.get("threshold") or 0.0)
+        enough = int(entry.get("groundTruth") or 0) >= MIN_CALIBRATION_OBJECTS and float(entry.get("f1") or 0.0) > 0.0
+        thresholds.append(min(max(best, 0.05), 0.90) if enough else RECO_DEFAULT_CONFIDENCE)
+    return thresholds
+
+
+def calibrated_score(score: float, threshold: float) -> float:
+    """The rescaling calibrate_scores builds into the file: 0 stays 0, `threshold` becomes Reco's
+    default, 1 stays 1, straight lines in between. The order of detections never changes."""
+    if score < threshold:
+        return score * RECO_DEFAULT_CONFIDENCE / threshold
+    return RECO_DEFAULT_CONFIDENCE + (score - threshold) * (1.0 - RECO_DEFAULT_CONFIDENCE) / (1.0 - threshold)
+
+
+def calibrate_scores(source: Path, target: Path, thresholds: list[float]) -> None:
+    """Copy an export ([1, N, 6]) and append nodes that rescale the confidence column per class
+    as calibrated_score does. thresholds[class id]; a class at Reco's default is left unchanged."""
+    import numpy as np
+    import onnx
+    from onnx import helper, numpy_helper
+    model = onnx.load(str(source))
+    graph = model.graph
+    output = graph.output[0]
+    raw = output.name + "_raw_scores"
+    for node in graph.node:
+        node.output[:] = [raw if name == output.name else name for name in node.output]
+        node.input[:] = [raw if name == output.name else name for name in node.input]
+    limits = np.array(thresholds, dtype=np.float32)
+    tables = {
+        "reco_cal_limit": limits,
+        "reco_cal_low": (RECO_DEFAULT_CONFIDENCE / limits).astype(np.float32),
+        "reco_cal_high": ((1.0 - RECO_DEFAULT_CONFIDENCE) / (1.0 - limits)).astype(np.float32),
+        "reco_cal_base": np.array(RECO_DEFAULT_CONFIDENCE, dtype=np.float32),
+    }
+    for name, value in tables.items():
+        graph.initializer.append(numpy_helper.from_array(value, name))
+    for name, value in {"reco_cal_s0": [0], "reco_cal_s4": [4], "reco_cal_s5": [5], "reco_cal_s6": [6], "reco_cal_axes": [2]}.items():
+        graph.initializer.append(numpy_helper.from_array(np.array(value, dtype=np.int64), name))
+    graph.node.extend([
+        helper.make_node("Slice", [raw, "reco_cal_s0", "reco_cal_s4", "reco_cal_axes"], ["reco_cal_boxes"]),
+        helper.make_node("Slice", [raw, "reco_cal_s4", "reco_cal_s5", "reco_cal_axes"], ["reco_cal_scores"]),
+        helper.make_node("Slice", [raw, "reco_cal_s5", "reco_cal_s6", "reco_cal_axes"], ["reco_cal_class"]),
+        helper.make_node("Cast", ["reco_cal_class"], ["reco_cal_class_int"], to=onnx.TensorProto.INT64),
+        helper.make_node("Gather", ["reco_cal_limit", "reco_cal_class_int"], ["reco_cal_t"], axis=0),
+        helper.make_node("Gather", ["reco_cal_low", "reco_cal_class_int"], ["reco_cal_a"], axis=0),
+        helper.make_node("Gather", ["reco_cal_high", "reco_cal_class_int"], ["reco_cal_b"], axis=0),
+        helper.make_node("Mul", ["reco_cal_scores", "reco_cal_a"], ["reco_cal_below"]),
+        helper.make_node("Sub", ["reco_cal_scores", "reco_cal_t"], ["reco_cal_over"]),
+        helper.make_node("Mul", ["reco_cal_over", "reco_cal_b"], ["reco_cal_scaled"]),
+        helper.make_node("Add", ["reco_cal_scaled", "reco_cal_base"], ["reco_cal_above"]),
+        helper.make_node("Less", ["reco_cal_scores", "reco_cal_t"], ["reco_cal_is_below"]),
+        helper.make_node("Where", ["reco_cal_is_below", "reco_cal_below", "reco_cal_above"], ["reco_cal_new"]),
+        helper.make_node("Concat", ["reco_cal_boxes", "reco_cal_new", "reco_cal_class"], [output.name], axis=2),
+    ])
+    onnx.checker.check_model(model)
+    onnx.save(model, str(target))
+
+
+def open_file(path: Path):
+    """An onnxruntime session for an export, refusing anything Reco could not read."""
     import onnxruntime
     session = onnxruntime.InferenceSession(str(path), providers=["CPUExecutionProvider"])
     outputs = session.get_outputs()
@@ -232,18 +329,30 @@ def check_file(path: Path, samples: list[tuple[Any, list[tuple[float, float, flo
     shape = session.get_inputs()[0].shape
     if shape[2] != shape[3]:
         raise ValueError(f"input is not square: {shape}")
-    size = int(shape[2])
+    return session, int(shape[2])
+
+
+def detect_like_reco(session: Any, size: int, image: Any, threshold: float) -> list[tuple[float, float, float, float, float, int]]:
+    """Run one PIL image through the file the way Reco does and map the boxes back to the image:
+    [(x1, y1, x2, y2, confidence, class id)] at `threshold` or more."""
+    tensor, (scale, pad_x, pad_y) = letterbox_image(image, size)
+    data = session.run(None, {session.get_inputs()[0].name: tensor})[0]
+    if data.ndim != 3 or data.shape[2] != 6:
+        raise ValueError(f"output shape {data.shape} instead of [1, N, 6]")
+    return [((row[0] - pad_x) / scale, (row[1] - pad_y) / scale, (row[2] - pad_x) / scale, (row[3] - pad_y) / scale, float(row[4]), int(row[5]))
+            for row in data[0] if row[4] >= threshold]
+
+
+def check_file(path: Path, samples: list[tuple[Any, list[tuple[float, float, float, float]]]], threshold: float = 0.25) -> dict[str, Any]:
+    """Run the file like Reco does: one output [1, N, 6], square input, names readable. samples =
+    [(PIL image, labelled boxes x, y, w, h)]: counts images where a detection's centre lies in a box."""
+    session, size = open_file(path)
     names = session.get_modelmeta().custom_metadata_map.get("names", "")
     if not names.startswith("{"):
         raise ValueError("names metadata missing")
     found = 0
     for image, boxes in samples:
-        tensor, (scale, pad_x, pad_y) = letterbox_image(image, size)
-        data = session.run(None, {session.get_inputs()[0].name: tensor})[0]
-        if data.ndim != 3 or data.shape[2] != 6:
-            raise ValueError(f"output shape {data.shape} instead of [1, N, 6]")
-        hits = data[0][data[0, :, 4] >= threshold]
-        centres = [(((row[0] + row[2]) / 2 - pad_x) / scale, ((row[1] + row[3]) / 2 - pad_y) / scale) for row in hits]
+        centres = [((x1 + x2) / 2, (y1 + y2) / 2) for x1, y1, x2, y2, _, _ in detect_like_reco(session, size, image, threshold)]
         if any(x <= cx <= x + w and y <= cy <= y + h for cx, cy in centres for x, y, w, h in boxes):
             found += 1
     return {"inputSize": size, "names": names, "found": found, "samples": len(samples)}

@@ -147,5 +147,45 @@ class Sam2RefinePathTests(unittest.TestCase):
             self.assertEqual(ml_worker.sam2_refiner(self.root, "auto", tier, "en"), (None, None))
 
 
+class BallGapTests(unittest.TestCase):
+    """Frames of a dense clip where the ball was missed between two detections."""
+
+    @staticmethod
+    def clip(balls, fps=12.0, width=1920):
+        return [
+            {"file": f"sim-{index:04d}.jpg", "timestamp": index / fps, "width": width, "height": 1080,
+             "ball": {"x": ball[0], "y": ball[1], "confidence": .9} if ball else None}
+            for index, ball in enumerate(balls)
+        ]
+
+    def test_picks_the_middle_of_a_short_gap_with_the_straight_line_position(self):
+        frames = self.clip([(100, 100), None, None, None, (300, 200)])
+        picks = teachers.ball_gaps(frames, per_gap=1)
+        self.assertEqual([pick["index"] for pick in picks], [2])
+        self.assertAlmostEqual(picks[0]["x"], 200.0)
+        self.assertAlmostEqual(picks[0]["y"], 150.0)
+        self.assertEqual(picks[0]["file"], "sim-0002.jpg")
+        self.assertGreaterEqual(picks[0]["radius"], 0.08 * 1920)
+
+    def test_takes_at_most_per_gap_frames_and_never_the_detections_themselves(self):
+        frames = self.clip([(100, 100), *[None] * 9, (200, 100)])
+        picks = teachers.ball_gaps(frames, per_gap=3)
+        self.assertEqual(len(picks), 3)
+        self.assertTrue(all(0 < pick["index"] < 10 for pick in picks))
+        self.assertEqual(len(teachers.ball_gaps(self.clip([(1, 1), None, (2, 2)]), per_gap=3)), 1)
+
+    def test_skips_long_gaps_far_jumps_and_open_ends(self):
+        self.assertEqual(teachers.ball_gaps(self.clip([(100, 100), *[None] * 30, (120, 100)])), [])  # 2.6 s
+        self.assertEqual(teachers.ball_gaps(self.clip([(100, 100), None, (1500, 100)])), [])  # cut or wrong detection
+        self.assertEqual(teachers.ball_gaps(self.clip([None, None, (100, 100), None, None])), [])  # lost, not bridged
+        self.assertEqual(teachers.ball_gaps(self.clip([(100, 100), (110, 100), (120, 100)])), [])
+
+    def test_limit_spreads_the_picks_over_the_whole_clip(self):
+        frames = self.clip([(100, 100), None] * 40 + [(100, 100)])
+        picks = teachers.ball_gaps(frames, limit=10)
+        self.assertEqual(len(picks), 10)
+        self.assertGreater(picks[-1]["index"], 60)
+
+
 if __name__ == "__main__":
     unittest.main()
