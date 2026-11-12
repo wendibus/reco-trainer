@@ -1330,6 +1330,56 @@ def best_ball_box(detections: Any, category_map: dict[str, str], ball_category: 
     return best
 
 
+def all_ball_boxes(detections: Any, category_map: dict[str, str], ball_category: str, package_classes: set[str] | None, sport: str) -> list[dict[str, float]]:
+    """Every ball/puck detection of one image, most confident first, as {"x1", "y1", "x2", "y2", "confidence"}."""
+    detection_data = (getattr(detections, "data", {}) or {})
+    names = detection_data.get("class_name")
+    boxes: list[dict[str, float]] = []
+    for index, box in enumerate(detections.xyxy):
+        class_id = int(detections.class_id[index]) if getattr(detections, "class_id", None) is not None else None
+        detected_name = str(names[index]) if names is not None else "sports ball" if class_id == 32 else ""
+        if category_map.get(detected_name) != ball_category:
+            if package_classes is None or benchmark_detection_category(detected_name, class_id, sport, package_classes) != ball_category:
+                continue
+        x1, y1, x2, y2 = [float(value) for value in box]
+        boxes.append({"x1": x1, "y1": y1, "x2": x2, "y2": y2, "confidence": float(detections.confidence[index])})
+    return sorted(boxes, key=lambda item: -item["confidence"])
+
+
+def find_extra_balls(args: argparse.Namespace) -> None:
+    """Look at whole frames again for balls the tracking simulation did not follow: it keeps one
+    ball per image, but a second ball may lie at the edge or on the floor, and a frame that
+    becomes a training image should show every ball. --requests is a JSON file
+    [{"file"}, ...]. Prints one JSON blob {"frames": [{"file", "balls": [{"x", "y", "width",
+    "height", "confidence"}, ...]}], "model"} with boxes (top left corner and size) in
+    full-frame pixels. Nothing is written to the project - the caller decides what is kept."""
+    project_root = Path(args.project).resolve()
+    document = require_project(project_root, args.language)
+    frames_dir = Path(args.frames_dir).resolve()
+    requests = load_json(Path(args.requests))
+    if not isinstance(requests, list) or not requests:
+        raise SystemExit(localized(args.language, "Keine Bilder zum Prüfen übergeben.", "No images were passed to check."))
+    sport = str(document["sport"])
+    ball_category = "puck" if sport == "hockey" else "ball"
+    category_map = detection_category_map([ball_category])
+    model, _model_size, package_classes, model_label = simulation_ball_model(args, project_root, ball_category)
+    threshold = min(0.95, max(0.01, float(args.threshold)))
+    results: list[dict[str, Any]] = []
+    for request in requests:
+        name = Path(str(request.get("file", ""))).name
+        source = (frames_dir / name).resolve()
+        balls: list[dict[str, float]] = []
+        if frames_dir in source.parents and source.is_file():
+            detections = normalize_detection_batch(model.predict([str(source)], threshold=threshold), 1)[0]
+            balls = [
+                {"x": box["x1"], "y": box["y1"], "width": max(box["x2"] - box["x1"], 1.0), "height": max(box["y2"] - box["y1"], 1.0), "confidence": box["confidence"]}
+                for box in all_ball_boxes(detections, category_map, ball_category, package_classes, sport)
+            ]
+        results.append({"file": name, "balls": balls})
+        print(f"RECO_PROGRESS {len(results)} {len(requests)}", file=sys.stderr, flush=True)
+    print(json.dumps({"frames": results, "model": model_label}, ensure_ascii=False))
+
+
 def gap_search_window(x: float, y: float, radius: float, width: int, height: int, minimum: int = 384) -> tuple[int, int, int, int]:
     """Square window (left, top, right, bottom) around a predicted ball position, at least
     `minimum` pixels wide so the model still sees some surroundings, moved back inside the
@@ -6211,6 +6261,16 @@ def build_parser() -> argparse.ArgumentParser:
     gaps_parser.add_argument("--package", default="", help="library package ID to use instead of the active model")
     gaps_parser.add_argument("--language", choices=["de", "en", "es", "fr"], default="de")
     gaps_parser.set_defaults(func=recover_ball_gaps)
+
+    extra_parser = commands.add_parser("find-extra-balls")
+    extra_parser.add_argument("--project", required=True)
+    extra_parser.add_argument("--frames-dir", required=True)
+    extra_parser.add_argument("--requests", required=True, help="JSON file with the images to check for further balls")
+    extra_parser.add_argument("--model", choices=MODEL_CLASSES, default="nano")
+    extra_parser.add_argument("--threshold", type=float, default=0.2)
+    extra_parser.add_argument("--package", default="", help="library package ID to use instead of the active model")
+    extra_parser.add_argument("--language", choices=["de", "en", "es", "fr"], default="de")
+    extra_parser.set_defaults(func=find_extra_balls)
 
     list_models_parser = commands.add_parser("list-models")
     list_models_parser.add_argument("--project", required=True)

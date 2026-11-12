@@ -224,9 +224,11 @@ The older **CPU model (ONNX)** export writes RF-DETR's own ONNX layout (two outp
 
 ### Ball-tracking simulation
 
-This panel plays back a short clip frame by frame, running the active model's ball detection live and color-coding the result: detected (green), interpolated between two real detections (orange), held at the last known position (yellow), or lost entirely. A slider controls how far ahead/behind the interpolation is allowed to look. It's a fast, visual way to sanity-check a model's real-world tracking behavior — including its failure modes — without setting up a full pipeline. Nothing here is saved or used for training unless you add scenes as review candidates (see below).
+This panel plays back a section of a video frame by frame, running the active model's ball detection live and color-coding the result: detected (green), interpolated between two real detections (orange), held at the last known position (yellow), or lost entirely. A slider controls how far ahead/behind the interpolation is allowed to look. It's a fast, visual way to sanity-check a model's real-world tracking behavior — including its failure modes — without setting up a full pipeline. Nothing here is saved or used for training unless you add scenes as review candidates (see below).
 
 ![The ball-tracking simulation panel, ready to play back a selected clip](screenshots/ball-tracking-simulation.png)
+
+**Section of the video.** The simulation always looks at 12 images per second, so neighbouring images stay close in time and the states and scenes below are meaningful. A long video is not thinned out; you choose where the section starts (seconds) and how long it is (25, 60, 120 or 180 seconds; a shorter video is taken whole). The panel shows how many images that gives. Scene times are times in the video. With **Same video as A**, the right side uses exactly the section of the left side. A section of 180 seconds is 2,160 images at the video's own resolution, about 1 GB of temporary space for Full HD.
 
 **Progress and cancelling.** A run has three steps: extract images, load the model, find the ball. If you cancel, you choose between keeping the images analysed so far as a shorter simulation and deleting all images of the run.
 

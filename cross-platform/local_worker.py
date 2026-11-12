@@ -327,6 +327,8 @@ class LocalState:
         # Source video per simulation slot, kept out of the status so "same video
         # as A" can re-run without another file dialog.
         self.simulation_videos: dict[str, Path] = {}
+        # The section (start, length in seconds) of that video per slot, so "same video as A" takes the same one.
+        self.simulation_sections: dict[str, tuple[float, float]] = {}
         # Extraction progress for the progress dialog: video n of m, frames done/target, start time.
         self.detail: dict | None = None
         # Multi-step jobs: {"index": 2, "count": 5, "label": "..."} ("Step 2/5: ...").
@@ -1013,8 +1015,8 @@ def select_video_file() -> Path:
         selected = Path(configured).expanduser().resolve()
     elif sys.platform == "darwin":
         prompt = localized(
-            "Kurzes Video für die Balltracking-Simulation auswählen", "Select a short video for the ball-tracking simulation",
-            "Selecciona un vídeo corto para la simulación de seguimiento del balón", "Sélectionnez une courte vidéo pour la simulation de suivi du ballon",
+            "Video für die Balltracking-Simulation auswählen", "Select a video for the ball-tracking simulation",
+            "Selecciona un vídeo para la simulación de seguimiento del balón", "Sélectionnez une vidéo pour la simulation de suivi du ballon",
         )
         script = f'POSIX path of (choose file with prompt "{prompt}")'
         result = subprocess.run(["/usr/bin/osascript", "-e", script], capture_output=True, text=True, check=False)
@@ -1180,8 +1182,12 @@ def extract_frames_for_video(
     apple_extractor: Path | None,
     failure_message: str,
     on_frames: Callable[[int], None] | None = None,
+    section: tuple[float, float, float] | None = None,
 ) -> tuple[list[Path], float, int, int]:
     """Extract up to target_count evenly spaced frames from one video.
+
+    With section=(start, length, rate) it instead takes target_count frames at a fixed rate
+    (frames per second) from start to start + length seconds, as the tracking simulation needs.
 
     Shared by initial project preparation and active-learning dataset expansion,
     which previously built the same ffmpeg/Apple-extractor command and the same
@@ -1193,15 +1199,25 @@ def extract_frames_for_video(
     native resolution (no downscaling): small objects such as players in the far
     corner of a full-field panorama need every pixel.
     """
-    rate = max(target_count / duration, 1 / max(duration, 1.0))
     pattern = output_dir / f"{prefix}-%06d.jpg"
-    command = (
-        [ffmpeg, "-hide_banner", "-loglevel", "error", "-y", "-i", str(video),
-         "-vf", f"fps={rate:.8f}",
-         "-frames:v", str(target_count), "-q:v", "2", str(pattern)]
-        if ffmpeg else
-        [str(apple_extractor), str(video), str(output_dir), prefix, str(target_count)]
-    )
+    if section:
+        start, length, rate = section
+        command = (
+            [ffmpeg, "-hide_banner", "-loglevel", "error", "-y", "-ss", f"{start:.3f}", "-t", f"{length:.3f}", "-i", str(video),
+             "-vf", f"fps={rate:.8f}",
+             "-frames:v", str(target_count), "-q:v", "2", str(pattern)]
+            if ffmpeg else
+            [str(apple_extractor), str(video), str(output_dir), prefix, str(target_count), f"{start:.3f}", f"{1 / rate:.6f}"]
+        )
+    else:
+        rate = max(target_count / duration, 1 / max(duration, 1.0))
+        command = (
+            [ffmpeg, "-hide_banner", "-loglevel", "error", "-y", "-i", str(video),
+             "-vf", f"fps={rate:.8f}",
+             "-frames:v", str(target_count), "-q:v", "2", str(pattern)]
+            if ffmpeg else
+            [str(apple_extractor), str(video), str(output_dir), prefix, str(target_count)]
+        )
     # Both extractors write the frames one by one, so counting them gives the progress.
     tick = (lambda: on_frames(sum(1 for _ in output_dir.glob(f"{prefix}-*.jpg")))) if on_frames else None
     returncode, stderr = run_extraction_command(command, tick)
@@ -1562,6 +1578,38 @@ def expand_dataset(folder: Path, payload: dict, held_out: bool = False) -> None:
 SIMULATION_SLOTS = {"a": "simulation", "b": "simulation-b"}
 
 
+# The simulation always looks at 12 images per second. A long video is not thinned out: the
+# user picks a section (start and length), because the tracking states of the player and the
+# scene search (teachers.tracking_scenes) need neighbouring images that are close in time.
+SIMULATION_FPS = 12.0
+SIMULATION_DEFAULT_LENGTH = 25.0
+SIMULATION_MAX_LENGTH = 180.0
+
+
+def simulation_section(payload: dict, duration: float, same: tuple[float, float] | None = None) -> tuple[float, float, int]:
+    """(start, length, image count) of the part of a video the simulation extracts. `same` is
+    the section of slot A, used as it is so that both sides show identical images."""
+    if same is not None:
+        start, length = same
+    else:
+        try:
+            start = float(payload.get("start") or 0.0)
+            length = float(payload.get("length") or SIMULATION_DEFAULT_LENGTH)
+        except (TypeError, ValueError):
+            start, length = 0.0, SIMULATION_DEFAULT_LENGTH
+        start = max(0.0, start)
+        length = min(SIMULATION_MAX_LENGTH, max(1.0, length))
+    if start >= duration:
+        raise RuntimeError(localized(
+            f"Der Start ({start:g} s) liegt hinter dem Ende des Videos ({duration:.1f} s).",
+            f"The start ({start:g} s) is after the end of the video ({duration:.1f} s).",
+            f"El inicio ({start:g} s) está después del final del vídeo ({duration:.1f} s).",
+            f"Le début ({start:g} s) est après la fin de la vidéo ({duration:.1f} s).",
+        ))
+    length = min(length, duration - start)
+    return start, length, max(1, round(length * SIMULATION_FPS))
+
+
 def simulation_slot(payload: dict) -> str:
     return "b" if str(payload.get("slot", "a")).lower() == "b" else "a"
 
@@ -1631,6 +1679,8 @@ def simulate_ball_tracking(video: Path, payload: dict) -> None:
     partial_path: Path | None = None
     rate: float | None = None
     duration = 0.0
+    start = 0.0
+    length = 0.0
     output_width = output_height = 0
     model = str(payload.get("model", "nano"))
     package = str(payload.get("package") or "").strip()
@@ -1643,7 +1693,7 @@ def simulate_ball_tracking(video: Path, payload: dict) -> None:
         frames = [
             {
                 "file": item["file"],
-                "timestamp": min(index / (rate or 12.0), duration),
+                "timestamp": min(start + index / (rate or SIMULATION_FPS), duration),
                 "width": output_width,
                 "height": output_height,
                 "ball": item.get("ball"),
@@ -1652,6 +1702,7 @@ def simulate_ball_tracking(video: Path, payload: dict) -> None:
         ]
         return {
             "id": str(time.time_ns()), "fps": rate, "frames": frames, "slot": slot,
+            "start": start, "length": length,
             "video": video.name, "model": model_label or model, "package": package or None,
             "threshold": threshold, "root": str(STATE.project_root),
             "scenes": teachers.tracking_scenes(frames),
@@ -1683,7 +1734,8 @@ def simulate_ball_tracking(video: Path, payload: dict) -> None:
         ffmpeg = shutil.which("ffmpeg")
         apple_extractor = native_frame_extractor(root) if not ffmpeg or not shutil.which("ffprobe") else None
         duration, width, height = media_info(video, apple_extractor)
-        target_count = min(300, max(1, round(duration * 12)))
+        same = STATE.simulation_sections.get("a") if slot == "b" and payload.get("sameVideo") else None
+        start, length, target_count = simulation_section(payload, duration, same)
         frames_dir = simulation_frames_dir(root, slot)
         if frames_dir.exists():
             shutil.rmtree(frames_dir)
@@ -1702,6 +1754,7 @@ def simulate_ball_tracking(video: Path, payload: dict) -> None:
                 video, duration, width, height, target_count, frames_dir, "sim",
                 ffmpeg, apple_extractor,
                 localized("Extraktion für die Simulation fehlgeschlagen", "Extraction for the simulation failed", "La extracción para la simulación falló", "L’extraction pour la simulation a échoué"),
+                section=(start, length, SIMULATION_FPS),
             )
         finally:
             extraction_done.set()
@@ -1726,6 +1779,7 @@ def simulate_ball_tracking(video: Path, payload: dict) -> None:
         partial_path.unlink(missing_ok=True)
         result = result_for(detections.get("frames", []), detections.get("model"))
         STATE.simulation_videos[slot] = video
+        STATE.simulation_sections[slot] = (start, length)
         count, scenes = len(result["frames"]), len(result["scenes"])
         publish(result, operation="ready", busy=False, progress=1.0, message=localized(
             f"{count} Bilder simuliert, {scenes} auffällige Szenen gefunden.", f"{count} images simulated, {scenes} notable scenes found.",
@@ -1741,6 +1795,7 @@ def simulate_ball_tracking(video: Path, payload: dict) -> None:
                     path.unlink(missing_ok=True)
             partial_path.unlink(missing_ok=True)  # type: ignore[union-attr]
             STATE.simulation_videos[slot] = video
+            STATE.simulation_sections[slot] = (start, length)
             publish(result_for(detected, model_label, total), operation="cancelled", busy=False, progress=0.0, error=None, message=localized(
                 f"Simulation abgebrochen. {len(detected)} von {total} Bildern sind ausgewertet und bleiben erhalten.",
                 f"Simulation cancelled. {len(detected)} of {total} images are analysed and kept.",
@@ -1752,6 +1807,7 @@ def simulate_ball_tracking(video: Path, payload: dict) -> None:
             if frames_dir is not None:
                 shutil.rmtree(frames_dir, ignore_errors=True)
             STATE.simulation_videos.pop(slot, None)
+            STATE.simulation_sections.pop(slot, None)
             publish(None, operation="cancelled", busy=False, progress=0.0, error=None, message=localized(
                 "Simulation abgebrochen. Es war noch kein Bild ausgewertet, es gibt nichts zu behalten.",
                 "Simulation cancelled. No image had been analysed yet, so there is nothing to keep.",
@@ -1765,6 +1821,7 @@ def simulate_ball_tracking(video: Path, payload: dict) -> None:
         if frames_dir is not None:
             shutil.rmtree(frames_dir, ignore_errors=True)
         STATE.simulation_videos.pop(slot, None)
+        STATE.simulation_sections.pop(slot, None)
         STATE.append_log(str(error))
         publish(None, operation="error", busy=False, error=str(error), message=localized("Balltracking-Simulation fehlgeschlagen.", "Ball-tracking simulation failed.", "La simulación de seguimiento del balón falló.", "La simulation de suivi du ballon a échoué."))
     finally:
@@ -1781,6 +1838,24 @@ def cancel_simulation(payload: dict) -> dict:
     else:
         SIMULATION_KEEP_PARTIAL.clear()
     return JOBS.cancel(str(current["id"]))
+
+
+def extra_ball_boxes(existing: list[dict], found: list[dict]) -> list[dict]:
+    """The balls from a second full-frame look (ml_worker find-extra-balls) that are new: not
+    the box the image already carries (or one that mostly covers it) and not twice the same.
+    Boxes are {"x", "y", "width", "height", "confidence"} (top left corner and size)."""
+    def overlap(a: dict, b: dict) -> float:
+        left, top = max(a["x"], b["x"]), max(a["y"], b["y"])
+        right, bottom = min(a["x"] + a["width"], b["x"] + b["width"]), min(a["y"] + a["height"], b["y"] + b["height"])
+        inside = max(right - left, 0.0) * max(bottom - top, 0.0)
+        smaller = min(a["width"] * a["height"], b["width"] * b["height"])
+        return inside / smaller if smaller > 0 else 0.0
+
+    kept: list[dict] = []
+    for box in sorted(found, key=lambda item: -float(item.get("confidence") or 0.0)):
+        if all(overlap(box, other) < 0.3 for other in [*existing, *kept]):
+            kept.append(box)
+    return kept
 
 
 def simulation_gaps_to_candidates(payload: dict) -> None:
@@ -1874,12 +1949,35 @@ def simulation_gaps_to_candidates(payload: dict) -> None:
         ], on_progress=lambda done, total: STATE.update(progress=0.02 + 0.9 * done / max(total, 1)))
         balls = {str(item.get("file")): item.get("ball") for item in found.get("frames", [])}
 
+        # A frame that becomes a training image should show every ball, not only the one the
+        # simulation followed: look at each whole frame again for further balls (edge, floor).
+        STATE.update(progress=0.5, message=localized(
+            f"Prüfe {len(picks)} Bilder auf weitere Bälle …", f"Checking {len(picks)} images for further balls …",
+            f"Comprobando {len(picks)} imágenes en busca de más balones …", f"Recherche d’autres ballons dans {len(picks)} images …",
+        ))
+        extras: dict[str, list[dict]] = {}
+        try:
+            scratch_all = root / ".runtime" / f"ball-extra-{slot}.json"
+            atomic_json(scratch_all, [{"file": pick["file"]} for pick in picks])
+            more = run_json([
+                str(venv_python), str(find_ml_worker()), "find-extra-balls",
+                "--project", str(root), "--frames-dir", str(frames_dir), "--requests", str(scratch_all),
+                "--model", str(payload.get("model", "nano")), "--language", language,
+                *(["--package", package] if package else []),
+            ], on_progress=lambda done, total: STATE.update(progress=0.5 + 0.42 * done / max(total, 1)))
+            extras = {str(item.get("file")): item.get("balls") or [] for item in more.get("frames", [])}
+        except OperationCancelled:
+            raise
+        except Exception as error:  # the candidates are still useful without the extra boxes
+            STATE.append_log(f"find-extra-balls: {error}")
+
         backup_project(root, "ball-gaps")
         target_dir = root / "frames"
         target_dir.mkdir(parents=True, exist_ok=True)
         ball_category = "puck" if project.get("sport") == "hockey" else "ball"
         new_frames: list[dict] = []
         recovered = 0
+        further = 0
         for pick in picks:
             source = sim_frames[pick["index"]]
             name = Path(pick["file"]).name
@@ -1904,6 +2002,14 @@ def simulation_gaps_to_candidates(payload: dict) -> None:
                     "width": max(float(ball["width"]), 1.0), "height": max(float(ball["height"]), 1.0),
                     "confidence": float(ball["confidence"]), "source": "auto",
                 })
+            for extra in extra_ball_boxes([{key: float(item[key]) for key in ("x", "y", "width", "height")} for item in annotations], extras.get(name, [])):
+                annotations.append({
+                    "id": str(uuid.uuid4()), "category": ball_category,
+                    "x": max(float(extra["x"]), 0.0), "y": max(float(extra["y"]), 0.0),
+                    "width": max(float(extra["width"]), 1.0), "height": max(float(extra["height"]), 1.0),
+                    "confidence": float(extra["confidence"]), "source": "auto",
+                })
+                further += 1
             new_frames.append({
                 "id": frame_id(pick), "relativePath": f"frames/{target.name}", "videoID": video_id,
                 "videoName": video.name, "timestamp": timestamp,
@@ -1915,17 +2021,17 @@ def simulation_gaps_to_candidates(payload: dict) -> None:
         atomic_json(root / "project.json", project)
         if chosen is not None:
             STATE.update(project=project, operation="ready", busy=False, progress=1.0, message=localized(
-                f"{len(new_frames)} Bilder aus {len(scenes)} Szenen als Prüfkandidaten übernommen ({len(searches)} aus Lücken, in {recovered} davon wurde der Ball im Ausschnitt gefunden). Sie stehen jetzt in der Bilderliste zur Prüfung.",
-                f"{len(new_frames)} images from {len(scenes)} scenes added as review candidates ({len(searches)} from gaps; the ball was found in the close-up in {recovered} of them). They are now in the image list for review.",
-                f"{len(new_frames)} imágenes de {len(scenes)} escenas añadidas como candidatas ({len(searches)} de huecos; el balón se encontró en el recorte en {recovered} de ellas). Ya están en la lista de imágenes para revisarlas.",
-                f"{len(new_frames)} images de {len(scenes)} scènes ajoutées comme candidates ({len(searches)} issues de lacunes ; le ballon a été trouvé dans le recadrage pour {recovered} d’entre elles). Elles sont maintenant dans la liste d’images à vérifier.",
+                f"{len(new_frames)} Bilder aus {len(scenes)} Szenen als Prüfkandidaten übernommen ({len(searches)} aus Lücken, in {recovered} davon wurde der Ball im Ausschnitt gefunden). Sie stehen jetzt in der Bilderliste zur Prüfung." + (f" Dazu {further} weitere Bälle vorgemerkt." if further else ""),
+                f"{len(new_frames)} images from {len(scenes)} scenes added as review candidates ({len(searches)} from gaps; the ball was found in the close-up in {recovered} of them). They are now in the image list for review." + (f" {further} further balls were marked as suggestions." if further else ""),
+                f"{len(new_frames)} imágenes de {len(scenes)} escenas añadidas como candidatas ({len(searches)} de huecos; el balón se encontró en el recorte en {recovered} de ellas). Ya están en la lista de imágenes para revisarlas." + (f" Se propusieron {further} balones más." if further else ""),
+                f"{len(new_frames)} images de {len(scenes)} scènes ajoutées comme candidates ({len(searches)} issues de lacunes ; le ballon a été trouvé dans le recadrage pour {recovered} d’entre elles). Elles sont maintenant dans la liste d’images à vérifier." + (f" {further} autres ballons ont été proposés." if further else ""),
             ))
             return
         STATE.update(project=project, operation="ready", busy=False, progress=1.0, message=localized(
-            f"{len(new_frames)} Lücken-Bilder als Prüfkandidaten übernommen, in {recovered} davon wurde der Ball im Ausschnitt gefunden.",
-            f"{len(new_frames)} gap images added as review candidates; the ball was found in the close-up in {recovered} of them.",
-            f"{len(new_frames)} imágenes con huecos añadidas como candidatas; el balón se encontró en el recorte en {recovered} de ellas.",
-            f"{len(new_frames)} images de lacunes ajoutées comme candidates ; le ballon a été trouvé dans le recadrage pour {recovered} d’entre elles.",
+            f"{len(new_frames)} Lücken-Bilder als Prüfkandidaten übernommen, in {recovered} davon wurde der Ball im Ausschnitt gefunden." + (f" Dazu {further} weitere Bälle vorgemerkt." if further else ""),
+            f"{len(new_frames)} gap images added as review candidates; the ball was found in the close-up in {recovered} of them." + (f" {further} further balls were marked as suggestions." if further else ""),
+            f"{len(new_frames)} imágenes con huecos añadidas como candidatas; el balón se encontró en el recorte en {recovered} de ellas." + (f" Se propusieron {further} balones más." if further else ""),
+            f"{len(new_frames)} images de lacunes ajoutées comme candidates ; le ballon a été trouvé dans le recadrage pour {recovered} d’entre elles." + (f" {further} autres ballons ont été proposés." if further else ""),
         ))
     except OperationCancelled:
         STATE.update(operation="cancelled", busy=False, progress=0.0, error=None, message=localized("Abgebrochen. Es wurden keine neuen Bilder übernommen.", "Cancelled. No new images were added.", "Cancelado. No se añadieron imágenes nuevas.", "Annulé. Aucune nouvelle image n’a été ajoutée."))

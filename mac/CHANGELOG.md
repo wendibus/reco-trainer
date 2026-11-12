@@ -1,5 +1,18 @@
 # Änderungen
 
+## 0.35.0
+
+Simulation mit fester Bildrate und wählbarem Abschnitt; weitere Bälle beim Übernehmen vormerken; nach „Ball“ / „Kein Ball“ sofort das nächste Bild.
+
+- Bildrate: Die Simulation nimmt immer 12 Bilder pro Sekunde. Bisher verteilte `extract_frames_for_video` höchstens 300 Bilder gleichmäßig über das ganze Video, bei langen Videos lagen Sekunden zwischen zwei Bildern; Zustände (interpoliert/gehalten) und `teachers.tracking_scenes` setzen dichte Bilder voraus und lieferten dort Unsinn.
+- Abschnitt: `simulation_section` wählt Start und Länge (Voreinstellung 0 und 25 s, höchstens 180 s; ein kürzeres Video wird ganz genommen, ein Start hinter dem Videoende ist ein klarer Fehler). Oberfläche: Start (Sekunden), Länge 25/60/120/180 s und die Zahl der Bilder. „Gleiches Video wie A“ nimmt den Abschnitt von A (`STATE.simulation_sections`).
+- Zeitstempel: `frames[].timestamp` ist die echte Videozeit (Start + Index/12). Daraus entstehen IDs und Dateinamen der Prüfkandidaten (`gap-<videoid>-<ms>.jpg`), Abschnitte desselben Videos kollidieren nicht mehr. Die Szenenzeiten sind Videozeiten.
+- Extraktion: ffmpeg mit `-ss`/`-t` vor der Eingabe und `fps=12`; `frame_extractor.swift` nimmt optional `START STEP` (sonst unverändert).
+- Weitere Bälle: Beim Übernehmen von Szenen sucht der neue Befehl `ml_worker find-extra-balls` in jedem übernommenen Bild alle Bälle ab Sicherheit 0,2 (die Simulation behält nur einen je Bild). Neue Treffer, die sich nicht mit vorhandenen Boxen überdecken (`extra_ball_boxes`), kommen als Vorschläge (Quelle „auto“) ins Bild. Scheitert der Durchlauf, werden die Kandidaten ohne die Zusatzboxen übernommen.
+- Prüfen: Nach „Ball“, „Kein Ball“, „Überspringen“ und der Bestätigung unabhängiger Testbilder wird das nächste Bild der Warteschlange vor dem Speichern gewählt. Vorher konnte der Effekt, der den Anfang der Warteschlange wählt, die Auswahl nach dem Speichern überschreiben.
+- Geprüft: 493 Tests. Echter Lauf mit RF-DETR nano (Basketball): 60 s ab 600 s (720 Bilder, 19 s) und 180 s ab 1200 s (2160 Bilder, 49 s); Seite B mit „Gleiches Video wie A“ gleicher Abschnitt; `find-extra-balls` an 5 echten Bildern. Nicht im Browser angesehen, der End-to-End-Test der Oberfläche lief nicht (kein Playwright).
+- Offen: 180 s belegen bei Full HD etwa 1 GB temporär je Seite. Mehr als 40 Szenen werden ohne Hinweis abgeschnitten.
+
 ## 0.34.0
 
 Balltracking-Simulation: stimmiger Fortschritt, Abbruch mit Wahl, auffällige Szenen statt „alle Lücken".

@@ -72,7 +72,7 @@ const DEFAULT_API = import.meta.env.DEV ? 'http://127.0.0.1:8766' : window.locat
 // Single source of truth for this web UI's own version - bump alongside
 // VERSION in cross-platform/scripts/package-platforms.sh at every release.
 // Compared against GitHub's latest release tag to power the update banner.
-const CURRENT_VERSION = '0.34.0';
+const CURRENT_VERSION = '0.35.0';
 const WHATS_NEW_SEEN_KEY = 'reco-whats-new-seen-v1';
 // One clearly different colour per class, so boxes can be told apart at a glance.
 // Auto-label suggestions are dashed (not recoloured), so the colour always means the class.
@@ -534,20 +534,30 @@ export default function Home() {
     try { await post('/api/active-learning', { model: modelSize, language, category, threshold: .12, framesPerVideo, compareModels: useEnsembleDisagreement }); }
     catch (error) { setWorker((current) => current ? { ...current, error: String(error) } : current); }
   }
+  /** The candidate after the current one in the queue (then the first one that is left), so a decision never jumps back. */
+  function nextCandidate(queue: LocalFrame[], current: LocalFrame): LocalFrame | undefined {
+    const position = queue.findIndex((frame) => frame.id === current.id);
+    return queue.slice(position + 1).find((frame) => frame.id !== current.id) ?? queue.find((frame) => frame.id !== current.id);
+  }
   async function reviewCandidate(decision: 'ball' | 'no-ball') {
     if (!selectedFrame || selectedFrame.reviewStatus !== 'candidate') return;
-    const next = candidates.find((frame) => frame.id !== selectedFrame.id);
+    const next = nextCandidate(candidates, selectedFrame);
+    // Select the next image first: once the decision is saved, the worker status makes the effect
+    // above pick the front of the queue, which would win over the image chosen afterwards.
+    const previous = selectedFrame.id;
+    if (next) setSelectedFrameID(next.id);
     try {
       await post('/api/review-candidate', { frameId: selectedFrame.id, decision, category });
-      setSelectedFrameID(next?.id ?? selectedFrame.id);
       setSelectedAnnotationID(null); setHistory([]); setFuture([]);
-    } catch (error) { setWorker((current) => current ? { ...current, error: String(error) } : current); }
+    } catch (error) { setSelectedFrameID(previous); setWorker((current) => current ? { ...current, error: String(error) } : current); }
   }
   async function skipCandidate() {
     if (!selectedFrame || selectedFrame.reviewStatus !== 'candidate') return;
-    const next = candidates.find((frame) => frame.id !== selectedFrame.id);
-    try { await post('/api/remove-frame', { frameId: selectedFrame.id }); setSelectedFrameID(next?.id ?? null); }
-    catch (error) { setWorker((current) => current ? { ...current, error: String(error) } : current); }
+    const next = nextCandidate(candidates, selectedFrame);
+    const previous = selectedFrame.id;
+    setSelectedFrameID(next?.id ?? null);
+    try { await post('/api/remove-frame', { frameId: selectedFrame.id }); }
+    catch (error) { setSelectedFrameID(previous); setWorker((current) => current ? { ...current, error: String(error) } : current); }
   }
   async function startIndependentValidation() {
     try { await post('/api/independent-validation', { model: modelSize, language, threshold: .12, framesPerVideo, compareModels: useEnsembleDisagreement }); }
@@ -555,12 +565,13 @@ export default function Home() {
   }
   async function confirmIndependentCandidate() {
     if (!selectedFrame || selectedFrame.reviewStatus !== 'candidate') return;
-    const next = independentCandidates.find((frame) => frame.id !== selectedFrame.id);
+    const next = nextCandidate(independentCandidates, selectedFrame);
+    const previous = selectedFrame.id;
+    if (next) setSelectedFrameID(next.id);
     try {
       await post('/api/review-candidate', { frameId: selectedFrame.id, decision: 'confirm' });
-      setSelectedFrameID(next?.id ?? selectedFrame.id);
       setSelectedAnnotationID(null); setHistory([]); setFuture([]);
-    } catch (error) { setWorker((current) => current ? { ...current, error: String(error) } : current); }
+    } catch (error) { setSelectedFrameID(previous); setWorker((current) => current ? { ...current, error: String(error) } : current); }
   }
 
   function applyView(next: View) { viewRef.current = next; setZoom(next.zoom); setPan(next.pan); }

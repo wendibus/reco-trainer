@@ -8,6 +8,31 @@ type Item = { title: string; text: string };
  *  number in the header opens it again. Add the next version's entry at the top. */
 export const WHATS_NEW: { version: string; items: Record<Language, Item[]> }[] = [
   {
+    version: '0.35.0',
+    items: {
+      de: [
+        { title: 'Simulation mit festem Abschnitt', text: 'Die Balltracking-Simulation wertet immer 12 Bilder pro Sekunde aus. Bei langen Videos wählst du Start und Länge (25, 60, 120 oder 180 Sekunden) statt ausgedünnter Bilder. Die Oberfläche zeigt, wie viele Bilder das ergibt; „Gleiches Video wie A“ nimmt denselben Abschnitt.' },
+        { title: 'Weitere Bälle werden vorgemerkt', text: 'Beim Übernehmen von Szenen als Prüfkandidaten wird jedes Bild noch einmal auf weitere Bälle geprüft, etwa am Rand. Sie kommen als Vorschläge ins Bild; „Ball“ bestätigt alle Ball-Boxen, also prüfe sie kurz.' },
+        { title: 'Nach Ball / Kein Ball sofort weiter', text: 'Nach „Ball“, „Kein Ball“ und „Überspringen“ öffnet sich direkt das nächste Prüfbild. Vorher konnte die Auswahl nach dem Speichern an den Anfang der Liste springen.' },
+      ],
+      en: [
+        { title: 'Simulation with a fixed section', text: 'The ball-tracking simulation always analyses 12 images per second. For long videos you choose the start and the length (25, 60, 120 or 180 seconds) instead of thinned-out images. The panel shows how many images that gives; “Same video as A” uses the same section.' },
+        { title: 'Further balls are suggested', text: 'When you add scenes as review candidates, every image is checked once more for further balls, for example at the edge. They come in as suggested boxes; “Ball” confirms all ball boxes, so check them briefly.' },
+        { title: 'Straight on after Ball / No ball', text: 'After “Ball”, “No ball” and “Skip” the next review image opens. Before, the selection could jump back to the start of the list after saving.' },
+      ],
+      es: [
+        { title: 'Simulación con un tramo fijo', text: 'La simulación de seguimiento del balón analiza siempre 12 imágenes por segundo. En vídeos largos eliges el inicio y la duración (25, 60, 120 o 180 segundos) en lugar de imágenes espaciadas. El panel muestra cuántas imágenes salen; «Mismo vídeo que A» usa el mismo tramo.' },
+        { title: 'Se proponen más balones', text: 'Al añadir escenas como candidatas, cada imagen se comprueba otra vez en busca de más balones, por ejemplo en el borde. Aparecen como cuadros propuestos; «Balón» confirma todos los cuadros de balón, así que revísalos brevemente.' },
+        { title: 'Directo a la siguiente tras Balón / No es balón', text: 'Tras «Balón», «No es balón» y «Omitir» se abre la siguiente imagen de revisión. Antes la selección podía saltar al principio de la lista tras guardar.' },
+      ],
+      fr: [
+        { title: 'Simulation avec un passage fixe', text: 'La simulation de suivi du ballon analyse toujours 12 images par seconde. Pour les vidéos longues, vous choisissez le début et la durée (25, 60, 120 ou 180 secondes) au lieu d’images espacées. Le panneau indique le nombre d’images ; « Même vidéo que A » reprend le même passage.' },
+        { title: 'D’autres ballons sont proposés', text: 'Quand vous ajoutez des scènes comme candidates, chaque image est revérifiée pour d’autres ballons, par exemple en bordure. Ils arrivent comme boîtes proposées ; « Ballon » confirme toutes les boîtes de ballon, vérifiez-les donc rapidement.' },
+        { title: 'Directement la suivante après Ballon / Pas de ballon', text: 'Après « Ballon », « Pas de ballon » et « Ignorer », l’image suivante à vérifier s’ouvre. Avant, la sélection pouvait revenir au début de la liste après l’enregistrement.' },
+      ],
+    },
+  },
+  {
     version: '0.34.0',
     items: {
       de: [
