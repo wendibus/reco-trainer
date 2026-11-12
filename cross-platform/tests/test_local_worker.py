@@ -724,7 +724,7 @@ class SimulationSlotTests(unittest.TestCase):
                 calls.append((count, keywords.get("section")))
                 for index in range(3):
                     (frames_dir / f"{prefix}-{index + 1:04d}.jpg").write_bytes(b"jpg")
-                return [], 12.0, 320, 180
+                return [], (keywords["section"][2] if keywords.get("section") else 12.0), 320, 180
 
             def fake_run_json(command, on_progress=None):
                 return {"frames": [{"file": f"sim-{index + 1:04d}.jpg", "ball": None} for index in range(3)], "model": "M"}
@@ -756,6 +756,46 @@ class SimulationSlotTests(unittest.TestCase):
         calls, _ = self.simulate_section({"slot": "a", "language": "en", "start": 95, "length": 60}, 100.0)
         self.assertEqual(calls, [(60, (95.0, 5.0, 12.0))])
 
+    def test_every_nth_image_is_a_lower_rate_and_allows_longer_sections(self):
+        calls, simulation = self.simulate_section({"slot": "a", "language": "en", "start": 600, "length": 60, "every": 3}, 1800.0)
+        self.assertEqual(calls, [(240, (600.0, 60.0, 4.0))])
+        self.assertEqual((simulation["every"], simulation["fps"]), (3, 4.0))
+        self.assertEqual([round(frame["timestamp"], 4) for frame in simulation["frames"]], [600.0, 600.25, 600.5])
+        # no fixed cap of 300 images: a run holds up to 2,160, so every 3rd image reaches 540 seconds
+        calls, _ = self.simulate_section({"slot": "a", "language": "en", "length": 9999, "every": 3}, 3000.0)
+        self.assertEqual(calls, [(2160, (0.0, 540.0, 4.0))])
+        calls, _ = self.simulate_section({"slot": "a", "language": "en", "length": 60, "every": 99}, 3000.0)
+        self.assertEqual(calls, [(60, (0.0, 60.0, 1.0))])  # every 12th image at most
+
+    def test_a_run_that_does_not_fit_on_the_disk_is_refused_with_advice(self):
+        original = local_worker.shutil.disk_usage
+        local_worker.shutil.disk_usage = lambda _folder: mock.Mock(free=1_000_000_000)  # 1 GB free
+        try:
+            # 2,160 Full HD images need about 1 GB; with every 2nd image 1,080 do
+            with self.assertRaises(RuntimeError) as refused:
+                local_worker.check_simulation_space(Path("/x"), 1920, 1080, 2160, 180.0, 1)
+            self.assertIn("Choose one image in 2", str(refused.exception))
+            local_worker.check_simulation_space(Path("/x"), 1920, 1080, 1080, 180.0, 2)
+            local_worker.shutil.disk_usage = lambda _folder: mock.Mock(free=100_000_000)
+            with self.assertRaises(RuntimeError) as shorter:
+                local_worker.check_simulation_space(Path("/x"), 1920, 1080, 2160, 180.0, 12)
+            self.assertIn("shorter section", str(shorter.exception))
+        finally:
+            local_worker.shutil.disk_usage = original
+
+    def test_the_scene_limit_grows_with_the_length_and_the_total_is_reported(self):
+        self.assertEqual(local_worker.teachers.scene_limit(25), 40)
+        self.assertEqual(local_worker.teachers.scene_limit(180), 120)
+        self.assertEqual(local_worker.teachers.scene_limit(540), 360)
+        # 100 isolated detections with a gap each: more scenes than a 20-second clip may list
+        frames = []
+        for index in range(240):
+            ball = {"x": 100.0 + (index // 2) * 3, "y": 100.0, "confidence": .9} if index % 4 != 2 else None
+            frames.append({"file": f"f{index}.jpg", "timestamp": index / 12, "width": 1920, "ball": ball})
+        scenes, total = local_worker.teachers.tracking_scenes_with_total(frames)
+        self.assertGreater(total, 40)
+        self.assertEqual(len(scenes), 40)
+
     def test_a_start_behind_the_end_of_the_video_is_refused(self):
         with self.assertRaises(RuntimeError):
             local_worker.simulation_section({"start": 200}, 100.0)
@@ -765,10 +805,10 @@ class SimulationSlotTests(unittest.TestCase):
         self.assertEqual([round(frame["timestamp"], 4) for frame in simulation["frames"]], [600.0, round(600 + 1 / 12, 4), round(600 + 2 / 12, 4)])
 
     def test_slot_b_with_the_same_video_uses_the_section_of_a(self):
-        local_worker.STATE.simulation_sections["a"] = (600.0, 60.0)
+        local_worker.STATE.simulation_sections["a"] = (600.0, 60.0, 2)
         calls, simulation = self.simulate_section({"slot": "b", "sameVideo": True, "language": "en", "start": 0, "length": 25}, 1800.0)
-        self.assertEqual(calls, [(720, (600.0, 60.0, 12.0))])
-        self.assertEqual(local_worker.STATE.simulation_sections["b"], (600.0, 60.0))
+        self.assertEqual(calls, [(360, (600.0, 60.0, 6.0))])  # A looked at every 2nd image
+        self.assertEqual(local_worker.STATE.simulation_sections["b"], (600.0, 60.0, 2))
         self.assertEqual(simulation["start"], 600.0)
 
     def test_the_extraction_commands_for_a_section(self):

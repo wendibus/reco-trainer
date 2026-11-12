@@ -6,7 +6,7 @@ type SimulationFrame = { file: string; timestamp: number; width: number; height:
 type SceneKind = 'gap' | 'jump' | 'weak' | 'lost';
 /// A stretch of the clip worth a look (teachers.tracking_scenes in the worker); start/end are frame indices.
 type Scene = { id: string; kind: SceneKind; start: number; end: number; startTime: number; endTime: number; picks: Array<{ index: number }> };
-type Simulation = { id?: string; fps: number; start?: number; length?: number; frames: SimulationFrame[]; slot?: 'a' | 'b'; video?: string; model?: string; package?: string | null; threshold?: number; scenes?: Scene[]; partial?: { done: number; total: number } };
+type Simulation = { id?: string; fps: number; every?: number; scenesTotal?: number; start?: number; length?: number; frames: SimulationFrame[]; slot?: 'a' | 'b'; video?: string; model?: string; package?: string | null; threshold?: number; scenes?: Scene[]; partial?: { done: number; total: number } };
 type TrackState = 'detected' | 'interpolated' | 'coasting' | 'lost';
 type Resolved = { state: TrackState; x: number | null; y: number | null };
 type Slot = 'a' | 'b';
@@ -26,14 +26,16 @@ type Props = {
   models?: LibraryModel[];
   modelSize?: string;
   sport?: string;
+  /** The open project; start, length and density are remembered per project. */
+  projectKey?: string;
   post: (path: string, payload?: Record<string, unknown>) => Promise<unknown>;
 };
 
 const text = {
-  de: { title: 'Balltracking-Simulation', intro: 'Video wählen und die Ballerkennung Bild für Bild abspielen. Es werden immer 12 Bilder pro Sekunde ausgewertet, bei langen Videos ein Abschnitt (Start und Länge). Im Vergleich laufen zwei Videos mit zwei Modellen synchron nebeneinander. Videos werden nur lokal verarbeitet. Bilder kommen nur ins Projekt, wenn du Szenen als Prüfkandidaten übernimmst.', pick: 'Video auswählen', start: 'Start (Sekunden)', length: 'Länge', imagesAbout: 'ergibt bis zu {n} Bilder', empty: 'Wähle oben ein Video aus, um zu starten.', emptySide: 'Noch keine Simulation auf dieser Seite.', lookahead: 'Wie weit direkt in die Zukunft schauen', frames: 'Bilder', detected: 'Erkannt', interpolated: 'Interpoliert', coasting: 'Gehalten', lost: 'Verloren', compare: 'Zwei Modelle vergleichen', single: 'Nur eine Simulation', model: 'Modell', activeModel: 'Aktives Modell', sameVideo: 'Gleiches Video wie A', tracked: 'Ball verfolgt', avgConfidence: 'Ø Sicherheit', onlyA: 'Nur A erkennt', onlyB: 'Nur B erkennt', both: 'Beide erkennen', sameClip: 'Gleiches Video: Unterschiede Bild für Bild', noBallModels: 'Keine Modelle mit Ball-Klasse in der Bibliothek; es läuft das aktive Modell.', gaps: 'Lücken als Prüfkandidaten übernehmen', cancel: 'Abbrechen', cancelTitle: 'Simulation abbrechen?', cancelBody: 'Die Bilder, in denen der Ball schon gesucht wurde, kannst du als kürzere Simulation behalten. Oder du löschst alle Bilder dieses Laufs.', cancelBodyEarly: 'Bisher ist noch kein Bild ausgewertet. Beim Abbruch werden die Bilder dieses Laufs gelöscht.', cancelKeep: 'Abbrechen, Ausgewertetes behalten', cancelDelete: 'Abbrechen und Bilder löschen', cancelContinue: 'Weiter simulieren', stepOf: 'Schritt {i} von {n}', partial: 'Abgebrochener Lauf: {done} von {total} Bildern ausgewertet.', scenes: 'Auffällige Szenen', scenesIntro: 'Ein Klick springt zur Szene. Angekreuzte Szenen kommen mit wenigen Bildern als Prüfkandidaten in die Bilderliste; dort prüfst du jedes Bild einzeln.', noScenes: 'Keine auffälligen Szenen gefunden.', kindGap: 'Lücke', kindJump: 'Sprung', kindWeak: 'Unsicher', kindLost: 'Verloren', images: 'Bilder', adopt: '{scenes} Szenen übernehmen ({images} Bilder)', prevScene: '◀ Szene', nextScene: 'Szene ▶' },
-  en: { title: 'Ball-tracking simulation', intro: 'Pick a video and play back the ball detection frame by frame. It always analyses 12 images per second; for a long video that is one section (start and length). In comparison mode, two videos with two models play in sync side by side. Videos are only processed locally. Images only enter the project when you add scenes as review candidates.', pick: 'Select video', start: 'Start (seconds)', length: 'Length', imagesAbout: 'gives up to {n} images', empty: 'Select a video above to get started.', emptySide: 'No simulation on this side yet.', lookahead: 'How far to look directly into the future', frames: 'frames', detected: 'Detected', interpolated: 'Interpolated', coasting: 'Held', lost: 'Lost', compare: 'Compare two models', single: 'Single simulation', model: 'Model', activeModel: 'Active model', sameVideo: 'Same video as A', tracked: 'Ball tracked', avgConfidence: 'Avg. confidence', onlyA: 'Only A detects', onlyB: 'Only B detects', both: 'Both detect', sameClip: 'Same video: frame-by-frame differences', noBallModels: 'No models with a ball class in the library; the active model is used.', gaps: 'Add gaps as review candidates', cancel: 'Cancel', cancelTitle: 'Cancel the simulation?', cancelBody: 'You can keep the images in which the ball has already been looked for, as a shorter simulation. Or delete all images of this run.', cancelBodyEarly: 'No image has been analysed yet. Cancelling deletes the images of this run.', cancelKeep: 'Cancel, keep what is analysed', cancelDelete: 'Cancel and delete the images', cancelContinue: 'Keep simulating', stepOf: 'Step {i} of {n}', partial: 'Cancelled run: {done} of {total} images analysed.', scenes: 'Notable scenes', scenesIntro: 'A click jumps to the scene. Ticked scenes go into the image list as review candidates, a few images each; there you check every image yourself.', noScenes: 'No notable scenes found.', kindGap: 'Gap', kindJump: 'Jump', kindWeak: 'Unsure', kindLost: 'Lost', images: 'images', adopt: 'Add {scenes} scenes ({images} images)', prevScene: '◀ Scene', nextScene: 'Scene ▶' },
-  es: { title: 'Simulación de seguimiento del balón', intro: 'Elige un vídeo y reproduce la detección del balón cuadro a cuadro. Siempre se analizan 12 imágenes por segundo; en un vídeo largo, un tramo (inicio y duración). En la comparación, dos vídeos con dos modelos se reproducen sincronizados uno al lado del otro. Los vídeos solo se procesan localmente. Las imágenes solo entran en el proyecto cuando añades escenas como candidatas.', pick: 'Seleccionar vídeo', start: 'Inicio (segundos)', length: 'Duración', imagesAbout: 'da hasta {n} imágenes', empty: 'Selecciona un vídeo arriba para empezar.', emptySide: 'Aún no hay simulación en este lado.', lookahead: 'Hasta dónde mirar directamente al futuro', frames: 'imágenes', detected: 'Detectado', interpolated: 'Interpolado', coasting: 'Mantenido', lost: 'Perdido', compare: 'Comparar dos modelos', single: 'Una sola simulación', model: 'Modelo', activeModel: 'Modelo activo', sameVideo: 'Mismo vídeo que A', tracked: 'Balón seguido', avgConfidence: 'Confianza media', onlyA: 'Solo A detecta', onlyB: 'Solo B detecta', both: 'Ambos detectan', sameClip: 'Mismo vídeo: diferencias imagen por imagen', noBallModels: 'No hay modelos con clase de balón en la biblioteca; se usa el modelo activo.', gaps: 'Añadir huecos como candidatos', cancel: 'Cancelar', cancelTitle: '¿Cancelar la simulación?', cancelBody: 'Puedes conservar las imágenes en las que ya se buscó el balón, como una simulación más corta. O eliminar todas las imágenes de esta ejecución.', cancelBodyEarly: 'Aún no se ha analizado ninguna imagen. Al cancelar se eliminan las imágenes de esta ejecución.', cancelKeep: 'Cancelar y conservar lo analizado', cancelDelete: 'Cancelar y eliminar las imágenes', cancelContinue: 'Seguir simulando', stepOf: 'Paso {i} de {n}', partial: 'Ejecución cancelada: {done} de {total} imágenes analizadas.', scenes: 'Escenas llamativas', scenesIntro: 'Un clic salta a la escena. Las escenas marcadas pasan a la lista de imágenes como candidatas, con pocas imágenes cada una; allí revisas cada imagen.', noScenes: 'No se encontraron escenas llamativas.', kindGap: 'Hueco', kindJump: 'Salto', kindWeak: 'Dudoso', kindLost: 'Perdido', images: 'imágenes', adopt: 'Añadir {scenes} escenas ({images} imágenes)', prevScene: '◀ Escena', nextScene: 'Escena ▶' },
-  fr: { title: 'Simulation de suivi du ballon', intro: 'Choisissez une vidéo et regardez la détection du ballon image par image. 12 images par seconde sont toujours analysées ; pour une vidéo longue, un passage (début et durée). En mode comparaison, deux vidéos avec deux modèles sont lues côte à côte de façon synchronisée. Les vidéos ne sont traitées que localement. Les images n’entrent dans le projet que si vous ajoutez des scènes comme candidates.', pick: 'Sélectionner une vidéo', start: 'Début (secondes)', length: 'Durée', imagesAbout: 'donne jusqu’à {n} images', empty: 'Sélectionnez une vidéo ci-dessus pour commencer.', emptySide: 'Pas encore de simulation de ce côté.', lookahead: 'Jusqu’où regarder directement dans le futur', frames: 'images', detected: 'Détecté', interpolated: 'Interpolé', coasting: 'Maintenu', lost: 'Perdu', compare: 'Comparer deux modèles', single: 'Une seule simulation', model: 'Modèle', activeModel: 'Modèle actif', sameVideo: 'Même vidéo que A', tracked: 'Ballon suivi', avgConfidence: 'Confiance moy.', onlyA: 'Seul A détecte', onlyB: 'Seul B détecte', both: 'Les deux détectent', sameClip: 'Même vidéo : différences image par image', noBallModels: 'Aucun modèle avec une classe ballon dans la bibliothèque ; le modèle actif est utilisé.', gaps: 'Ajouter les lacunes comme candidates', cancel: 'Annuler', cancelTitle: 'Annuler la simulation ?', cancelBody: 'Vous pouvez garder les images dans lesquelles le ballon a déjà été cherché, comme simulation plus courte. Ou supprimer toutes les images de cette exécution.', cancelBodyEarly: 'Aucune image n’est encore analysée. L’annulation supprime les images de cette exécution.', cancelKeep: 'Annuler et garder l’analyse', cancelDelete: 'Annuler et supprimer les images', cancelContinue: 'Continuer la simulation', stepOf: 'Étape {i} sur {n}', partial: 'Exécution annulée : {done} images analysées sur {total}.', scenes: 'Scènes notables', scenesIntro: 'Un clic saute à la scène. Les scènes cochées entrent dans la liste d’images comme candidates, avec quelques images chacune ; vous y vérifiez chaque image.', noScenes: 'Aucune scène notable trouvée.', kindGap: 'Lacune', kindJump: 'Saut', kindWeak: 'Incertain', kindLost: 'Perdu', images: 'images', adopt: 'Ajouter {scenes} scènes ({images} images)', prevScene: '◀ Scène', nextScene: 'Scène ▶' },
+  de: { title: 'Balltracking-Simulation', intro: 'Video wählen und die Ballerkennung Bild für Bild abspielen. Bei langen Videos wertest du einen Abschnitt aus (Start und Länge) und wählst, ob alle 12 Bilder pro Sekunde oder nur jedes n-te Bild gezeigt werden. Im Vergleich laufen zwei Videos mit zwei Modellen synchron nebeneinander. Videos werden nur lokal verarbeitet. Bilder kommen nur ins Projekt, wenn du Szenen als Prüfkandidaten übernimmst.', pick: 'Video auswählen', start: 'Start (Sekunden)', every: 'Bilder', everyAll: 'alle', everyNth: 'jedes {n}.', perSecond: '{r} pro Sekunde', sparseNote: 'Bei jedem 4. Bild oder weniger werden Lücken, Sprünge und verlorene Stücke nur grob erkannt: Ein schneller Ball kann zwischen zwei Bildern verschwinden.', moreScenes: '{n} weitere Szenen werden nicht angezeigt.', length: 'Länge', imagesAbout: 'ergibt bis zu {n} Bilder', empty: 'Wähle oben ein Video aus, um zu starten.', emptySide: 'Noch keine Simulation auf dieser Seite.', lookahead: 'Wie weit direkt in die Zukunft schauen', frames: 'Bilder', detected: 'Erkannt', interpolated: 'Interpoliert', coasting: 'Gehalten', lost: 'Verloren', compare: 'Zwei Modelle vergleichen', single: 'Nur eine Simulation', model: 'Modell', activeModel: 'Aktives Modell', sameVideo: 'Gleiches Video wie A', tracked: 'Ball verfolgt', avgConfidence: 'Ø Sicherheit', onlyA: 'Nur A erkennt', onlyB: 'Nur B erkennt', both: 'Beide erkennen', sameClip: 'Gleiches Video: Unterschiede Bild für Bild', noBallModels: 'Keine Modelle mit Ball-Klasse in der Bibliothek; es läuft das aktive Modell.', gaps: 'Lücken als Prüfkandidaten übernehmen', cancel: 'Abbrechen', cancelTitle: 'Simulation abbrechen?', cancelBody: 'Die Bilder, in denen der Ball schon gesucht wurde, kannst du als kürzere Simulation behalten. Oder du löschst alle Bilder dieses Laufs.', cancelBodyEarly: 'Bisher ist noch kein Bild ausgewertet. Beim Abbruch werden die Bilder dieses Laufs gelöscht.', cancelKeep: 'Abbrechen, Ausgewertetes behalten', cancelDelete: 'Abbrechen und Bilder löschen', cancelContinue: 'Weiter simulieren', stepOf: 'Schritt {i} von {n}', partial: 'Abgebrochener Lauf: {done} von {total} Bildern ausgewertet.', scenes: 'Auffällige Szenen', scenesIntro: 'Ein Klick springt zur Szene. Angekreuzte Szenen kommen mit wenigen Bildern als Prüfkandidaten in die Bilderliste; dort prüfst du jedes Bild einzeln.', noScenes: 'Keine auffälligen Szenen gefunden.', kindGap: 'Lücke', kindJump: 'Sprung', kindWeak: 'Unsicher', kindLost: 'Verloren', images: 'Bilder', adopt: '{scenes} Szenen übernehmen ({images} Bilder)', prevScene: '◀ Szene', nextScene: 'Szene ▶' },
+  en: { title: 'Ball-tracking simulation', intro: 'Pick a video and play back the ball detection frame by frame. For a long video you analyse one section (start and length) and choose whether to use all 12 images per second or only every n-th. In comparison mode, two videos with two models play in sync side by side. Videos are only processed locally. Images only enter the project when you add scenes as review candidates.', pick: 'Select video', start: 'Start (seconds)', every: 'Images', everyAll: 'all', everyNth: 'one in {n}', perSecond: '{r} per second', sparseNote: 'With every 4th image or fewer, gaps, jumps and lost stretches are only seen roughly: a fast ball can vanish between two images.', moreScenes: '{n} more scenes are not shown.', length: 'Length', imagesAbout: 'gives up to {n} images', empty: 'Select a video above to get started.', emptySide: 'No simulation on this side yet.', lookahead: 'How far to look directly into the future', frames: 'frames', detected: 'Detected', interpolated: 'Interpolated', coasting: 'Held', lost: 'Lost', compare: 'Compare two models', single: 'Single simulation', model: 'Model', activeModel: 'Active model', sameVideo: 'Same video as A', tracked: 'Ball tracked', avgConfidence: 'Avg. confidence', onlyA: 'Only A detects', onlyB: 'Only B detects', both: 'Both detect', sameClip: 'Same video: frame-by-frame differences', noBallModels: 'No models with a ball class in the library; the active model is used.', gaps: 'Add gaps as review candidates', cancel: 'Cancel', cancelTitle: 'Cancel the simulation?', cancelBody: 'You can keep the images in which the ball has already been looked for, as a shorter simulation. Or delete all images of this run.', cancelBodyEarly: 'No image has been analysed yet. Cancelling deletes the images of this run.', cancelKeep: 'Cancel, keep what is analysed', cancelDelete: 'Cancel and delete the images', cancelContinue: 'Keep simulating', stepOf: 'Step {i} of {n}', partial: 'Cancelled run: {done} of {total} images analysed.', scenes: 'Notable scenes', scenesIntro: 'A click jumps to the scene. Ticked scenes go into the image list as review candidates, a few images each; there you check every image yourself.', noScenes: 'No notable scenes found.', kindGap: 'Gap', kindJump: 'Jump', kindWeak: 'Unsure', kindLost: 'Lost', images: 'images', adopt: 'Add {scenes} scenes ({images} images)', prevScene: '◀ Scene', nextScene: 'Scene ▶' },
+  es: { title: 'Simulación de seguimiento del balón', intro: 'Elige un vídeo y reproduce la detección del balón cuadro a cuadro. En un vídeo largo analizas un tramo (inicio y duración) y eliges si usar las 12 imágenes por segundo o solo una de cada n. En la comparación, dos vídeos con dos modelos se reproducen sincronizados uno al lado del otro. Los vídeos solo se procesan localmente. Las imágenes solo entran en el proyecto cuando añades escenas como candidatas.', pick: 'Seleccionar vídeo', start: 'Inicio (segundos)', every: 'Imágenes', everyAll: 'todas', everyNth: 'una de cada {n}', perSecond: '{r} por segundo', sparseNote: 'Con una de cada 4 imágenes o menos, los huecos, saltos y tramos perdidos solo se ven de forma aproximada: un balón rápido puede desaparecer entre dos imágenes.', moreScenes: 'No se muestran {n} escenas más.', length: 'Duración', imagesAbout: 'da hasta {n} imágenes', empty: 'Selecciona un vídeo arriba para empezar.', emptySide: 'Aún no hay simulación en este lado.', lookahead: 'Hasta dónde mirar directamente al futuro', frames: 'imágenes', detected: 'Detectado', interpolated: 'Interpolado', coasting: 'Mantenido', lost: 'Perdido', compare: 'Comparar dos modelos', single: 'Una sola simulación', model: 'Modelo', activeModel: 'Modelo activo', sameVideo: 'Mismo vídeo que A', tracked: 'Balón seguido', avgConfidence: 'Confianza media', onlyA: 'Solo A detecta', onlyB: 'Solo B detecta', both: 'Ambos detectan', sameClip: 'Mismo vídeo: diferencias imagen por imagen', noBallModels: 'No hay modelos con clase de balón en la biblioteca; se usa el modelo activo.', gaps: 'Añadir huecos como candidatos', cancel: 'Cancelar', cancelTitle: '¿Cancelar la simulación?', cancelBody: 'Puedes conservar las imágenes en las que ya se buscó el balón, como una simulación más corta. O eliminar todas las imágenes de esta ejecución.', cancelBodyEarly: 'Aún no se ha analizado ninguna imagen. Al cancelar se eliminan las imágenes de esta ejecución.', cancelKeep: 'Cancelar y conservar lo analizado', cancelDelete: 'Cancelar y eliminar las imágenes', cancelContinue: 'Seguir simulando', stepOf: 'Paso {i} de {n}', partial: 'Ejecución cancelada: {done} de {total} imágenes analizadas.', scenes: 'Escenas llamativas', scenesIntro: 'Un clic salta a la escena. Las escenas marcadas pasan a la lista de imágenes como candidatas, con pocas imágenes cada una; allí revisas cada imagen.', noScenes: 'No se encontraron escenas llamativas.', kindGap: 'Hueco', kindJump: 'Salto', kindWeak: 'Dudoso', kindLost: 'Perdido', images: 'imágenes', adopt: 'Añadir {scenes} escenas ({images} imágenes)', prevScene: '◀ Escena', nextScene: 'Escena ▶' },
+  fr: { title: 'Simulation de suivi du ballon', intro: 'Choisissez une vidéo et regardez la détection du ballon image par image. Pour une vidéo longue, vous analysez un passage (début et durée) et choisissez toutes les 12 images par seconde ou seulement une sur n. En mode comparaison, deux vidéos avec deux modèles sont lues côte à côte de façon synchronisée. Les vidéos ne sont traitées que localement. Les images n’entrent dans le projet que si vous ajoutez des scènes comme candidates.', pick: 'Sélectionner une vidéo', start: 'Début (secondes)', every: 'Images', everyAll: 'toutes', everyNth: 'une sur {n}', perSecond: '{r} par seconde', sparseNote: 'À partir d’une image sur 4, les lacunes, sauts et passages perdus ne sont vus que grossièrement : un ballon rapide peut disparaître entre deux images.', moreScenes: '{n} autres scènes ne sont pas affichées.', length: 'Durée', imagesAbout: 'donne jusqu’à {n} images', empty: 'Sélectionnez une vidéo ci-dessus pour commencer.', emptySide: 'Pas encore de simulation de ce côté.', lookahead: 'Jusqu’où regarder directement dans le futur', frames: 'images', detected: 'Détecté', interpolated: 'Interpolé', coasting: 'Maintenu', lost: 'Perdu', compare: 'Comparer deux modèles', single: 'Une seule simulation', model: 'Modèle', activeModel: 'Modèle actif', sameVideo: 'Même vidéo que A', tracked: 'Ballon suivi', avgConfidence: 'Confiance moy.', onlyA: 'Seul A détecte', onlyB: 'Seul B détecte', both: 'Les deux détectent', sameClip: 'Même vidéo : différences image par image', noBallModels: 'Aucun modèle avec une classe ballon dans la bibliothèque ; le modèle actif est utilisé.', gaps: 'Ajouter les lacunes comme candidates', cancel: 'Annuler', cancelTitle: 'Annuler la simulation ?', cancelBody: 'Vous pouvez garder les images dans lesquelles le ballon a déjà été cherché, comme simulation plus courte. Ou supprimer toutes les images de cette exécution.', cancelBodyEarly: 'Aucune image n’est encore analysée. L’annulation supprime les images de cette exécution.', cancelKeep: 'Annuler et garder l’analyse', cancelDelete: 'Annuler et supprimer les images', cancelContinue: 'Continuer la simulation', stepOf: 'Étape {i} sur {n}', partial: 'Exécution annulée : {done} images analysées sur {total}.', scenes: 'Scènes notables', scenesIntro: 'Un clic saute à la scène. Les scènes cochées entrent dans la liste d’images comme candidates, avec quelques images chacune ; vous y vérifiez chaque image.', noScenes: 'Aucune scène notable trouvée.', kindGap: 'Lacune', kindJump: 'Saut', kindWeak: 'Incertain', kindLost: 'Perdu', images: 'images', adopt: 'Ajouter {scenes} scènes ({images} images)', prevScene: '◀ Scène', nextScene: 'Scène ▶' },
 } as const;
 
 /// Resolves raw per-frame ball detections into a track: real detections pass
@@ -86,11 +88,12 @@ function useStableSimulation(simulation: Simulation | null | undefined) {
   return { id, simulation: useMemo(() => simulation ?? null, [id]) };
 }
 
-function prepare(simulation: Simulation | null, lookaheadFrames: number): Prepared | null {
+// The look-ahead is set in seconds, so it means the same at every density of images.
+function prepare(simulation: Simulation | null, lookaheadSeconds: number): Prepared | null {
   if (!simulation || !simulation.frames.length) return null;
   const fps = simulation.fps || 12;
   const detections = simulation.frames.map((frame) => frame.ball ? { x: frame.ball.x, y: frame.ball.y } : null);
-  return { simulation, frames: simulation.frames, fps, duration: simulation.frames.length / fps, resolved: resolve(detections, lookaheadFrames) };
+  return { simulation, frames: simulation.frames, fps, duration: simulation.frames.length / fps, resolved: resolve(detections, Math.round(lookaheadSeconds * fps)) };
 }
 
 /// Frame shown at a playback time; clips shorter than the longest one hold their last frame.
@@ -110,15 +113,43 @@ function summarize(prepared: Prepared) {
   };
 }
 
+const SECTION_STORAGE = 'reco-simulation-section:';
+type SavedSection = { start: string; length: number; every: number };
+
+/** Start, length and density of the last run in this project (per viewer; may be unavailable). */
+function loadSection(projectKey: string | undefined): SavedSection | null {
+  try {
+    const value = JSON.parse(window.localStorage.getItem(SECTION_STORAGE + (projectKey ?? '')) ?? 'null');
+    if (value && typeof value.start === 'string' && Number.isFinite(value.length) && Number.isFinite(value.every)) return { start: value.start, length: Number(value.length), every: Number(value.every) };
+  } catch { /* storage blocked or damaged: use the defaults */ }
+  return null;
+}
+
 const percent = (value: number) => `${Math.round(value * 100)} %`;
 
 export default function BallTrackingPlayer(props: Props) {
   const t = text[props.language];
   const h = hintText[props.language];
-  const [lookaheadFrames, setLookaheadFrames] = useState(8);
+  const [lookaheadSeconds, setLookaheadSeconds] = useState(0.7);
   // The section of the video the simulation looks at: 12 images per second from `start` for `length` seconds.
-  const [start, setStart] = useState('0');
-  const [length, setLength] = useState(25);
+  const [start, setStart] = useState(() => loadSection(props.projectKey)?.start ?? '0');
+  const [length, setLength] = useState(() => loadSection(props.projectKey)?.length ?? 25);
+  const [every, setEvery] = useState(() => loadSection(props.projectKey)?.every ?? 1);
+  const sectionProject = useRef(props.projectKey);
+  useEffect(() => {
+    if (sectionProject.current === props.projectKey) {
+      try { window.localStorage.setItem(SECTION_STORAGE + (props.projectKey ?? ''), JSON.stringify({ start, length, every })); } catch { /* not remembered */ }
+      return;
+    }
+    // Another project was opened: take over what was used there last.
+    sectionProject.current = props.projectKey;
+    const saved = loadSection(props.projectKey);
+    setStart(saved?.start ?? '0'); setLength(saved?.length ?? 25); setEvery(saved?.every ?? 1);
+  }, [props.projectKey, start, length, every]);
+  // One run holds at most 2,160 images (180 s at 12 per second), so a sparser run may be longer.
+  const maxLength = 180 * every;
+  const sectionLength = Math.min(length, maxLength);
+  const lengthChoices = [25, 60, 120, 180, 360, 720, 1080, 2160].filter((seconds) => seconds <= maxLength);
   const startSeconds = Math.max(0, Number(start.replace(',', '.')) || 0);
   const [time, setTime] = useState(0);
   const [isPlaying, setIsPlaying] = useState(true);
@@ -138,8 +169,8 @@ export default function BallTrackingPlayer(props: Props) {
   const ballClass = props.sport === 'hockey' ? 'puck' : 'ball';
   const ballModels = useMemo(() => (props.models ?? []).filter((model) => model.classes?.includes(ballClass) && (!props.sport || !model.sport || model.sport === props.sport)), [props.models, props.sport, ballClass]);
 
-  const preparedA = useMemo(() => prepare(a.simulation, lookaheadFrames), [a.simulation, lookaheadFrames]);
-  const preparedB = useMemo(() => compare ? prepare(b.simulation, lookaheadFrames) : null, [compare, b.simulation, lookaheadFrames]);
+  const preparedA = useMemo(() => prepare(a.simulation, lookaheadSeconds), [a.simulation, lookaheadSeconds]);
+  const preparedB = useMemo(() => compare ? prepare(b.simulation, lookaheadSeconds) : null, [compare, b.simulation, lookaheadSeconds]);
   const shown = [preparedA, preparedB].filter((item): item is Prepared => item !== null);
   const duration = Math.max(0, ...shown.map((item) => item.duration));
   const step = 1 / Math.max(1, ...shown.map((item) => item.fps));
@@ -182,7 +213,7 @@ export default function BallTrackingPlayer(props: Props) {
     setRunning({ slot });
     try {
       await props.post('/api/simulate-ball-tracking', {
-        slot, sameVideo, start: startSeconds, length, model: props.modelSize || 'nano', package: choice[slot] || undefined, threshold: 0.25, language: props.language,
+        slot, sameVideo, start: startSeconds, length: sectionLength, every, model: props.modelSize || 'nano', package: choice[slot] || undefined, threshold: 0.25, language: props.language,
       });
     } catch { setRunning(null); /* surfaced via props.error from worker status */ }
   }
@@ -202,8 +233,7 @@ export default function BallTrackingPlayer(props: Props) {
   const runningSlot = simulating && running ? running.slot : null;
   // Only frames the detector has finished can be kept; that starts with step 3.
   const canKeep = (props.stage?.index ?? 0) >= 3;
-  const maxFps = Math.max(12, ...shown.map((item) => item.fps));
-  const lookaheadSeconds = (lookaheadFrames / maxFps).toFixed(1);
+  const lookaheadFrames = Math.round(lookaheadSeconds * (shown[0]?.fps || 12));
 
   const modelPicker = (slot: Slot) => compare && <label className="ball-tracking-model" data-hint={h.simulationModel}>
     <span>{t.model}</span>
@@ -223,11 +253,17 @@ export default function BallTrackingPlayer(props: Props) {
         <input type="number" min={0} step={1} value={start} disabled={props.busy} onChange={(event) => setStart(event.target.value)} />
       </label>
       <label className="ball-tracking-section" data-hint={h.simulationLength}><span>{t.length}</span>
-        <select value={length} disabled={props.busy} onChange={(event) => setLength(Number(event.target.value))}>
-          {[25, 60, 120, 180].map((seconds) => <option key={seconds} value={seconds}>{seconds} s</option>)}
+        <select value={sectionLength} disabled={props.busy} onChange={(event) => setLength(Number(event.target.value))}>
+          {lengthChoices.map((seconds) => <option key={seconds} value={seconds}>{seconds} s</option>)}
         </select>
       </label>
-      <small className="ball-tracking-section-note">{t.imagesAbout.replace('{n}', String(length * 12))}</small>
+      <label className="ball-tracking-section" data-hint={h.simulationEvery}><span>{t.every}</span>
+        <select value={every} disabled={props.busy} onChange={(event) => setEvery(Number(event.target.value))}>
+          {[1, 2, 3, 4, 6, 12].map((n) => <option key={n} value={n}>{n === 1 ? t.everyAll : t.everyNth.replace('{n}', String(n))} · {t.perSecond.replace('{r}', String(12 / n))}</option>)}
+        </select>
+      </label>
+      {every >= 4 && <small className="ball-tracking-section-note ball-tracking-sparse">{t.sparseNote}</small>}
+      <small className="ball-tracking-section-note">{t.imagesAbout.replace('{n}', String(Math.round(sectionLength * 12 / every)))}</small>
       {!compare && <button data-hint={h.pickClip} type="button" className="primary-button" onClick={() => void run('a')} disabled={props.busy}>{t.pick}</button>}
       {simulating && <div className="ball-tracking-progress">
         {props.stage && <b className="ball-tracking-step">{t.stepOf.replace('{i}', String(props.stage.index)).replace('{n}', String(props.stage.count))} · {props.stage.label}</b>}
@@ -280,8 +316,8 @@ export default function BallTrackingPlayer(props: Props) {
       </div>}
       <label className="ball-tracking-lookahead">
         <span>{t.lookahead}</span>
-        <input type="range" min={0} max={Math.max(1, Math.round(maxFps * 5))} value={lookaheadFrames} onChange={(event) => setLookaheadFrames(Number(event.target.value))} />
-        <strong>{lookaheadSeconds}s ({lookaheadFrames} {t.frames})</strong>
+        <input type="range" min={0} max={5} step={0.1} value={lookaheadSeconds} onChange={(event) => setLookaheadSeconds(Number(event.target.value))} />
+        <strong>{lookaheadSeconds.toFixed(1)} s ({lookaheadFrames} {t.frames})</strong>
       </label>
     </>}
   </section>;
@@ -361,6 +397,7 @@ function SceneList(props: { prepared: Prepared; index: number; picked: Set<strin
       <i style={{ left: `${((index + .5) / total) * 100}%` }} />
     </div>
     <p>{t.scenesIntro}</p>
+    {(prepared.simulation.scenesTotal ?? 0) > scenes.length && <p className="split-problem">{t.moreScenes.replace('{n}', String((prepared.simulation.scenesTotal ?? 0) - scenes.length))}</p>}
     <div className="ball-tracking-scene-list">
       {scenes.map((scene) => <div key={scene.id} className={index >= scene.start && index <= scene.end ? 'ball-tracking-scene current' : 'ball-tracking-scene'}>
         <input type="checkbox" aria-label={`${kindName[scene.kind]} ${scene.startTime.toFixed(1)} s`} checked={picked.has(scene.id)} disabled={props.busy} onChange={() => props.onToggle(scene.id)} />

@@ -327,8 +327,8 @@ class LocalState:
         # Source video per simulation slot, kept out of the status so "same video
         # as A" can re-run without another file dialog.
         self.simulation_videos: dict[str, Path] = {}
-        # The section (start, length in seconds) of that video per slot, so "same video as A" takes the same one.
-        self.simulation_sections: dict[str, tuple[float, float]] = {}
+        # The section (start and length in seconds, every n-th image) of that video per slot, so "same video as A" takes the same one.
+        self.simulation_sections: dict[str, tuple[float, float, int]] = {}
         # Extraction progress for the progress dialog: video n of m, frames done/target, start time.
         self.detail: dict | None = None
         # Multi-step jobs: {"index": 2, "count": 5, "label": "..."} ("Step 2/5: ...").
@@ -1578,27 +1578,34 @@ def expand_dataset(folder: Path, payload: dict, held_out: bool = False) -> None:
 SIMULATION_SLOTS = {"a": "simulation", "b": "simulation-b"}
 
 
-# The simulation always looks at 12 images per second. A long video is not thinned out: the
-# user picks a section (start and length), because the tracking states of the player and the
-# scene search (teachers.tracking_scenes) need neighbouring images that are close in time.
+# The simulation looks at a video at 12 images per second, or at every n-th of them (n = 1..12).
+# A long video is not thinned out unevenly: the user picks a section (start and length) and how
+# dense it is, because the tracking states of the player and the scene search
+# (teachers.tracking_scenes) need neighbouring images that are close in time. There is no fixed
+# cap on the number of images; the length of a section is limited so that one run holds at most
+# SIMULATION_MAX_IMAGES images (180 seconds at 12 per second).
 SIMULATION_FPS = 12.0
 SIMULATION_DEFAULT_LENGTH = 25.0
-SIMULATION_MAX_LENGTH = 180.0
+SIMULATION_MAX_IMAGES = 2160
+SIMULATION_MAX_EVERY = 12
 
 
-def simulation_section(payload: dict, duration: float, same: tuple[float, float] | None = None) -> tuple[float, float, int]:
-    """(start, length, image count) of the part of a video the simulation extracts. `same` is
-    the section of slot A, used as it is so that both sides show identical images."""
+def simulation_section(payload: dict, duration: float, same: tuple[float, float, int] | None = None) -> tuple[float, float, int, int]:
+    """(start, length, every, image count) of the part of a video the simulation extracts: the
+    images are 1/(12/every) seconds apart. `same` is the section of slot A, used as it is so
+    that both sides show identical images."""
     if same is not None:
-        start, length = same
+        start, length, every = same
     else:
         try:
             start = float(payload.get("start") or 0.0)
             length = float(payload.get("length") or SIMULATION_DEFAULT_LENGTH)
+            every = int(payload.get("every") or 1)
         except (TypeError, ValueError):
-            start, length = 0.0, SIMULATION_DEFAULT_LENGTH
+            start, length, every = 0.0, SIMULATION_DEFAULT_LENGTH, 1
         start = max(0.0, start)
-        length = min(SIMULATION_MAX_LENGTH, max(1.0, length))
+        every = min(SIMULATION_MAX_EVERY, max(1, every))
+        length = min(SIMULATION_MAX_IMAGES / (SIMULATION_FPS / every), max(1.0, length))
     if start >= duration:
         raise RuntimeError(localized(
             f"Der Start ({start:g} s) liegt hinter dem Ende des Videos ({duration:.1f} s).",
@@ -1607,7 +1614,38 @@ def simulation_section(payload: dict, duration: float, same: tuple[float, float]
             f"Le début ({start:g} s) est après la fin de la vidéo ({duration:.1f} s).",
         ))
     length = min(length, duration - start)
-    return start, length, max(1, round(length * SIMULATION_FPS))
+    return start, length, every, max(1, round(length * SIMULATION_FPS / every))
+
+
+# A Full HD image takes about 450 KB as a JPEG (measured: 2,160 images = 973 MB).
+SIMULATION_BYTES_PER_PIXEL = 0.22
+
+
+def check_simulation_space(folder: Path, width: int, height: int, count: int, length: float, every: int) -> None:
+    """Refuse a run whose images do not fit on the disk, and say what would: fewer images
+    (every n-th) or a shorter section. The slot's old images are already gone when this runs."""
+    per_image = max(width, 1) * max(height, 1) * SIMULATION_BYTES_PER_PIXEL
+    needed = per_image * count * 1.1
+    try:
+        free = shutil.disk_usage(folder).free
+    except OSError:
+        return
+    if needed <= free:
+        return
+    fits = int(free * 0.9 / per_image)
+    sparser = next((n for n in (1, 2, 3, 4, 6, 12) if n >= every and round(length * SIMULATION_FPS / n) <= fits), None)
+    shorter = int(fits / (SIMULATION_FPS / every))
+    gb = lambda value: f"{value / 1024 ** 3:.1f}"
+    if sparser is not None and sparser > every:
+        advice = localized(f"Wähle jedes {sparser}. Bild oder einen kürzeren Abschnitt.", f"Choose one image in {sparser} or a shorter section.", f"Elige una imagen de cada {sparser} o un tramo más corto.", f"Choisissez une image sur {sparser} ou un passage plus court.")
+    else:
+        advice = localized(f"Wähle einen kürzeren Abschnitt (höchstens etwa {shorter} s).", f"Choose a shorter section (at most about {shorter} s).", f"Elige un tramo más corto (como máximo unos {shorter} s).", f"Choisissez un passage plus court (au plus {shorter} s environ).")
+    raise RuntimeError(localized(
+        f"Zu wenig freier Speicher für die Simulation: {gb(needed)} GB nötig, {gb(free)} GB frei. ",
+        f"Not enough free space for the simulation: {gb(needed)} GB needed, {gb(free)} GB free. ",
+        f"No hay espacio libre suficiente para la simulación: hacen falta {gb(needed)} GB, hay {gb(free)} GB libres. ",
+        f"Pas assez d’espace libre pour la simulation : {gb(needed)} Go nécessaires, {gb(free)} Go libres. ",
+    ) + advice)
 
 
 def simulation_slot(payload: dict) -> str:
@@ -1681,6 +1719,7 @@ def simulate_ball_tracking(video: Path, payload: dict) -> None:
     duration = 0.0
     start = 0.0
     length = 0.0
+    every = 1
     output_width = output_height = 0
     model = str(payload.get("model", "nano"))
     package = str(payload.get("package") or "").strip()
@@ -1700,12 +1739,13 @@ def simulate_ball_tracking(video: Path, payload: dict) -> None:
             }
             for index, item in enumerate(detected)
         ]
+        scenes, scenes_total = teachers.tracking_scenes_with_total(frames)
         return {
             "id": str(time.time_ns()), "fps": rate, "frames": frames, "slot": slot,
-            "start": start, "length": length,
+            "start": start, "length": length, "every": every,
             "video": video.name, "model": model_label or model, "package": package or None,
             "threshold": threshold, "root": str(STATE.project_root),
-            "scenes": teachers.tracking_scenes(frames),
+            "scenes": scenes, "scenesTotal": scenes_total,
             **({"partial": {"done": len(frames), "total": total}} if total is not None else {}),
         }
 
@@ -1735,11 +1775,12 @@ def simulate_ball_tracking(video: Path, payload: dict) -> None:
         apple_extractor = native_frame_extractor(root) if not ffmpeg or not shutil.which("ffprobe") else None
         duration, width, height = media_info(video, apple_extractor)
         same = STATE.simulation_sections.get("a") if slot == "b" and payload.get("sameVideo") else None
-        start, length, target_count = simulation_section(payload, duration, same)
+        start, length, every, target_count = simulation_section(payload, duration, same)
         frames_dir = simulation_frames_dir(root, slot)
         if frames_dir.exists():
             shutil.rmtree(frames_dir)
         frames_dir.mkdir(parents=True, exist_ok=True)
+        check_simulation_space(frames_dir, width, height, target_count, length, every)
         # Neither extractor reports progress, but both write frames as they go.
         extraction_done = threading.Event()
 
@@ -1754,7 +1795,7 @@ def simulate_ball_tracking(video: Path, payload: dict) -> None:
                 video, duration, width, height, target_count, frames_dir, "sim",
                 ffmpeg, apple_extractor,
                 localized("Extraktion für die Simulation fehlgeschlagen", "Extraction for the simulation failed", "La extracción para la simulación falló", "L’extraction pour la simulation a échoué"),
-                section=(start, length, SIMULATION_FPS),
+                section=(start, length, SIMULATION_FPS / every),
             )
         finally:
             extraction_done.set()
@@ -1779,7 +1820,7 @@ def simulate_ball_tracking(video: Path, payload: dict) -> None:
         partial_path.unlink(missing_ok=True)
         result = result_for(detections.get("frames", []), detections.get("model"))
         STATE.simulation_videos[slot] = video
-        STATE.simulation_sections[slot] = (start, length)
+        STATE.simulation_sections[slot] = (start, length, every)
         count, scenes = len(result["frames"]), len(result["scenes"])
         publish(result, operation="ready", busy=False, progress=1.0, message=localized(
             f"{count} Bilder simuliert, {scenes} auffällige Szenen gefunden.", f"{count} images simulated, {scenes} notable scenes found.",
@@ -1795,7 +1836,7 @@ def simulate_ball_tracking(video: Path, payload: dict) -> None:
                     path.unlink(missing_ok=True)
             partial_path.unlink(missing_ok=True)  # type: ignore[union-attr]
             STATE.simulation_videos[slot] = video
-            STATE.simulation_sections[slot] = (start, length)
+            STATE.simulation_sections[slot] = (start, length, every)
             publish(result_for(detected, model_label, total), operation="cancelled", busy=False, progress=0.0, error=None, message=localized(
                 f"Simulation abgebrochen. {len(detected)} von {total} Bildern sind ausgewertet und bleiben erhalten.",
                 f"Simulation cancelled. {len(detected)} of {total} images are analysed and kept.",
@@ -1896,7 +1937,7 @@ def simulation_gaps_to_candidates(payload: dict) -> None:
         sim_frames = simulation.get("frames", [])
         scenes = simulation.get("scenes")
         if scenes is None:
-            scenes = teachers.tracking_scenes(sim_frames)
+            scenes = teachers.tracking_scenes_with_total(sim_frames)[0]
         chosen = payload.get("scenes")
         if chosen is None:
             scenes = [scene for scene in scenes if scene["kind"] == "gap"]

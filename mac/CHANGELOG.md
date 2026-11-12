@@ -2,16 +2,21 @@
 
 ## 0.35.0
 
-Simulation mit fester Bildrate und wählbarem Abschnitt; weitere Bälle beim Übernehmen vormerken; nach „Ball“ / „Kein Ball“ sofort das nächste Bild.
+Simulation mit wählbarem Abschnitt und wählbarer Bilddichte, ohne feste Obergrenze von 300 Bildern; weitere Bälle beim Übernehmen vormerken; nach „Ball“ / „Kein Ball“ sofort das nächste Bild.
 
-- Bildrate: Die Simulation nimmt immer 12 Bilder pro Sekunde. Bisher verteilte `extract_frames_for_video` höchstens 300 Bilder gleichmäßig über das ganze Video, bei langen Videos lagen Sekunden zwischen zwei Bildern; Zustände (interpoliert/gehalten) und `teachers.tracking_scenes` setzen dichte Bilder voraus und lieferten dort Unsinn.
-- Abschnitt: `simulation_section` wählt Start und Länge (Voreinstellung 0 und 25 s, höchstens 180 s; ein kürzeres Video wird ganz genommen, ein Start hinter dem Videoende ist ein klarer Fehler). Oberfläche: Start (Sekunden), Länge 25/60/120/180 s und die Zahl der Bilder. „Gleiches Video wie A“ nimmt den Abschnitt von A (`STATE.simulation_sections`).
-- Zeitstempel: `frames[].timestamp` ist die echte Videozeit (Start + Index/12). Daraus entstehen IDs und Dateinamen der Prüfkandidaten (`gap-<videoid>-<ms>.jpg`), Abschnitte desselben Videos kollidieren nicht mehr. Die Szenenzeiten sind Videozeiten.
-- Extraktion: ffmpeg mit `-ss`/`-t` vor der Eingabe und `fps=12`; `frame_extractor.swift` nimmt optional `START STEP` (sonst unverändert).
+- Bildrate: Die Simulation nimmt 12 Bilder pro Sekunde oder nur jedes n-te davon (n = 1, 2, 3, 4, 6, 12). Bisher verteilte `extract_frames_for_video` höchstens 300 Bilder ungleich dicht über das ganze Video, bei langen Videos lagen Sekunden zwischen zwei Bildern; Zustände (interpoliert/gehalten) und `teachers.tracking_scenes` setzen dichte Bilder voraus und lieferten dort Unsinn.
+- Abschnitt: `simulation_section` wählt Start, Länge und `every` (Voreinstellung 0, 25 s, alle Bilder). Es gibt keine feste Obergrenze mehr, nur höchstens 2160 Bilder je Lauf: 180 s bei 12 Bildern pro Sekunde, 540 s bei jedem 3. Bild (`fps` der Simulation ist dann 4); ein kürzeres Video wird ganz genommen, ein Start hinter dem Videoende ist ein klarer Fehler). Oberfläche: Start (Sekunden), Länge, Bilddichte und die Zahl der Bilder. „Gleiches Video wie A“ nimmt den Abschnitt von A (`STATE.simulation_sections`).
+- Zeitstempel: `frames[].timestamp` ist die echte Videozeit (Start + Index/fps). Daraus entstehen IDs und Dateinamen der Prüfkandidaten (`gap-<videoid>-<ms>.jpg`), Abschnitte desselben Videos kollidieren nicht mehr. Die Szenenzeiten sind Videozeiten.
+- Extraktion: ffmpeg mit `-ss`/`-t` vor der Eingabe und `fps=12/n`; `frame_extractor.swift` nimmt optional `START STEP` (sonst unverändert).
 - Weitere Bälle: Beim Übernehmen von Szenen sucht der neue Befehl `ml_worker find-extra-balls` in jedem übernommenen Bild alle Bälle ab Sicherheit 0,2 (die Simulation behält nur einen je Bild). Neue Treffer, die sich nicht mit vorhandenen Boxen überdecken (`extra_ball_boxes`), kommen als Vorschläge (Quelle „auto“) ins Bild. Scheitert der Durchlauf, werden die Kandidaten ohne die Zusatzboxen übernommen.
 - Prüfen: Nach „Ball“, „Kein Ball“, „Überspringen“ und der Bestätigung unabhängiger Testbilder wird das nächste Bild der Warteschlange vor dem Speichern gewählt. Vorher konnte der Effekt, der den Anfang der Warteschlange wählt, die Auswahl nach dem Speichern überschreiben.
-- Geprüft: 493 Tests. Echter Lauf mit RF-DETR nano (Basketball): 60 s ab 600 s (720 Bilder, 19 s) und 180 s ab 1200 s (2160 Bilder, 49 s); Seite B mit „Gleiches Video wie A“ gleicher Abschnitt; `find-extra-balls` an 5 echten Bildern. Nicht im Browser angesehen, der End-to-End-Test der Oberfläche lief nicht (kein Playwright).
-- Offen: 180 s belegen bei Full HD etwa 1 GB temporär je Seite. Mehr als 40 Szenen werden ohne Hinweis abgeschnitten.
+- Vorausschau in Sekunden: Der Regler „Wie weit in die Zukunft schauen“ zählt in Sekunden (Voreinstellung 0,7 s) und rechnet je Simulation in Bilder um, damit er bei jeder Dichte dasselbe bedeutet.
+- Dünne Dichte: Ab jedem 4. Bild weist die Oberfläche darauf hin, dass Lücken, Sprünge und verlorene Stücke nur grob erkannt werden.
+- Szenen: Das Limit wächst mit der Länge (`teachers.scene_limit`: 40 je Minute, mindestens 40); sind es mehr, steht „N weitere Szenen werden nicht angezeigt“ (`scenesTotal`).
+- Speicherplatz: `check_simulation_space` lehnt einen Lauf ab, dessen Bilder nicht auf die Platte passen (etwa 0,22 Byte je Pixel und Bild), und schlägt jedes n-te Bild oder einen kürzeren Abschnitt vor.
+- Gemerkt: Start, Länge und Dichte merkt sich die Oberfläche je Projekt (`localStorage`, nur in diesem Browser; ohne Speicher gelten die Voreinstellungen).
+- Geprüft: 496 Tests. Echter Lauf mit jedem 3. Bild: 300 s ab 1000 s, 1200 Bilder in 35 s, Abstand 0,25 s. Echter Lauf mit RF-DETR nano (Basketball): 60 s ab 600 s (720 Bilder, 19 s) und 180 s ab 1200 s (2160 Bilder, 49 s); Seite B mit „Gleiches Video wie A“ gleicher Abschnitt; `find-extra-balls` an 5 echten Bildern. Nicht im Browser angesehen, der End-to-End-Test der Oberfläche lief nicht (kein Playwright).
+- Offen: 2160 Bilder belegen bei Full HD etwa 1 GB temporär je Seite.
 
 ## 0.34.0
 

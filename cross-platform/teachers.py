@@ -441,3 +441,19 @@ def tracking_scenes(
         rank = {kind: position for position, kind in enumerate(SCENE_KINDS)}
         scenes = sorted(scenes, key=lambda item: (rank[item["kind"]], item["start"]))[:limit]
     return sorted(scenes, key=lambda item: (item["start"], SCENE_KINDS.index(item["kind"])))
+
+
+def scene_limit(seconds: float, per_minute: int = 40, minimum: int = 40) -> int:
+    """How many scenes a clip of this length may list: 40 for the first minute, 40 more for every
+    further minute (a longer section has proportionally more to show; a list longer than that
+    is not worked through anyway)."""
+    return max(minimum, int(-(-max(seconds, 0.0) * per_minute // 60)))
+
+
+def tracking_scenes_with_total(frames: list[dict[str, Any]], **options: Any) -> tuple[list[dict[str, Any]], int]:
+    """tracking_scenes for a clip, with the limit growing with its length, and the number of
+    scenes there were before the limit cut some (gaps and jumps are kept first)."""
+    times = [float(frame.get("timestamp") or 0.0) for frame in frames]
+    seconds = (max(times) - min(times)) if times else 0.0
+    everything = tracking_scenes(frames, **{**options, "limit": 0})
+    return tracking_scenes(frames, **{**options, "limit": scene_limit(seconds)}), len(everything)
