@@ -406,7 +406,7 @@ class LocalState:
                 "benchmark": benchmark_snapshot(self.project_root),
                 "frames": frames,
                 # The split the next training uses, so the image list can show each image's role.
-                "splits": dataset_split.preview(frames, self.language) if self.project and ((self.project.get("augmentation") or {}).get("mode") not in {"mixed", "real-only"}) else None,
+                "splits": dataset_split.preview(frames, self.language, (self.project.get("lastTraining") or {}).get("completedAt")) if self.project and ((self.project.get("augmentation") or {}).get("mode") not in {"mixed", "real-only"}) else None,
                 "log": "\n".join(self.log[-80:]),
                 # only for the project it was made in: its images live in that project's folder
                 "simulation": self.simulation if (self.simulation or {}).get("root", str(self.project_root)) == str(self.project_root) else None,
@@ -1579,15 +1579,37 @@ SIMULATION_SLOTS = {"a": "simulation", "b": "simulation-b"}
 
 
 # The simulation looks at a video at 12 images per second, or at every n-th of them (n = 1..12).
-# A long video is not thinned out unevenly: the user picks a section (start and length) and how
-# dense it is, because the tracking states of the player and the scene search
-# (teachers.tracking_scenes) need neighbouring images that are close in time. There is no fixed
-# cap on the number of images; the length of a section is limited so that one run holds at most
-# SIMULATION_MAX_IMAGES images (180 seconds at 12 per second).
+# A long video is not thinned out unevenly: the user picks a section (start and length, either in
+# seconds or as a share of the video) and how dense it is, because the tracking states of the
+# player and the scene search (teachers.tracking_scenes) need neighbouring images that are close
+# in time. The length is free. Only a safety limit stops a run that would hold absurdly many
+# images (the app sends every image of a simulation with each status); the disk check
+# (check_simulation_space) refuses a run that does not fit on the disk.
 SIMULATION_FPS = 12.0
 SIMULATION_DEFAULT_LENGTH = 25.0
-SIMULATION_MAX_IMAGES = 2160
+SIMULATION_SAFETY_IMAGES = 20000
 SIMULATION_MAX_EVERY = 12
+
+
+def _section_request(payload: dict) -> tuple[float, float, float, int]:
+    """(start, length in seconds, share of the video or 0, every n-th) as asked for."""
+    try:
+        start = max(0.0, float(payload.get("start") or 0.0))
+        length = max(1.0, float(payload.get("length") or SIMULATION_DEFAULT_LENGTH))
+        fraction = float(payload.get("lengthFraction") or 0.0)
+        every = min(SIMULATION_MAX_EVERY, max(1, int(payload.get("every") or 1)))
+    except (TypeError, ValueError):
+        return 0.0, SIMULATION_DEFAULT_LENGTH, 0.0, 1
+    return start, length, (fraction if 0.0 < fraction <= 1.0 else 0.0), every
+
+
+def requested_section(payload: dict, same: tuple[float, float, int] | None = None) -> dict:
+    """What the user asked for, before a short video cuts it down. The player compares it with the
+    settings on screen to see whether a new run is needed."""
+    if same is not None:
+        return {"start": same[0], "length": same[1], "fraction": 0.0, "every": same[2]}
+    start, length, fraction, every = _section_request(payload)
+    return {"start": start, "length": length, "fraction": fraction, "every": every}
 
 
 def simulation_section(payload: dict, duration: float, same: tuple[float, float, int] | None = None) -> tuple[float, float, int, int]:
@@ -1597,15 +1619,9 @@ def simulation_section(payload: dict, duration: float, same: tuple[float, float,
     if same is not None:
         start, length, every = same
     else:
-        try:
-            start = float(payload.get("start") or 0.0)
-            length = float(payload.get("length") or SIMULATION_DEFAULT_LENGTH)
-            every = int(payload.get("every") or 1)
-        except (TypeError, ValueError):
-            start, length, every = 0.0, SIMULATION_DEFAULT_LENGTH, 1
-        start = max(0.0, start)
-        every = min(SIMULATION_MAX_EVERY, max(1, every))
-        length = min(SIMULATION_MAX_IMAGES / (SIMULATION_FPS / every), max(1.0, length))
+        start, length, fraction, every = _section_request(payload)
+        if fraction:
+            length = max(1.0, fraction * duration)
     if start >= duration:
         raise RuntimeError(localized(
             f"Der Start ({start:g} s) liegt hinter dem Ende des Videos ({duration:.1f} s).",
@@ -1614,7 +1630,22 @@ def simulation_section(payload: dict, duration: float, same: tuple[float, float,
             f"Le début ({start:g} s) est après la fin de la vidéo ({duration:.1f} s).",
         ))
     length = min(length, duration - start)
-    return start, length, every, max(1, round(length * SIMULATION_FPS / every))
+    count = max(1, round(length * SIMULATION_FPS / every))
+    if count > SIMULATION_SAFETY_IMAGES:
+        sparser = next((n for n in (1, 2, 3, 4, 6, 12) if n >= every and round(length * SIMULATION_FPS / n) <= SIMULATION_SAFETY_IMAGES), None)
+        shorter = int(SIMULATION_SAFETY_IMAGES * every / SIMULATION_FPS)
+        advice = localized(
+            f"Wähle jedes {sparser}. Bild oder einen kürzeren Abschnitt (höchstens etwa {shorter} s).", f"Choose one image in {sparser} or a shorter section (at most about {shorter} s).",
+            f"Elige una imagen de cada {sparser} o un tramo más corto (como máximo unos {shorter} s).", f"Choisissez une image sur {sparser} ou un passage plus court (au plus {shorter} s environ).",
+        ) if sparser is not None and sparser > every else localized(
+            f"Wähle einen kürzeren Abschnitt (höchstens etwa {shorter} s).", f"Choose a shorter section (at most about {shorter} s).",
+            f"Elige un tramo más corto (como máximo unos {shorter} s).", f"Choisissez un passage plus court (au plus {shorter} s environ).",
+        )
+        raise RuntimeError(localized(
+            f"Das wären {count} Bilder; mehr als {SIMULATION_SAFETY_IMAGES} schafft eine Simulation nicht. ", f"That would be {count} images; a simulation cannot hold more than {SIMULATION_SAFETY_IMAGES}. ",
+            f"Serían {count} imágenes; una simulación no admite más de {SIMULATION_SAFETY_IMAGES}. ", f"Cela ferait {count} images ; une simulation n’en accepte pas plus de {SIMULATION_SAFETY_IMAGES}. ",
+        ) + advice)
+    return start, length, every, count
 
 
 # A Full HD image takes about 450 KB as a JPEG (measured: 2,160 images = 973 MB).
@@ -1660,6 +1691,14 @@ def simulation_video(payload: dict) -> Path:
     """The clip for a simulation run: the one slot A used when slot B asks for the
     same video (so two models can be compared on identical frames), otherwise a
     file dialog."""
+    if payload.get("again"):
+        video = STATE.simulation_videos.get(simulation_slot(payload))
+        if video is None or not video.is_file():
+            raise RuntimeError(localized(
+                "Das Video dieser Simulation ist nicht mehr vorhanden. Bitte „Video auswählen“ anklicken.", "The video of this simulation is no longer there. Click “Select video”.",
+                "El vídeo de esta simulación ya no está. Haz clic en «Seleccionar vídeo».", "La vidéo de cette simulation n’est plus là. Cliquez sur « Sélectionner une vidéo ».",
+            ))
+        return video
     if simulation_slot(payload) == "b" and payload.get("sameVideo"):
         video = STATE.simulation_videos.get("a")
         if video is None or not video.is_file():
@@ -1720,6 +1759,7 @@ def simulate_ball_tracking(video: Path, payload: dict) -> None:
     start = 0.0
     length = 0.0
     every = 1
+    requested: dict = {}
     output_width = output_height = 0
     model = str(payload.get("model", "nano"))
     package = str(payload.get("package") or "").strip()
@@ -1743,6 +1783,7 @@ def simulate_ball_tracking(video: Path, payload: dict) -> None:
         return {
             "id": str(time.time_ns()), "fps": rate, "frames": frames, "slot": slot,
             "start": start, "length": length, "every": every,
+            "request": requested, "videoDuration": duration,
             "video": video.name, "model": model_label or model, "package": package or None,
             "threshold": threshold, "root": str(STATE.project_root),
             "scenes": scenes, "scenesTotal": scenes_total,
@@ -1776,6 +1817,7 @@ def simulate_ball_tracking(video: Path, payload: dict) -> None:
         duration, width, height = media_info(video, apple_extractor)
         same = STATE.simulation_sections.get("a") if slot == "b" and payload.get("sameVideo") else None
         start, length, every, target_count = simulation_section(payload, duration, same)
+        requested = requested_section(payload, same)
         frames_dir = simulation_frames_dir(root, slot)
         if frames_dir.exists():
             shutil.rmtree(frames_dir)
@@ -3132,6 +3174,25 @@ def gpu_report_text() -> dict:
     return {"id": summary.get("id"), "path": str(path), "text": path.read_text(encoding="utf-8", errors="replace")}
 
 
+def pin_new_images_as_test(root: Path, percent: object) -> int:
+    """Before a training: set the chosen share of the new images (reviewed since the last training)
+    aside as test. They keep that role in every later training. Returns how many were set aside."""
+    try:
+        percent = int(percent or 0)
+    except (TypeError, ValueError):
+        return 0
+    project = STATE.project
+    if percent <= 0 or project is None:
+        return 0
+    count = dataset_split.pin_new_images_as_test(project.get("frames", []), percent, (project.get("lastTraining") or {}).get("completedAt"))
+    if count:
+        backup_project(root, "neue-testbilder")
+        project["updatedAt"] = utc_now()
+        atomic_json(root / "project.json", project)
+        STATE.update(project=project)
+    return count
+
+
 def ml_action(action: str, payload: dict) -> None:
     output_dirs: list[Path] = []
     before: dict[Path, float] = {}
@@ -3145,6 +3206,8 @@ def ml_action(action: str, payload: dict) -> None:
         language = payload.get("language", "de")
         if language not in {"de", "en", "es", "fr"}:
             language = "de"
+        if action in {"train", "train-batch"}:
+            pin_new_images_as_test(root, payload.get("newTestPercent"))
         model = payload.get("model", "nano")
         if yolo_training.is_variant(model):
             # "model" is the RF-DETR size; an active YOLO model is found through models/active.json.
@@ -3725,6 +3788,7 @@ def review_candidate(payload: dict) -> None:
         raise RuntimeError(localized("Unbekannte Prüfentscheidung.", "Unknown review decision.", "Decisión de revisión desconocida.", "Décision de révision inconnue."))
     backup_project(root, "kandidat-geprueft")
     frame["reviewStatus"] = "reviewed"
+    frame["reviewedAt"] = utc_now()  # "new image" until the next training has seen it (dataset_split.is_new_image)
     project["updatedAt"] = utc_now()
     atomic_json(root / "project.json", project)
     STATE.update(project=project, message=localized(

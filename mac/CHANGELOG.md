@@ -1,5 +1,16 @@
 # Änderungen
 
+## 0.36.0
+
+Simulation mit freier Länge und Anteilen, Frage nach neuem Ausschnitt; Test-Anteil für neue Bilder; „Nicht im Training“ nachlabeln.
+
+- Länge: Das Feld ist eine freie Zahl in Sekunden; ¼, ½, ¾ und „ganz“ nehmen diesen Anteil der Videolänge (`lengthFraction`, im Worker aus der echten Dauer gerechnet, ab Start am Ende abgeschnitten). Die Grenze von 2160 Bildern je Lauf entfällt; nur mehr als 20000 Bilder lehnt `simulation_section` ab (die App schickt mit jedem Status alle Bilder der Simulation), mit Vorschlag für eine dünnere Dichte oder einen kürzeren Abschnitt. Die Platzprüfung bleibt. Das Ergebnis trägt `videoDuration` und `request` (was gewünscht war).
+- Neuer Ausschnitt: Ändert man Start, Länge oder Dichte bei angezeigter Simulation, fragt das Panel nach 0,7 s „Jetzt analysieren?“. Der Worker nimmt dasselbe Video mit `again` ohne Dateidialog (`simulation_video`). Im Vergleichsmodus nur für Seite A.
+- Test-Anteil: `dataset_split` kennt „neue Bilder“ (bestätigte Kandidaten mit `reviewedAt` nach `lastTraining.completedAt`; `review_candidate` setzt `reviewedAt`). Der Dialog „Lokal trainieren“ fragt, wie viele davon Test sein sollen (keine, 10, 20, 30, 50 %; Voreinstellung keine). `ml_action` ruft vor `train` und `train-batch` `pin_new_images_as_test` auf: Auswahl über einen stabilen Hash der ID, mindestens ein Bild, gespeichert als `testHold`, dauerhaft Test (`split_frames`). `preview` meldet `newImages`. Warnung: Bilder aus demselben Video ähneln sich, die Testwerte fallen zu gut aus.
+- Nachlabeln: Der Trainingsdialog zeigt „N Bilder ohne Markierung nachlabeln“ (ohne Kandidaten und unabhängige Testbilder); der Knopf schließt den Dialog, stellt den Chip „Nicht im Training“ ein und springt zum ersten Bild ohne Box.
+- Geprüft: 506 Tests. Echter Lauf: ¼ eines Ein-Stunden-Videos mit jedem 12. Bild, 905 Bilder in 48 s; neuer Ausschnitt ohne neue Dateiwahl (900 s, jedes 2. Bild). Oberfläche nicht im Browser angesehen.
+- Offen: Ein echtes Training mit gesetztem Test-Anteil wurde nicht gestartet; die Auswahl ist durch Tests abgedeckt. Vor dieser Version bestätigte Kandidaten haben kein `reviewedAt` und zählen nicht als neu.
+
 ## 0.35.0
 
 Simulation mit wählbarem Abschnitt und wählbarer Bilddichte, ohne feste Obergrenze von 300 Bildern; weitere Bälle beim Übernehmen vormerken; nach „Ball“ / „Kein Ball“ sofort das nächste Bild.

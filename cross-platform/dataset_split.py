@@ -9,10 +9,45 @@ video already."""
 from __future__ import annotations
 
 import hashlib
+from datetime import datetime, timezone
 from collections import defaultdict
 from typing import Any
 
 ROLES = ("train", "valid", "test")
+# A reviewed image the user set aside as test ("how many of the new images are for tests?"). It keeps
+# that role in every later training, so the test stays the same.
+TEST_HOLD = "testHold"
+
+
+def _when(value: Any) -> datetime | None:
+    try:
+        moment = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return moment if moment.tzinfo else moment.replace(tzinfo=timezone.utc)
+
+
+def is_new_image(frame: dict[str, Any], trained_at: str | None) -> bool:
+    """A reviewed candidate (from the simulation or from "Expand dataset") that the last training
+    has not seen yet and that is not set aside as test."""
+    if frame.get("reviewStatus") != "reviewed" or frame.get(TEST_HOLD) or frame.get("heldOut"):
+        return False
+    reviewed = _when(frame.get("reviewedAt"))
+    if reviewed is None:
+        return False
+    trained = _when(trained_at) if trained_at else None
+    return trained is None or reviewed > trained
+
+
+def pin_new_images_as_test(frames: list[dict[str, Any]], percent: int, trained_at: str | None) -> int:
+    """Sets `percent` % of the new images aside as test (at least one when percent > 0). The images
+    are picked by a stable hash of their id, so asking twice gives the same ones. Returns how many."""
+    fresh = sorted((frame for frame in frames if is_new_image(frame, trained_at)), key=lambda frame: stable_bucket(str(frame.get("id"))))
+    percent = max(0, min(100, int(percent)))
+    count = min(len(fresh), -(-len(fresh) * percent // 100)) if percent else 0
+    for frame in fresh[:count]:
+        frame[TEST_HOLD] = True
+    return count
 
 
 def _text(language: str, german: str, english: str, spanish: str, french: str) -> str:
@@ -37,7 +72,7 @@ def stable_bucket(value: str) -> int:
 
 
 def split_frames(frames: list[dict[str, Any]], language: str = "de") -> tuple[dict[str, list[dict[str, Any]]], str | None]:
-    pinned = [frame for frame in frames if is_imported_frame(frame) and frame.get("split") in ROLES]
+    pinned = [frame for frame in frames if (is_imported_frame(frame) and frame.get("split") in ROLES) or frame.get(TEST_HOLD)]
     pinned_ids = {id(frame) for frame in pinned}
     rest = [frame for frame in frames if id(frame) not in pinned_ids]
     if rest:
@@ -45,7 +80,7 @@ def split_frames(frames: list[dict[str, Any]], language: str = "de") -> tuple[di
     else:
         output, warning = {"train": [], "valid": [], "test": []}, None
     for frame in pinned:
-        output[frame["split"]].append(frame)
+        output["test" if frame.get(TEST_HOLD) else frame["split"]].append(frame)
     return output, warning
 
 
@@ -114,7 +149,7 @@ def _split_by_video(frames: list[dict[str, Any]], language: str, has_pinned: boo
     return output, warning
 
 
-def preview(frames: list[dict[str, Any]], language: str = "de") -> dict[str, Any]:
+def preview(frames: list[dict[str, Any]], language: str = "de", trained_at: str | None = None) -> dict[str, Any]:
     """For the app: the role of every image the next training uses, the counts, and what to fix.
     Images that do not train yet (unlabelled, candidates, independent test) get no role."""
     usable = [frame for frame in frames if trains_on(frame) and not frame.get("heldOut")]
@@ -139,4 +174,5 @@ def preview(frames: list[dict[str, Any]], language: str = "de") -> dict[str, Any
             "Sin imágenes de prueba: una prueba independiente necesita al menos tres vídeos (uno de ellos será la prueba) o una propia en «Prueba de modelo independiente».",
             "Aucune image de test : un test indépendant nécessite au moins trois vidéos (l’une devient le test) ou un test séparé sous « Test de modèle indépendant ».",
         ))
-    return {"roles": roles, "counts": counts, "warning": warning, "problems": problems}
+    new_images = sum(1 for frame in frames if is_new_image(frame, trained_at))
+    return {"roles": roles, "counts": counts, "warning": warning, "problems": problems, "newImages": new_images}

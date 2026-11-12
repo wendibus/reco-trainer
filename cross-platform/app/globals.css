@@ -227,7 +227,10 @@ select { height:34px; padding:0 9px; border:1px solid #cbd3df; border-radius:7px
 .ball-tracking-controls { display:flex; align-items:center; gap:12px; flex-wrap:wrap; }
 .ball-tracking-section { display:flex; align-items:center; gap:6px; }
 .ball-tracking-section input { width:5.5em; }
+.ball-tracking-fractions { display:inline-flex; gap:4px; }
 .ball-tracking-section-note { opacity:.7; }
+.ball-tracking-reanalyse { display:flex; align-items:center; gap:8px; flex-wrap:wrap; padding:6px 10px; border-radius:8px; background:var(--surface-2, rgba(127,127,127,.12)); }
+.train-new-images select { max-width:100%; }
 .ball-tracking-progress { flex:1; min-width:220px; max-width:520px; }
 .ball-tracking-progress .benchmark-progress { height:8px; margin-top:0; }
 .ball-tracking-progress small { display:block; margin-top:6px; color:var(--muted); font-size:12px; }

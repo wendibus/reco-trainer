@@ -8,6 +8,31 @@ type Item = { title: string; text: string };
  *  number in the header opens it again. Add the next version's entry at the top. */
 export const WHATS_NEW: { version: string; items: Record<Language, Item[]> }[] = [
   {
+    version: '0.36.0',
+    items: {
+      de: [
+        { title: 'Simulation: Länge frei wählen', text: 'Die Länge des Abschnitts ist jetzt eine freie Zahl in Sekunden. Mit ¼, ½, ¾ und „ganz“ nimmst du diesen Anteil des Videos. Die Grenze von 2160 Bildern ist weg; erst über 20.000 Bilder gibt es einen Hinweis. Ändern sich Start, Länge oder Dichte, fragt die Simulation, ob sie den neuen Ausschnitt jetzt analysieren soll, ohne das Video neu zu laden.' },
+        { title: 'Wie viele neue Bilder sind Test?', text: 'Vor dem Training fragt der Dialog, wie viele der seit dem letzten Training bestätigten Bilder als Test dienen und nicht trainiert werden (keine, 10, 20, 30 oder 50 %). Die Auswahl bleibt bei späteren Trainings Test.' },
+        { title: 'Bilder ohne Markierung nachlabeln', text: 'Im Trainingsdialog führt „Bilder ohne Markierung nachlabeln“ direkt zu den Bildern, die noch nicht im Training sind.' },
+      ],
+      en: [
+        { title: 'Simulation: choose any length', text: 'The length of the section is now a free number of seconds. ¼, ½, ¾ and “all” take that share of the video. The limit of 2,160 images is gone; only above 20,000 images you get a notice. If you change the start, length or density, the simulation asks whether to analyse the new section now, without loading the video again.' },
+        { title: 'How many new images are test?', text: 'Before training, the dialog asks how many of the images confirmed since the last training should serve as test and not be trained on (none, 10, 20, 30 or 50 %). The choice stays test in later trainings.' },
+        { title: 'Label the images without boxes', text: 'In the training dialog, “Label the images without boxes” takes you straight to the images that are not in training yet.' },
+      ],
+      es: [
+        { title: 'Simulación: elige cualquier duración', text: 'La duración del tramo es ahora un número libre de segundos. ¼, ½, ¾ y «todo» toman esa parte del vídeo. El límite de 2160 imágenes ya no existe; solo por encima de 20.000 imágenes aparece un aviso. Si cambias el inicio, la duración o la densidad, la simulación pregunta si analizar ahora el nuevo tramo, sin volver a cargar el vídeo.' },
+        { title: '¿Cuántas imágenes nuevas son de prueba?', text: 'Antes de entrenar, el cuadro pregunta cuántas de las imágenes confirmadas desde el último entrenamiento deben servir de prueba y no entrenarse (ninguna, 10, 20, 30 o 50 %). La elección sigue siendo de prueba en entrenamientos posteriores.' },
+        { title: 'Marcar las imágenes sin cuadros', text: 'En el cuadro de entrenamiento, «Marcar las imágenes sin cuadros» lleva directamente a las imágenes que aún no están en el entrenamiento.' },
+      ],
+      fr: [
+        { title: 'Simulation : choisir une durée libre', text: 'La durée du passage est maintenant un nombre libre de secondes. ¼, ½, ¾ et « tout » prennent cette part de la vidéo. La limite de 2160 images disparaît ; un avis n’apparaît qu’au-delà de 20 000 images. Si vous changez le début, la durée ou la densité, la simulation demande si elle doit analyser le nouveau passage maintenant, sans recharger la vidéo.' },
+        { title: 'Combien de nouvelles images servent de test ?', text: 'Avant l’entraînement, la fenêtre demande combien des images confirmées depuis le dernier entraînement doivent servir de test et ne pas être entraînées (aucune, 10, 20, 30 ou 50 %). Le choix reste un test aux entraînements suivants.' },
+        { title: 'Annoter les images sans boîtes', text: 'Dans la fenêtre d’entraînement, « Annoter les images sans boîtes » mène directement aux images qui ne sont pas encore dans l’entraînement.' },
+      ],
+    },
+  },
+  {
     version: '0.35.0',
     items: {
       de: [

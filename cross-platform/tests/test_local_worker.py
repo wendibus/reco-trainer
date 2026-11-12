@@ -748,11 +748,13 @@ class SimulationSlotTests(unittest.TestCase):
         self.assertEqual(calls, [(720, (600.0, 60.0, 12.0))])
         self.assertEqual((simulation["start"], simulation["length"], simulation["fps"]), (600.0, 60.0, 12.0))
 
-    def test_a_short_video_is_taken_whole_and_the_length_is_capped(self):
+    def test_a_short_video_is_taken_whole_and_any_length_is_allowed(self):
         calls, _ = self.simulate_section({"slot": "a", "language": "en"}, 10.0)
         self.assertEqual(calls, [(120, (0.0, 10.0, 12.0))])
-        calls, _ = self.simulate_section({"slot": "a", "language": "en", "length": 9999}, 3000.0)
-        self.assertEqual(calls, [(2160, (0.0, 180.0, 12.0))])
+        calls, _ = self.simulate_section({"slot": "a", "language": "en", "length": 600}, 3000.0)  # free length, no 180 s limit
+        self.assertEqual(calls, [(7200, (0.0, 600.0, 12.0))])
+        calls, _ = self.simulate_section({"slot": "a", "language": "en", "length": 37}, 3000.0)
+        self.assertEqual(calls, [(444, (0.0, 37.0, 12.0))])
         calls, _ = self.simulate_section({"slot": "a", "language": "en", "start": 95, "length": 60}, 100.0)
         self.assertEqual(calls, [(60, (95.0, 5.0, 12.0))])
 
@@ -761,9 +763,8 @@ class SimulationSlotTests(unittest.TestCase):
         self.assertEqual(calls, [(240, (600.0, 60.0, 4.0))])
         self.assertEqual((simulation["every"], simulation["fps"]), (3, 4.0))
         self.assertEqual([round(frame["timestamp"], 4) for frame in simulation["frames"]], [600.0, 600.25, 600.5])
-        # no fixed cap of 300 images: a run holds up to 2,160, so every 3rd image reaches 540 seconds
         calls, _ = self.simulate_section({"slot": "a", "language": "en", "length": 9999, "every": 3}, 3000.0)
-        self.assertEqual(calls, [(2160, (0.0, 540.0, 4.0))])
+        self.assertEqual(calls, [(12000, (0.0, 3000.0, 4.0))])  # the whole video at every 3rd image
         calls, _ = self.simulate_section({"slot": "a", "language": "en", "length": 60, "every": 99}, 3000.0)
         self.assertEqual(calls, [(60, (0.0, 60.0, 1.0))])  # every 12th image at most
 
@@ -795,6 +796,23 @@ class SimulationSlotTests(unittest.TestCase):
         scenes, total = local_worker.teachers.tracking_scenes_with_total(frames)
         self.assertGreater(total, 40)
         self.assertEqual(len(scenes), 40)
+
+    def test_the_length_can_be_a_share_of_the_video(self):
+        for share, expected in ((0.25, 450.0), (0.5, 900.0), (0.75, 1350.0), (1.0, 1800.0)):
+            calls, simulation = self.simulate_section({"slot": "a", "language": "en", "lengthFraction": share, "every": 6}, 1800.0)
+            self.assertEqual(calls, [(round(expected * 2), (0.0, expected, 2.0))])
+            self.assertEqual(simulation["request"]["fraction"], share)
+            self.assertEqual(simulation["videoDuration"], 1800.0)
+        # from a later start the share is cut at the end of the video
+        calls, _ = self.simulate_section({"slot": "a", "language": "en", "start": 1000, "lengthFraction": 1, "every": 6}, 1800.0)
+        self.assertEqual(calls, [(1600, (1000.0, 800.0, 2.0))])
+        self.assertEqual(local_worker.requested_section({"lengthFraction": 7}), {"start": 0.0, "length": 25.0, "fraction": 0.0, "every": 1})
+
+    def test_an_absurdly_long_run_is_refused_with_advice(self):
+        with self.assertRaises(RuntimeError) as refused:
+            local_worker.simulation_section({"length": 3000}, 3000.0)  # 36,000 images
+        self.assertIn("image in 2", str(refused.exception))
+        local_worker.simulation_section({"length": 3000, "every": 2}, 3000.0)  # 18,000 images are fine
 
     def test_a_start_behind_the_end_of_the_video_is_refused(self):
         with self.assertRaises(RuntimeError):

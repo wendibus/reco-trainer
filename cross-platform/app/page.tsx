@@ -72,7 +72,7 @@ const DEFAULT_API = import.meta.env.DEV ? 'http://127.0.0.1:8766' : window.locat
 // Single source of truth for this web UI's own version - bump alongside
 // VERSION in cross-platform/scripts/package-platforms.sh at every release.
 // Compared against GitHub's latest release tag to power the update banner.
-const CURRENT_VERSION = '0.35.0';
+const CURRENT_VERSION = '0.36.0';
 const WHATS_NEW_SEEN_KEY = 'reco-whats-new-seen-v1';
 // One clearly different colour per class, so boxes can be told apart at a glance.
 // Auto-label suggestions are dashed (not recoloured), so the colour always means the class.
@@ -278,6 +278,15 @@ export default function Home() {
     if (a != null && b == null) return -1;
     return Math.abs((a ?? 1) - .35) - Math.abs((b ?? 1) - .35);
   });
+  // Images the next training does not use because nobody has labelled them yet (candidates and the independent test have their own review).
+  const unlabelledFrames = worker?.splits ? frames.filter((frame) => !worker.splits!.roles[frame.id] && frame.reviewStatus !== 'candidate' && !frame.heldOut) : [];
+  function labelRest() {
+    setTrainDialogOpen(false);
+    setFlaggedOnly(false);
+    setSplitFilter('none');
+    const first = unlabelledFrames.find((frame) => !frame.annotations.length) ?? unlabelledFrames[0];
+    if (first) setSelectedFrameID(first.id);
+  }
   const independentCandidates = frames.filter((frame) => frame.reviewStatus === 'candidate' && frame.heldOut).sort((left, right) => Number(isFlaggedForReview(right)) - Number(isFlaggedForReview(left)));
   const framesReady = frames.length > 0;
   const selectedFrameIndex = Math.max(0, frames.findIndex((frame) => frame.id === selectedFrameID));
@@ -519,9 +528,9 @@ export default function Home() {
     setEpochs(Math.min(200, request.epochs));
     // One model with a fixed number of epochs stays the plain training it always was.
     if (request.models.length === 1 && request.models[0] === modelSize && !request.autoEpochs && !request.sweep) {
-      void runML('/api/train', { epochs: request.epochs, freshStart: request.freshStart, anonymizeFraction });
+      void runML('/api/train', { epochs: request.epochs, freshStart: request.freshStart, anonymizeFraction, newTestPercent: request.newTestPercent });
     } else {
-      void runML('/api/train-batch', { ...request, anonymizeFraction });
+      void runML('/api/train-batch', { ...request, anonymizeFraction });  // carries newTestPercent
     }
   }
   async function createPackage() {
@@ -793,7 +802,7 @@ export default function Home() {
     {languagePromptOpen && <div className="walkthrough-backdrop language-backdrop"><section className="language-dialog" role="dialog" aria-modal="true" aria-labelledby="language-title"><div className="language-globe" aria-hidden="true">文</div><h2 id="language-title">Sprache wählen · Choose your language</h2><p>Elige tu idioma · Choisissez votre langue</p><div className="language-choices">{([['de', 'Deutsch'], ['en', 'English'], ['es', 'Español'], ['fr', 'Français']] as [Language, string][]).map(([code, label]) => <button data-hint={h.language} type="button" key={code} onClick={() => chooseLanguage(code)}><strong>{label}</strong><span>{code.toUpperCase()} <b aria-hidden="true">→</b></span></button>)}</div><small>Videos and images always remain on this computer.</small></section></div>}
     {hubOpen && <HubDialog language={language} api={api} version={CURRENT_VERSION} current={modelSize} busy={isWorking} onClose={() => setHubOpen(false)} onInstall={(size, id) => { setHubOpen(false); void post('/api/hub-install', { size, id, language }); }} />}
     {hubSharing && <HubShareDialog language={language} onCancel={() => setHubSharing(null)} onShare={(details) => { const packageID = hubSharing; setHubSharing(null); void post('/api/hub-share', { ...details, packageID, trainerVersion: CURRENT_VERSION, language }); }} />}
-    {trainDialogOpen && <TrainDialog language={language} splits={worker?.splits} current={modelSize} epochs={epochs} freshStart={trainFreshStart} onCancel={() => setTrainDialogOpen(false)} onStart={startTraining} />}
+    {trainDialogOpen && <TrainDialog language={language} splits={worker?.splits} outside={unlabelledFrames.length} onLabelRest={labelRest} current={modelSize} epochs={epochs} freshStart={trainFreshStart} onCancel={() => setTrainDialogOpen(false)} onStart={startTraining} />}
     <GpuDialogs api={api} language={language} gpu={worker?.gpu} ready={!!worker?.projectRoot} busy={isWorking} operationName={(operation) => jobTitle(language, operation)} choose={(choice) => post('/api/gpu-choice', { choice }).then(() => refreshStatus.current?.()).catch((error) => setWorker((current) => current ? { ...current, error: String(error) } : current))} />
     <JobDialog api={api} language={language} fallback={worker?.jobs} cancel={(jobId) => post(`/api/jobs/${jobId}/cancel`)} cancelSimulation={(keep) => post('/api/simulation-cancel', { keep })} onJobEnded={() => refreshStatus.current?.()}
       renderResult={(job, close) => <><ExportResult job={job} language={language} onReveal={(exportName) => void post('/api/reveal-training-folder', { exportName }).catch(() => undefined)} onOpenFrame={(frameID) => { setSelectedFrameID(frameID); close(); }} /><ConsistencyResult job={job} language={language} onOpenFrame={(frameID) => { setSelectedFrameID(frameID); close(); }} /></>} />

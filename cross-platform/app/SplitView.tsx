@@ -1,7 +1,7 @@
 type Language = 'de' | 'en' | 'es' | 'fr';
 
 export type SplitRole = 'train' | 'valid' | 'test';
-export type SplitPreview = { roles: Record<string, SplitRole>; counts: Record<SplitRole, number>; warning?: string | null; problems: string[] };
+export type SplitPreview = { roles: Record<string, SplitRole>; counts: Record<SplitRole, number>; warning?: string | null; problems: string[]; newImages?: number };
 export type SplitFilterValue = 'all' | SplitRole | 'none';
 
 const TEXT: Record<Language, { all: string; none: string; roles: Record<SplitRole, string>; hint: string; noneHint: string; summary: (counts: Record<SplitRole, number>) => string; perVideo: string }> = {
