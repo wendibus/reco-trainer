@@ -1,5 +1,19 @@
 # Änderungen
 
+## 0.38.0
+
+YOLO auf AMD-Karten mit MIOpen-Problem, Spielfeld vor dem Vormarkieren anbieten, nur trainierte Klassen im unabhängigen Test; stilles Update für NVIDIA unter Windows.
+
+- YOLO auf ROCm/Windows: MIOpen kompiliert den BatchNorm-Kernel zur Laufzeit und scheitert auf manchen Karten (`'type_traits' file not found`, `miopenStatusUnknownError`, gfx1101). `yolo_training.train` erkennt das (`is_miopen_failure`), schaltet MIOpen aus (`torch.backends.cudnn.enabled = False`) und startet das Training einmal neu, mit Hinweis im Protokoll (langsamer, aber ohne Laufzeit-Compile). Der Prüfschritt nach der AMD-Einrichtung (`VERIFY_SCRIPT`) probiert jetzt auch einen BatchNorm-Schritt und merkt sich `batchNorm`; ist er fehlgeschlagen, setzt `rocm_training_env()` `RECO_NO_MIOPEN=1`, und YOLO startet gleich ohne MIOpen. RF-DETR ist nicht betroffen, der Schritt entscheidet nicht über „available“. Auf einer AMD-Karte nicht nachgestellt, nur mit nachgebautem Fehler getestet.
+- Ultralytics-Gewichte: Der Mixed-Precision-Check lud `yolo26n.pt` in einen relativen Ordner `weights\` im Startverzeichnis. `settings.weights_dir` zeigt jetzt auf den App-Ordner `yolo-weights` (`yolo_training.weights_folder`), dort liegen auch die Basismodelle.
+- Meldung im Batch: Hat ein Schritt sein Ergebnis schon ausgegeben und wird danach beendet (z. B. RF-DETR Medium), steht „Ergebnis gesichert … kein Fehler“ statt „Der Schritt endete nicht von selbst“ (`localized_step_stopped(finished=True)`).
+- Spielfeld: Vor „Automatisch markieren“, „Datensatz erweitern“ und dem unabhängigen Test fragt ein Dialog, ob zuerst das Spielfeld festgelegt werden soll, wenn es noch keins gibt (einmal je Sitzung abweisbar). Mit „Für alle Videos übernehmen“ gilt es auch für neue Videos.
+- Unabhängiger Test: Vormarkiert werden nur die Klassen, die das aktive Modell (sonst das letzte Training) kennt (`trained_classes`); ohne Angabe wie bisher alle Klassen der Sportart.
+- Datensatz erweitern: Sobald ein Modell trainiert ist, ist die Schaltfläche hervorgehoben (Hauptschaltfläche, Rand, Satz „Nächster Schritt“).
+- Stilles Update, NVIDIA unter Windows (keine Neuigkeit im Dialog): Nach „ML einrichten“ prüft `ensure_cuda_torch`, ob PyTorch die NVIDIA-Karte wirklich nutzt. Ist es eine CPU-Version (RF-DETR hatte die CUDA-Version von cu121 überschrieben, das nur bis torch 2.5 reicht), wird dieselbe Version mit passendem torchvision aus cu126, sonst cu128 neu installiert (`--force-reinstall --no-deps`). Hat PyTorch CUDA, nutzt die Karte aber nicht, steht der Grund im Protokoll. Nie fatal: sonst bleibt es auf der CPU. Auf Windows nicht nachgestellt.
+- Geprüft: 547 Tests. Nicht geprüft: AMD-Karte, NVIDIA-Windows-Rechner und die Oberfläche im Browser.
+- Offen: Der Hardware-Bericht mit Leistungsstufen bei „ML einrichten“ ist weiter ein Vorschlag ohne Antwort.
+
 ## 0.37.0
 
 Rolle je Video wählbar; YOLO26-Modelle im Model Hub teilen und laden (AGPL-3.0, gleiches Sicherheitskonzept wie RF-DETR).

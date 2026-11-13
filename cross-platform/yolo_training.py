@@ -13,6 +13,7 @@ import importlib.util
 import json
 import os
 import shutil
+import sys
 from pathlib import Path
 from typing import Any, Callable
 
@@ -69,11 +70,31 @@ def configure_environment(config_dir: Path) -> None:
     os.environ.setdefault("YOLO_VERBOSE", "False")
 
 
+def weights_folder() -> Path:
+    """Where Ultralytics keeps downloaded weights (the base models, the check of mixed precision):
+    next to the other app data, never in the folder the app happened to be started from."""
+    return Path(sys.prefix).parent / "yolo-weights"
+
+
+def is_miopen_failure(error: BaseException) -> bool:
+    """AMD's MIOpen compiles a kernel for BatchNorm at run time; on some cards and Windows set-ups
+    that fails ("'type_traits' file not found", miopenStatusUnknownError)."""
+    text = str(error).lower()
+    return "miopen" in text or "type_traits" in text or "hiprtc" in text
+
+
+def without_miopen() -> None:
+    """Let PyTorch use its own kernels instead of MIOpen (slower, but they need no run-time compile)."""
+    import torch
+
+    torch.backends.cudnn.enabled = False
+
+
 def disable_sync() -> None:
     try:
         from ultralytics import settings
 
-        settings.update({"sync": False, "hub": False, "tensorboard": False, "wandb": False, "mlflow": False, "clearml": False, "comet": False, "dvc": False, "neptune": False, "raytune": False})
+        settings.update({"weights_dir": str(weights_folder()), "sync": False, "hub": False, "tensorboard": False, "wandb": False, "mlflow": False, "clearml": False, "comet": False, "dvc": False, "neptune": False, "raytune": False})
     except Exception:  # noqa: BLE001 - older/newer settings schemas: the env variables above still apply
         pass
 
@@ -186,21 +207,29 @@ def train(
     image_size: int,
     fine_tune: bool,
     on_epoch: Callable[[int, int, dict[str, float]], None],
+    notice: Callable[[str], None] | None = None,
 ) -> dict[str, Any]:
-    """Train, evaluate on the test split and export ONNX. Returns paths and metrics."""
+    """Train, evaluate on the test split and export ONNX. Returns paths and metrics.
+    `notice("miopen")` is called when training starts over without MIOpen (see is_miopen_failure)."""
     disable_sync()
     from ultralytics import YOLO
 
-    if run_dir.exists():
-        shutil.rmtree(run_dir)
-    model = YOLO(str(start_weights))
+    if os.environ.get("RECO_NO_MIOPEN") == "1":
+        without_miopen()
 
     def epoch_end(trainer: Any) -> None:
         # Also fires once more for the final validation; the caller sees the last epoch twice.
         total = int(trainer.epochs)
         on_epoch(min(int(trainer.epoch) + 1, total), total, metrics_from(getattr(trainer, "metrics", {}) or {}, "val"))
 
-    model.add_callback("on_fit_epoch_end", epoch_end)
+    def fresh_model() -> Any:
+        if run_dir.exists():
+            shutil.rmtree(run_dir)
+        model = YOLO(str(start_weights))
+        model.add_callback("on_fit_epoch_end", epoch_end)
+        return model
+
+    model = fresh_model()
     options: dict[str, Any] = {
         "data": str(data_yaml), "epochs": int(epochs), "patience": int(patience), "imgsz": int(image_size),
         "batch": batch_size(variant, device, image_size), "device": device, "project": str(run_dir.parent),
@@ -210,7 +239,17 @@ def train(
     if fine_tune:
         # Continuing from an own model: a smaller learning rate keeps what it learned.
         options.update({"lr0": 0.002, "warmup_epochs": 0.5})
-    model.train(**options)
+    try:
+        model.train(**options)
+    except RuntimeError as error:
+        # BatchNorm of the AMD card (MIOpen) failed: start over once with PyTorch's own kernels.
+        if device != "cuda" or not is_miopen_failure(error):
+            raise
+        without_miopen()
+        if notice:
+            notice("miopen")
+        model = fresh_model()
+        model.train(**options)
     best = run_dir / "weights" / "best.pt"
     if not best.is_file():
         best = run_dir / "weights" / "last.pt"

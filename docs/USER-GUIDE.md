@@ -198,6 +198,8 @@ Every video frame, every label, every trained checkpoint, and every metric lives
 
 ### Independent Model Test — a fair exam
 
+The independent test is pre-labelled only with the classes the active model was trained on; boxes for classes it never learned would be guesses. If no field boundary is set yet, the app offers to set it before pre-labelling (also before **Auto-label** and **Expand dataset**), so that only people on the field are marked.
+
 A model that's tested on the same footage it was trained on will always look better than it really is — it has effectively seen the answers already. **Independent Model Test** lets you designate a separate video folder — one that was *never* used for training — and turn it into a genuinely held-out test set. Model comparisons then use this independent set for their reference numbers, so a model can't score well purely because it recognizes footage it already knows.
 
 If you only ever test on your training footage, you're not measuring how good your model is — you're measuring how well it memorized.

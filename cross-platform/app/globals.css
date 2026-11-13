@@ -606,3 +606,6 @@ button:disabled[data-hint] { pointer-events:none; }
 .whats-new-dialog li span { font-size:12px; color:#4a5870; line-height:1.45; }
 .whats-new-actions { display:flex; justify-content:flex-end; margin-top:16px; }
 .whats-new-dialog:focus { outline:none; }
+
+.active-learning-section.next-step { border-left:3px solid var(--accent, #2f81f7); padding-left:10px; }
+.next-step-note { opacity:.85; }

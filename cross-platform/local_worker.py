@@ -715,6 +715,16 @@ def load_project(root: Path) -> dict | None:
     return project
 
 
+def trained_classes(root: Path | None, project: dict | None) -> set[str]:
+    """The classes of the active model (else of the last training); empty when none is known."""
+    if root is None:
+        return set()
+    snapshot = model_library_snapshot(root)
+    active = next((item for item in snapshot["packages"] if item.get("packageID") == snapshot.get("activePackageID")), None)
+    classes = set((active or {}).get("classes") or []) or set(((project or {}).get("lastTraining") or {}).get("classes") or [])
+    return {str(name) for name in classes}
+
+
 def model_library_snapshot(root: Path | None) -> dict:
     if root is None:
         return {"packages": [], "activePackageID": None}
@@ -1564,7 +1574,11 @@ def expand_dataset(folder: Path, payload: dict, held_out: bool = False) -> None:
         STATE.update(detail=None, stage={"index": 2, "count": 2, "label": localized("Automatisch markieren", "Auto-label", "Marcado automático", "Marquage automatique")})
         autolabel_payload = {**payload, "candidateOnly": True, "threshold": payload.get("threshold", 0.12)}
         if held_out:
-            autolabel_payload["categories"] = list(SPORT_CATEGORIES.get(project.get("sport"), []))
+            # Only the classes the model was trained on: boxes for the others would be guesses of a
+            # model that never learned them, and the independent test compares per class.
+            sport_classes = list(SPORT_CATEGORIES.get(project.get("sport"), []))
+            known = trained_classes(root, project)
+            autolabel_payload["categories"] = [name for name in sport_classes if name in known] or sport_classes
         ml_action("autolabel", autolabel_payload)
     except OperationCancelled:
         STATE.update(operation="cancelled", busy=False, progress=0.0, detail=None, error=None, message=localized(
@@ -2679,6 +2693,78 @@ def torch_import_error(venv_python: Path) -> str | None:
     return lines[-1] if lines else f"exit code {result.returncode}"
 
 
+# Run inside the ML environment: which PyTorch is installed, and does the NVIDIA card really compute with it?
+CUDA_CHECK_SCRIPT = """
+import json, torch
+info = {"version": torch.__version__, "cuda": torch.version.cuda, "available": torch.cuda.is_available(), "works": False}
+try:
+    import torchvision
+    info["vision"] = torchvision.__version__
+except Exception:
+    info["vision"] = None
+if info["available"]:
+    try:
+        info["works"] = float((torch.ones(2, device="cuda") * 2).sum().item()) == 4.0
+    except Exception as error:
+        info["error"] = str(error)[:300]
+print(json.dumps(info))
+"""
+# Current CUDA builds of PyTorch, tried in this order. cu121 stops at torch 2.5, so a newer RF-DETR
+# pulls a CPU build from PyPI over it, which is how an NVIDIA card ends up unused.
+CUDA_TORCH_INDEXES = ("cu126", "cu128")
+
+
+def torch_cuda_report(venv_python: Path) -> dict:
+    try:
+        check = subprocess.run([str(venv_python), "-c", CUDA_CHECK_SCRIPT], capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=300, check=False)
+        return json.loads(check.stdout.strip().splitlines()[-1])
+    except (OSError, subprocess.SubprocessError, ValueError, IndexError):
+        return {}
+
+
+def ensure_cuda_torch(venv_python: Path) -> None:
+    """After installing the ML packages on Windows with an NVIDIA card: if PyTorch is a CPU build
+    (the CUDA build got replaced while RF-DETR was installed), install the matching CUDA build of
+    the same version. Never fatal: without it, training simply stays on the CPU."""
+    report = torch_cuda_report(venv_python)
+    if not report or report.get("works"):
+        return
+    if report.get("cuda"):
+        # A CUDA build is there but the card does not compute with it: reinstalling does not help.
+        STATE.append_log(localized(
+            f"PyTorch hat CUDA {report.get('cuda')}, nutzt die NVIDIA-Karte aber nicht ({report.get('error') or 'Treiber oder Karte nicht unterstützt'}). Das Training läuft auf der CPU.",
+            f"PyTorch has CUDA {report.get('cuda')} but does not use the NVIDIA card ({report.get('error') or 'driver or card not supported'}). Training runs on the CPU.",
+            f"PyTorch tiene CUDA {report.get('cuda')} pero no usa la tarjeta NVIDIA ({report.get('error') or 'controlador o tarjeta no compatibles'}). El entrenamiento se ejecuta en la CPU.",
+            f"PyTorch a CUDA {report.get('cuda')} mais n’utilise pas la carte NVIDIA ({report.get('error') or 'pilote ou carte non pris en charge'}). L’entraînement se fait sur le CPU.",
+        ))
+        return
+    base = str(report.get("version", "")).split("+")[0]
+    vision = str(report.get("vision") or "").split("+")[0]
+    if not base or not vision:
+        return
+    STATE.append_log(localized(
+        "PyTorch ist eine CPU-Version, obwohl eine NVIDIA-Karte da ist. Installiere die CUDA-Version …",
+        "PyTorch is a CPU build although an NVIDIA card is present. Installing the CUDA build …",
+        "PyTorch es una versión de CPU aunque hay una tarjeta NVIDIA. Instalando la versión CUDA …",
+        "PyTorch est une version CPU alors qu’une carte NVIDIA est présente. Installation de la version CUDA …",
+    ))
+    for index in CUDA_TORCH_INDEXES:
+        try:
+            run_logged([str(venv_python), "-m", "pip", "install", "--force-reinstall", "--no-deps", f"torch=={base}", f"torchvision=={vision}", "--index-url", f"https://download.pytorch.org/whl/{index}"])
+        except RuntimeError as error:
+            STATE.append_log(f"CUDA {index}: {error}")
+            continue
+        if torch_cuda_report(venv_python).get("works"):
+            STATE.append_log(localized(f"Die NVIDIA-Karte wird jetzt genutzt (PyTorch {base}, {index}).", f"The NVIDIA card is used now (PyTorch {base}, {index}).", f"Ahora se usa la tarjeta NVIDIA (PyTorch {base}, {index}).", f"La carte NVIDIA est maintenant utilisée (PyTorch {base}, {index})."))
+            return
+    STATE.append_log(localized(
+        "Die CUDA-Version von PyTorch konnte nicht eingerichtet werden. Das Training läuft auf der CPU.",
+        "The CUDA build of PyTorch could not be set up. Training runs on the CPU.",
+        "No se pudo configurar la versión CUDA de PyTorch. El entrenamiento se ejecuta en la CPU.",
+        "La version CUDA de PyTorch n’a pas pu être configurée. L’entraînement se fait sur le CPU.",
+    ))
+
+
 def ensure_torch_importable(venv_python: Path) -> None:
     """After installing the ML packages: make sure PyTorch actually loads, else switch to the CPU build.
 
@@ -2834,6 +2920,12 @@ def rocm_folder() -> Path | None:
 
 def rocm_status() -> dict | None:
     return amd_training.status(rocm_folder(), (amd_offer() or {}).get("card"))
+
+
+def rocm_training_env() -> dict[str, str]:
+    """Environment of the training steps in the ROCm environment. YOLO starts without MIOpen right
+    away when the check after the install found that its BatchNorm kernel does not compile."""
+    return {**ROCM_TRAINING_ENV, **({"RECO_NO_MIOPEN": "1"} if amd_training.miopen_broken(rocm_folder()) else {})}
 
 
 def rocm_training_executable(default: Path) -> tuple[Path, bool]:
@@ -3268,6 +3360,8 @@ def ml_action(action: str, payload: dict) -> None:
             ])
             if wants_directml(gpu_name):
                 install_directml_runtime(venv_python)
+            if gpu_name:
+                ensure_cuda_torch(venv_python)  # an NVIDIA card was found and CUDA asked for
             ensure_torch_importable(venv_python)
             # The accelerator label (see non_apple_accelerator()) is cached
             # per venv path - a re-run of setup (e.g. retrying with CUDA
@@ -3480,7 +3574,7 @@ def ml_action(action: str, payload: dict) -> None:
                 STATE.update(project=load_project(root), folder_empty=False, operation="ready", busy=False, progress=1.0, message=message)
                 return
             command = [str(executable), str(worker), *args]
-            result = run_logged(command, ROCM_TRAINING_ENV) if rocm_used else run_logged(command)
+            result = run_logged(command, rocm_training_env()) if rocm_used else run_logged(command)
             if rocm_used:
                 remember_rocm_problem(None)
             if action == "consistency-suggest" and result:

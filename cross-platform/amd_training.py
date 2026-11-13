@@ -53,6 +53,16 @@ if info["available"]:
     loss.backward()
     torch.cuda.synchronize()
     info["backward"] = bool(torch.isfinite(layer.weight.grad).all())
+    # YOLO has BatchNorm: AMD's MIOpen compiles a kernel for it at run time, which fails on some
+    # set-ups ("'type_traits' file not found"). RF-DETR has none, so this does not decide "available".
+    try:
+        net = torch.nn.Sequential(torch.nn.Conv2d(3, 8, 3), torch.nn.BatchNorm2d(8)).cuda().train()
+        net(torch.randn(4, 3, 64, 64, device="cuda")).square().mean().backward()
+        torch.cuda.synchronize()
+        info["batchNorm"] = True
+    except Exception as error:
+        info["batchNorm"] = False
+        info["batchNormError"] = str(error)[:300]
 print(json.dumps(info))
 """
 
@@ -94,6 +104,11 @@ def verified(result: dict[str, Any] | None) -> bool:
     """The check after the install passed: card seen, matrix product right, gradient finite."""
     return bool(result) and bool(result.get("available")) and bool(result.get("backward")) \
         and float(result.get("matmulDifference", 1.0)) < 0.01
+
+
+def miopen_broken(folder: Path | None) -> bool:
+    """The check found that BatchNorm does not run on this card with MIOpen: YOLO then starts without it."""
+    return (read_state(folder).get("verified") or {}).get("batchNorm") is False
 
 
 def ready(folder: Path | None) -> bool:

@@ -8,6 +8,31 @@ type Item = { title: string; text: string };
  *  number in the header opens it again. Add the next version's entry at the top. */
 export const WHATS_NEW: { version: string; items: Record<Language, Item[]> }[] = [
   {
+    version: '0.38.0',
+    items: {
+      de: [
+        { title: 'YOLO auch auf AMD-Karten mit MIOpen-Problem', text: 'Scheitert YOLO auf einer AMD-Karte an MIOpen („type_traits“), startet das Training einmal ohne MIOpen neu. Das ist langsamer, läuft aber. RF-DETR war nie betroffen.' },
+        { title: 'Spielfeld vor dem Vormarkieren', text: 'Vor „Automatisch markieren“, „Datensatz erweitern“ und dem unabhängigen Test bietet die App an, zuerst das Spielfeld festzulegen. Dann werden nur Personen auf dem Feld markiert.' },
+        { title: 'Unabhängiger Test: nur trainierte Klassen', text: 'Der unabhängige Test wird nur mit den Klassen vormarkiert, die dein Modell kennt. „Datensatz erweitern“ ist nach dem ersten Training hervorgehoben.' },
+      ],
+      en: [
+        { title: 'YOLO on AMD cards with a MIOpen problem', text: 'If YOLO fails on an AMD card because of MIOpen (“type_traits”), the training starts over once without MIOpen. That is slower but works. RF-DETR was never affected.' },
+        { title: 'Field boundary before pre-labelling', text: 'Before “Auto-label”, “Expand dataset” and the independent test, the app offers to set the field boundary first. Then only people on the field are marked.' },
+        { title: 'Independent test: only trained classes', text: 'The independent test is pre-labelled only with the classes your model knows. “Expand dataset” is highlighted after the first training.' },
+      ],
+      es: [
+        { title: 'YOLO también en tarjetas AMD con problema de MIOpen', text: 'Si YOLO falla en una tarjeta AMD por MIOpen («type_traits»), el entrenamiento empieza de nuevo una vez sin MIOpen. Es más lento, pero funciona. RF-DETR nunca se vio afectado.' },
+        { title: 'Campo antes del premarcado', text: 'Antes de «Marcar automáticamente», «Ampliar conjunto» y la prueba independiente, la app ofrece definir primero el campo. Así solo se marcan las personas en el campo.' },
+        { title: 'Prueba independiente: solo clases entrenadas', text: 'La prueba independiente se premarca solo con las clases que conoce tu modelo. «Ampliar conjunto» aparece destacado tras el primer entrenamiento.' },
+      ],
+      fr: [
+        { title: 'YOLO aussi sur les cartes AMD avec problème MIOpen', text: 'Si YOLO échoue sur une carte AMD à cause de MIOpen (« type_traits »), l’entraînement repart une fois sans MIOpen. C’est plus lent mais ça fonctionne. RF-DETR n’a jamais été touché.' },
+        { title: 'Terrain avant la pré-annotation', text: 'Avant « Annoter automatiquement », « Étendre le jeu » et le test indépendant, l’app propose de définir d’abord le terrain. Seules les personnes sur le terrain sont alors marquées.' },
+        { title: 'Test indépendant : seulement les classes entraînées', text: 'Le test indépendant n’est pré-annoté qu’avec les classes que votre modèle connaît. « Étendre le jeu » est mis en avant après le premier entraînement.' },
+      ],
+    },
+  },
+  {
     version: '0.37.0',
     items: {
       de: [

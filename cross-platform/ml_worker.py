@@ -3996,7 +3996,7 @@ def yolo_unavailable_message(language: str) -> str:
 def yolo_base_weights(variant: str, language: str) -> Path:
     """COCO-pretrained YOLO26 weights, downloaded once per computer and checked by SHA-256."""
     entry = yolo_training.VARIANTS[variant]
-    target = Path(sys.prefix).parent / "yolo-weights" / entry["file"]
+    target = yolo_training.weights_folder() / entry["file"]
     if target.is_file() and sha256_file(target) == entry["sha256"]:
         return target
     emit(localized(language, f"Lade Basismodell {entry['title']} (AGPL-3.0) …", f"Downloading base model {entry['title']} (AGPL-3.0) …", f"Descargando el modelo base {entry['title']} (AGPL-3.0) …", f"Téléchargement du modèle de base {entry['title']} (AGPL-3.0) …"))
@@ -4066,7 +4066,17 @@ def train_yolo(args: argparse.Namespace, project_root: Path, document: dict[str,
             print(f"RECO_PROGRESS {done} {total}", file=sys.stderr, flush=True)
 
     run_dir = project_root / "runs" / variant
-    result = yolo_training.train(variant, start_weights, data_yaml, run_dir, device, epochs, patience, image_size, parent is not None, on_epoch)
+    def notice(kind: str) -> None:
+        if kind == "miopen":
+            emit(localized(
+                args.language,
+                "Die AMD-Karte konnte einen Rechenschritt (MIOpen, BatchNorm) nicht übersetzen. YOLO startet neu ohne MIOpen; das ist langsamer.",
+                "The AMD card could not compile a step (MIOpen, BatchNorm). YOLO starts over without MIOpen; that is slower.",
+                "La tarjeta AMD no pudo compilar un paso (MIOpen, BatchNorm). YOLO empieza de nuevo sin MIOpen; es más lento.",
+                "La carte AMD n’a pas pu compiler une étape (MIOpen, BatchNorm). YOLO repart sans MIOpen ; c’est plus lent.",
+            ))
+
+    result = yolo_training.train(variant, start_weights, data_yaml, run_dir, device, epochs, patience, image_size, parent is not None, on_epoch, notice)
     stage(3, 3, localized(args.language, "Modell exportieren und einordnen", "Export and file the model", "Exportar y archivar el modelo", "Exporter et classer le modèle"))
     atomic_json(run_dir / "reco-yolo.json", {"classNames": class_names, "inputSize": image_size, "onnx": str(Path(result["onnx"]).relative_to(run_dir))})
 
@@ -4468,7 +4478,7 @@ def run_batch_step(command: list[str], prefix: str, index: int, count: int, env:
                 if now - exited_at > 10:
                     break  # the process is gone; something it started still holds the pipe
             elif last_json is not None and now - (result_at or now) > result_grace:
-                emit(localized_step_stopped(prefix, language))
+                emit(localized_step_stopped(prefix, language, finished=True))
                 stop_process_tree(process)
                 return 0, last_json, tail
             elif idle_limit is not None and now - last_output > idle_limit:
@@ -4499,7 +4509,13 @@ def run_batch_step(command: list[str], prefix: str, index: int, count: int, env:
         return (0 if last_json is not None else 124), last_json, tail
 
 
-def localized_step_stopped(prefix: str, language: str) -> str:
+def localized_step_stopped(prefix: str, language: str, finished: bool = False) -> str:
+    """`finished`: the step had already printed its result, so stopping it loses nothing."""
+    if finished:
+        return prefix + ": " + localized(language, "Ergebnis gesichert. Der Schritt hat sich danach nicht von selbst beendet und wurde beendet; das ist kein Fehler.",
+                                         "result saved. The step did not end by itself afterwards and was stopped; this is not an error.",
+                                         "resultado guardado. El paso no terminó por sí solo después y se detuvo; no es un error.",
+                                         "résultat enregistré. L’étape ne s’est pas terminée d’elle-même ensuite et a été arrêtée ; ce n’est pas une erreur.")
     return prefix + ": " + localized(language, "Der Schritt endete nicht von selbst und wurde beendet.", "the step did not end by itself and was stopped.",
                                      "el paso no terminó por sí solo y se detuvo.", "l’étape ne s’est pas terminée d’elle-même et a été arrêtée.")
 
