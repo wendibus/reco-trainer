@@ -8,6 +8,27 @@ type Item = { title: string; text: string };
  *  number in the header opens it again. Add the next version's entry at the top. */
 export const WHATS_NEW: { version: string; items: Record<Language, Item[]> }[] = [
   {
+    version: '0.37.0',
+    items: {
+      de: [
+        { title: 'Rolle je Video wählen', text: 'Unter den Chips der Bilderliste legst du für jedes Video Training, Validierung oder Test fest. Ein Video bleibt ganz in seiner Rolle. Fehlt Validierung oder Test, sucht die App sie aus den übrigen Videos aus; ein Video bleibt zum Trainieren.' },
+        { title: 'YOLO26-Modelle im Model Hub', text: 'Mit YOLO trainierte Modelle (Nano, Small, Medium) lassen sich wie RF-DETR im Hub teilen und laden, mit demselben Sicherheitskonzept: nur bereinigte Gewichte als safetensors, keine Bilder, Prüfung durch einen Maintainer. Beim Laden wird das Modell lokal aus den Gewichten neu aufgebaut und als ONNX exportiert. YOLO26 steht unter der AGPL-3.0; die Lizenz wird angezeigt und bestätigt.' },
+      ],
+      en: [
+        { title: 'Choose the role of each video', text: 'Under the chips of the image list you set training, validation or test for each video. A video stays whole in its role. If validation or test is missing, the app picks it from the remaining videos; one video is left for training.' },
+        { title: 'YOLO26 models in the Model Hub', text: 'Models trained with YOLO (Nano, Small, Medium) can be shared and loaded in the hub like RF-DETR, with the same safety concept: only cleaned weights as safetensors, no pictures, review by a maintainer. When loaded, the model is rebuilt locally from the weights and exported as ONNX. YOLO26 is under the AGPL-3.0; the license is shown and confirmed.' },
+      ],
+      es: [
+        { title: 'Elige el rol de cada vídeo', text: 'Bajo los chips de la lista de imágenes fijas entrenamiento, validación o prueba para cada vídeo. Un vídeo queda entero en su rol. Si falta validación o prueba, la app la elige entre los demás vídeos; uno queda para entrenar.' },
+        { title: 'Modelos YOLO26 en el Model Hub', text: 'Los modelos entrenados con YOLO (Nano, Small, Medium) se pueden compartir y cargar en el hub como RF-DETR, con el mismo concepto de seguridad: solo pesos limpios como safetensors, sin imágenes, revisión por un mantenedor. Al cargarlo, el modelo se reconstruye localmente a partir de los pesos y se exporta como ONNX. YOLO26 está bajo la AGPL-3.0; la licencia se muestra y se confirma.' },
+      ],
+      fr: [
+        { title: 'Choisir le rôle de chaque vidéo', text: 'Sous les puces de la liste d’images, vous fixez entraînement, validation ou test pour chaque vidéo. Une vidéo reste entière dans son rôle. S’il manque la validation ou le test, l’app les choisit parmi les autres vidéos ; une vidéo reste pour l’entraînement.' },
+        { title: 'Modèles YOLO26 dans le Model Hub', text: 'Les modèles entraînés avec YOLO (Nano, Small, Medium) se partagent et se chargent dans le hub comme RF-DETR, avec le même concept de sécurité : seulement des poids nettoyés en safetensors, pas d’images, relecture par un mainteneur. Au chargement, le modèle est reconstruit localement à partir des poids et exporté en ONNX. YOLO26 est sous AGPL-3.0 ; la licence est affichée et confirmée.' },
+      ],
+    },
+  },
+  {
     version: '0.36.0',
     items: {
       de: [

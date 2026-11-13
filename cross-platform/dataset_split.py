@@ -71,12 +71,12 @@ def stable_bucket(value: str) -> int:
     return int(hashlib.sha256(value.encode("utf-8")).hexdigest()[:8], 16)
 
 
-def split_frames(frames: list[dict[str, Any]], language: str = "de") -> tuple[dict[str, list[dict[str, Any]]], str | None]:
+def split_frames(frames: list[dict[str, Any]], language: str = "de", video_roles: dict[str, str] | None = None) -> tuple[dict[str, list[dict[str, Any]]], str | None]:
     pinned = [frame for frame in frames if (is_imported_frame(frame) and frame.get("split") in ROLES) or frame.get(TEST_HOLD)]
     pinned_ids = {id(frame) for frame in pinned}
     rest = [frame for frame in frames if id(frame) not in pinned_ids]
     if rest:
-        output, warning = _split_by_video(rest, language, has_pinned=bool(pinned))
+        output, warning = _split_by_video(rest, language, has_pinned=bool(pinned), video_roles=video_roles or {})
     else:
         output, warning = {"train": [], "valid": [], "test": []}, None
     for frame in pinned:
@@ -84,7 +84,7 @@ def split_frames(frames: list[dict[str, Any]], language: str = "de") -> tuple[di
     return output, warning
 
 
-def _split_by_video(frames: list[dict[str, Any]], language: str, has_pinned: bool) -> tuple[dict[str, list[dict[str, Any]]], str | None]:
+def _split_by_video(frames: list[dict[str, Any]], language: str, has_pinned: bool, video_roles: dict[str, str] | None = None) -> tuple[dict[str, list[dict[str, Any]]], str | None]:
     imported = [frame for frame in frames if is_imported_frame(frame)]
     by_video: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for frame in frames:
@@ -115,6 +115,21 @@ def _split_by_video(frames: list[dict[str, Any]], language: str, has_pinned: boo
         )
         return output, warning
     output["train"].extend(imported)
+
+    # Roles the user chose per video ("Roles of the videos"). Every video stays whole in its role.
+    # A role nobody was given (validation, test) is filled from the videos left over, as long as one
+    # of them stays for training; choosing "training" for a video keeps it out of that.
+    explicit = {video_id: video_roles[video_id] for video_id in video_ids if (video_roles or {}).get(video_id) in ROLES}
+    if explicit:
+        rest = [video_id for video_id in video_ids if video_id not in explicit]
+        for video_id, role in explicit.items():
+            output[role].extend(by_video[video_id])
+        for role in ("test", "valid"):
+            if role not in explicit.values() and len(rest) >= 2:
+                output[role].extend(by_video[rest.pop()])
+        for video_id in rest:
+            output["train"].extend(by_video[video_id])
+        return output, None
 
     if len(video_ids) >= 3:
         test_ids = {video_ids[-1]}
@@ -149,11 +164,11 @@ def _split_by_video(frames: list[dict[str, Any]], language: str, has_pinned: boo
     return output, warning
 
 
-def preview(frames: list[dict[str, Any]], language: str = "de", trained_at: str | None = None) -> dict[str, Any]:
+def preview(frames: list[dict[str, Any]], language: str = "de", trained_at: str | None = None, video_roles: dict[str, str] | None = None) -> dict[str, Any]:
     """For the app: the role of every image the next training uses, the counts, and what to fix.
     Images that do not train yet (unlabelled, candidates, independent test) get no role."""
     usable = [frame for frame in frames if trains_on(frame) and not frame.get("heldOut")]
-    splits, warning = split_frames(usable, language)
+    splits, warning = split_frames(usable, language, video_roles)
     roles = {str(frame.get("id")): role for role, items in splits.items() for frame in items}
     counts = {role: len(items) for role, items in splits.items()}
     total = sum(counts.values())

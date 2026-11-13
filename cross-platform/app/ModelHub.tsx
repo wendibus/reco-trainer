@@ -1,19 +1,21 @@
 import { useEffect, useState } from 'react';
 
 type Language = 'de' | 'en' | 'es' | 'fr';
-type HubSize = 'nano' | 'small' | 'medium';
-const SIZES: HubSize[] = ['nano', 'small', 'medium'];
-const SIZE_NAMES: Record<HubSize, string> = { nano: 'Nano', small: 'Small', medium: 'Medium' };
+type HubSize = 'nano' | 'small' | 'medium' | 'yolo-nano' | 'yolo-small' | 'yolo-medium';
+const SIZES: HubSize[] = ['nano', 'small', 'medium', 'yolo-nano', 'yolo-small', 'yolo-medium'];
+const SIZE_NAMES: Record<HubSize, string> = { nano: 'RF-DETR Nano', small: 'RF-DETR Small', medium: 'RF-DETR Medium', 'yolo-nano': 'YOLO26 Nano', 'yolo-small': 'YOLO26 Small', 'yolo-medium': 'YOLO26 Medium' };
+const isYolo = (size: string) => size.startsWith('yolo-');
 
 type HubModel = {
-  id: string; name: string; version: string; size: HubSize; author?: string; description?: string; classes?: string[]; parent?: string | null; classMatch?: 'same' | 'different';
+  id: string; name: string; version: string; size: HubSize; author?: string; description?: string; classes?: string[]; parent?: string | null; classMatch?: 'same' | 'different'; license?: string; architecture?: string;
   training?: { images?: number; games?: number; camera?: string; venue?: string }; metrics?: { self_reported?: { mAP50?: number | null; validation_images?: number | null } }; files?: Array<{ size_bytes?: number }>;
 };
 type HubState = { models: HubModel[]; offline?: boolean; notYetPublished?: boolean; comparison?: { before: number; after: number; validationImages: number; keptParent: boolean; parent: string } | null };
-export type HubShare = { name: string; description: string; version: string; camera: string; venue: 'indoor' | 'outdoor'; games: number; rightsConfirmed: true };
+export type HubShare = { name: string; description: string; version: string; camera: string; venue: 'indoor' | 'outdoor'; games: number; rightsConfirmed: true; yoloLicenseAccepted?: true };
 
 export const hubLabels = {
   de: {
+    license: 'Lizenz', agplAgree: 'Ich stimme der AGPL-3.0-Lizenz zu. YOLO-Modelle stammen von Ultralytics YOLO26 und stehen unter derselben Lizenz. Zum Laden wird Ultralytics installiert, falls es fehlt.', agplRights: 'Ich weiß, dass dieses Modell von Ultralytics YOLO26 abgeleitet ist und unter der AGPL-3.0 veröffentlicht wird, und stimme dem zu.', yoloNote: 'YOLO-Modelle werden nicht als fertige Datei geteilt: Wer sie lädt, baut sie lokal aus den Gewichten neu auf.',
     open: 'Model Hub', openHint: 'Zeigt fertige Modelle anderer Nutzer für diese Sportart. Erst dieser Klick geht online.', empty: 'Noch kein Modell? Im Model Hub gibt es vielleicht einen guten Startpunkt für diese Sportart.',
     share: 'Im Hub teilen', shareHint: 'Lädt nur die bereinigten Gewichte hoch und öffnet einen Pull Request. Bilder bleiben auf diesem Rechner.',
     title: 'Model Hub', intro: 'Modelle als Startpunkt für dein eigenes Training. Die Werte sind Angaben der Autoren auf deren eigenen Bildern und nicht vergleichbar. Beim Training misst der Trainer vorher und nachher auf deinen Bildern.',
@@ -27,6 +29,7 @@ export const hubLabels = {
     upload: 'Hochladen', cancel: 'Abbrechen', notReady: 'Der GitHub-Login für den Hub ist noch nicht eingerichtet.',
   },
   en: {
+    license: 'License', agplAgree: 'I agree to the AGPL-3.0 license. YOLO models come from Ultralytics YOLO26 and are under the same license. Ultralytics is installed for loading if it is missing.', agplRights: 'I know this model is derived from Ultralytics YOLO26 and is published under the AGPL-3.0, and I agree to that.', yoloNote: 'YOLO models are not shared as a ready-made file: whoever loads one rebuilds it locally from the weights.',
     open: 'Model Hub', openHint: 'Shows ready-made models from other users for this sport. Only this click goes online.', empty: 'No model yet? The Model Hub may have a good starting point for this sport.',
     share: 'Share in hub', shareHint: 'Uploads only the cleaned weights and opens a pull request. Pictures stay on this computer.',
     title: 'Model Hub', intro: 'Models as a starting point for your own training. Scores are the authors’ own, on their own images, and not comparable. When training, the trainer measures before and after on your images.',
@@ -40,6 +43,7 @@ export const hubLabels = {
     upload: 'Upload', cancel: 'Cancel', notReady: 'The GitHub login for the hub has not been set up yet.',
   },
   es: {
+    license: 'Licencia', agplAgree: 'Acepto la licencia AGPL-3.0. Los modelos YOLO proceden de Ultralytics YOLO26 y tienen la misma licencia. Para cargarlo se instala Ultralytics si falta.', agplRights: 'Sé que este modelo deriva de Ultralytics YOLO26 y se publica bajo la AGPL-3.0, y lo acepto.', yoloNote: 'Los modelos YOLO no se comparten como archivo listo: quien los carga los reconstruye localmente a partir de los pesos.',
     open: 'Model Hub', openHint: 'Muestra modelos listos de otros usuarios para este deporte. Solo este clic se conecta a internet.', empty: '¿Aún sin modelo? En el Model Hub quizá haya un buen punto de partida para este deporte.',
     share: 'Compartir en el hub', shareHint: 'Sube solo los pesos limpios y abre un pull request. Las imágenes permanecen en este equipo.',
     title: 'Model Hub', intro: 'Modelos como punto de partida para tu propio entrenamiento. Los valores son de los autores, en sus propias imágenes, y no son comparables. Al entrenar se mide antes y después en tus imágenes.',
@@ -53,6 +57,7 @@ export const hubLabels = {
     upload: 'Subir', cancel: 'Cancelar', notReady: 'El inicio de sesión de GitHub para el hub aún no está configurado.',
   },
   fr: {
+    license: 'Licence', agplAgree: 'J’accepte la licence AGPL-3.0. Les modèles YOLO viennent d’Ultralytics YOLO26 et sont sous la même licence. Ultralytics est installé pour le chargement s’il manque.', agplRights: 'Je sais que ce modèle dérive d’Ultralytics YOLO26 et qu’il est publié sous l’AGPL-3.0, et j’y consens.', yoloNote: 'Les modèles YOLO ne sont pas partagés comme fichier prêt : qui les charge les reconstruit localement à partir des poids.',
     open: 'Model Hub', openHint: 'Affiche des modèles prêts d’autres utilisateurs pour ce sport. Seul ce clic va en ligne.', empty: 'Pas encore de modèle ? Le Model Hub propose peut-être un bon point de départ pour ce sport.',
     share: 'Partager dans le hub', shareHint: 'Téléverse uniquement les poids nettoyés et ouvre une pull request. Les images restent sur cet ordinateur.',
     title: 'Model Hub', intro: 'Des modèles comme point de départ pour votre propre entraînement. Les scores sont ceux des auteurs, sur leurs propres images, et ne sont pas comparables. À l’entraînement, l’avant et l’après sont mesurés sur vos images.',
@@ -69,10 +74,11 @@ export const hubLabels = {
 
 const percent = (value: number) => `${Math.round(value * 1000) / 10} %`;
 
-export function HubDialog({ language, api, version, current, busy, onClose, onInstall }: { language: Language; api: string; version: string; current: string; busy: boolean; onClose: () => void; onInstall: (size: HubSize, id: string) => void }) {
+export function HubDialog({ language, api, version, current, busy, onClose, onInstall }: { language: Language; api: string; version: string; current: string; busy: boolean; onClose: () => void; onInstall: (size: HubSize, id: string, yoloLicenseAccepted?: true) => void }) {
   const t = hubLabels[language];
   const [state, setState] = useState<HubState | null>(null);
   const [size, setSize] = useState<HubSize>(SIZES.includes(current as HubSize) ? current as HubSize : 'small');
+  const [agpl, setAgpl] = useState(false);
   useEffect(() => {
     let live = true;
     void fetch(`${api}/api/hub/models?version=${encodeURIComponent(version)}`).then((response) => response.json()).then((next: HubState) => { if (live) setState(next); }).catch(() => { if (live) setState({ models: [], offline: true }); });
@@ -84,6 +90,7 @@ export function HubDialog({ language, api, version, current, busy, onClose, onIn
     <p className="train-note">{t.intro}</p>
     {state?.comparison && <p className="train-note">{t.comparison(percent(state.comparison.before), percent(state.comparison.after), state.comparison.validationImages, state.comparison.keptParent)}</p>}
     <div className="hub-tabs">{SIZES.map((item) => <button data-hint={SIZE_NAMES[item]} key={item} type="button" className="secondary-button" aria-pressed={item === size} onClick={() => setSize(item)}>{SIZE_NAMES[item]}</button>)}</div>
+    {isYolo(size) && <label className="hub-rights"><input type="checkbox" checked={agpl} onChange={(event) => setAgpl(event.target.checked)} /> <span>{t.agplAgree}</span></label>}
     {!state && <p>{t.loading}</p>}
     {state?.offline && <p className="train-note">{state.models.length ? t.offline : t.offlineEmpty}</p>}
     {state?.notYetPublished && <p className="train-note">{t.notYet}</p>}
@@ -95,16 +102,17 @@ export function HubDialog({ language, api, version, current, busy, onClose, onIn
         <small>{t.by} {model.author} · {(model.classes ?? []).join(', ')}{model.files?.[0]?.size_bytes ? ` · ${Math.round(model.files[0].size_bytes / 1e6)} MB` : ''}</small>
         <small>{model.training?.images ?? 0} {t.images} · {model.training?.games ?? 0} {t.games} · {model.training?.camera} · {model.training?.venue === 'outdoor' ? t.outdoor : t.indoor}</small>
         {own?.mAP50 != null && <small>{t.score}: {percent(own.mAP50)}{own.validation_images ? ` ${t.on} ${own.validation_images} ${t.valImages}` : ''}</small>}
+        {model.license && model.license !== 'Apache-2.0' && <small>{t.license}: {model.license}</small>}
         {model.parent && <small>{t.based}: {model.parent}</small>}
         {model.description && <p>{model.description}</p>}
         {model.classMatch === 'different' && <p className="train-note">{t.different}</p>}
-      </div><button data-hint={t.use} type="button" className="primary-button" disabled={busy} onClick={() => onInstall(model.size, model.id)}>{t.use}</button></article>;
+      </div><button data-hint={t.use} type="button" className="primary-button" disabled={busy || (isYolo(model.size) && !agpl)} onClick={() => onInstall(model.size, model.id, isYolo(model.size) ? true : undefined)}>{t.use}</button></article>;
     })}
     <div className="train-actions"><button data-hint={t.close} type="button" className="secondary-button" onClick={onClose}>{t.close}</button></div>
   </div></div>;
 }
 
-export function HubShareDialog({ language, onCancel, onShare }: { language: Language; onCancel: () => void; onShare: (details: HubShare) => void }) {
+export function HubShareDialog({ language, yolo = false, onCancel, onShare }: { language: Language; yolo?: boolean; onCancel: () => void; onShare: (details: HubShare) => void }) {
   const t = hubLabels[language];
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
@@ -113,7 +121,8 @@ export function HubShareDialog({ language, onCancel, onShare }: { language: Lang
   const [venue, setVenue] = useState<'indoor' | 'outdoor'>('indoor');
   const [games, setGames] = useState(1);
   const [rights, setRights] = useState(false);
-  const ready = name.trim().length >= 2 && camera.trim().length > 0 && games >= 1 && /^\d+\.\d+\.\d+$/.test(version) && rights;
+  const [agplOk, setAgplOk] = useState(false);
+  const ready = name.trim().length >= 2 && camera.trim().length > 0 && games >= 1 && /^\d+\.\d+\.\d+$/.test(version) && rights && (!yolo || agplOk);
   return <div className="walkthrough-backdrop train-backdrop"><div className="train-dialog hub-dialog" role="dialog" aria-modal="true" aria-label={t.shareTitle}>
     <h2>{t.shareTitle}</h2>
     <p className="train-note">{t.shareIntro}</p>
@@ -126,10 +135,12 @@ export function HubShareDialog({ language, onCancel, onShare }: { language: Lang
       <label>{t.venue}<select value={venue} onChange={(event) => setVenue(event.target.value as 'indoor' | 'outdoor')}><option value="indoor">{t.indoor}</option><option value="outdoor">{t.outdoor}</option></select></label>
       <label>{t.gameCount}<input type="number" min={1} max={10000} value={games} onChange={(event) => setGames(Math.max(1, Number(event.target.value) || 1))} /></label>
       <label className="hub-rights"><input type="checkbox" checked={rights} onChange={(event) => setRights(event.target.checked)} /> <span>{t.rights}</span></label>
+      {yolo && <p className="train-note">{t.yoloNote}</p>}
+      {yolo && <label className="hub-rights"><input type="checkbox" checked={agplOk} onChange={(event) => setAgplOk(event.target.checked)} /> <span>{t.agplRights}</span></label>}
     </fieldset>
     <div className="train-actions">
       <button data-hint={t.cancel} type="button" className="secondary-button" onClick={onCancel}>{t.cancel}</button>
-      <button data-hint={t.upload} type="button" className="primary-button" disabled={!ready} onClick={() => onShare({ name: name.trim(), description: description.trim(), version, camera: camera.trim(), venue, games, rightsConfirmed: true })}>{t.upload}</button>
+      <button data-hint={t.upload} type="button" className="primary-button" disabled={!ready} onClick={() => onShare({ name: name.trim(), description: description.trim(), version, camera: camera.trim(), venue, games, rightsConfirmed: true, ...(yolo ? { yoloLicenseAccepted: true as const } : {}) })}>{t.upload}</button>
     </div>
   </div></div>;
 }

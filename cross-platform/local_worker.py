@@ -405,8 +405,9 @@ class LocalState:
                 "mlReady": bool(self.project_root and venv_python_path(ml_venv(self.project_root)).is_file()),
                 "benchmark": benchmark_snapshot(self.project_root),
                 "frames": frames,
+                "videoRoles": (self.project or {}).get("videoRoles") or {},
                 # The split the next training uses, so the image list can show each image's role.
-                "splits": dataset_split.preview(frames, self.language, (self.project.get("lastTraining") or {}).get("completedAt")) if self.project and ((self.project.get("augmentation") or {}).get("mode") not in {"mixed", "real-only"}) else None,
+                "splits": dataset_split.preview(frames, self.language, (self.project.get("lastTraining") or {}).get("completedAt"), self.project.get("videoRoles")) if self.project and ((self.project.get("augmentation") or {}).get("mode") not in {"mixed", "real-only"}) else None,
                 "log": "\n".join(self.log[-80:]),
                 # only for the project it was made in: its images live in that project's folder
                 "simulation": self.simulation if (self.simulation or {}).get("root", str(self.project_root)) == str(self.project_root) else None,
@@ -1414,6 +1415,8 @@ def extract_project(sport: str, requested_frames_per_video: int = DEFAULT_FRAMES
             }
             if existing_project and existing_project.get("lastTraining"):
                 project["lastTraining"] = existing_project["lastTraining"]
+            if existing_project and existing_project.get("videoRoles"):
+                project["videoRoles"] = existing_project["videoRoles"]
             if existing_project and existing_project.get("trainingHistory"):
                 project["trainingHistory"] = existing_project["trainingHistory"]
             atomic_json(root / "project.json", project)
@@ -3348,12 +3351,19 @@ def ml_action(action: str, payload: dict) -> None:
                     args.append("--candidates")
             elif action == "hub-install":
                 executable = venv_python if venv_python.is_file() else system_python()
+                if str(payload.get("size", "")).startswith("yolo-"):
+                    # A YOLO26 model is AGPL-3.0 and is rebuilt with Ultralytics: agree first, install if needed.
+                    if payload.get("yoloLicenseAccepted") is not True:
+                        raise RuntimeError(localized("Für ein YOLO-Modell zuerst der AGPL-3.0-Lizenz zustimmen.", "Agree to the AGPL-3.0 license first to use a YOLO model.", "Acepta primero la licencia AGPL-3.0 para usar un modelo YOLO.", "Acceptez d’abord la licence AGPL-3.0 pour utiliser un modèle YOLO."))
+                    ensure_yolo(venv_python, True)
                 args = ["hub-install", "--project", str(root), "--size", str(payload.get("size", "")), "--id", str(payload.get("id", "")), "--language", language]
             elif action == "hub-share":
                 executable = venv_python if venv_python.is_file() else system_python()
                 args = ["hub-share", "--project", str(root), "--package", str(payload.get("packageID", "")), "--name", str(payload.get("name", "")), "--description", str(payload.get("description", "")), "--version", str(payload.get("version", "1.0.0")), "--camera", str(payload.get("camera", "")), "--venue", str(payload.get("venue", "")), "--games", str(int(payload.get("games", 0))), "--trainer-version", str(payload.get("trainerVersion", "")), "--language", language]
                 if payload.get("rightsConfirmed") is True:
                     args.append("--rights-confirmed")
+                if payload.get("yoloLicenseAccepted") is True:
+                    ensure_yolo(venv_python, True)
             elif action == "package-model":
                 executable = venv_python if venv_python.is_file() else system_python()
                 args = ["package", "--project", str(root), "--model", model, "--name", str(payload.get("name", "")), "--language", language]
@@ -3758,6 +3768,35 @@ def remove_training_frame(payload: dict) -> None:
     STATE.update(project=project, message=message)
 
 
+def set_video_role(payload: dict) -> None:
+    """Choose which role a whole video has in the next training: train, valid, test, or "auto" to
+    let the app decide again. Stored in project.json as videoRoles {videoID: role}."""
+    root = STATE.project_root
+    project = STATE.project
+    if root is None or project is None:
+        raise RuntimeError(localized("Kein lokales Projekt geöffnet.", "No local project is open.", "No hay ningún proyecto local abierto.", "Aucun projet local n’est ouvert."))
+    video_id = str(payload.get("videoID", ""))
+    role = str(payload.get("role", ""))
+    if role not in {*dataset_split.ROLES, "auto"}:
+        raise RuntimeError(localized("Unbekannte Rolle.", "Unknown role.", "Rol desconocido.", "Rôle inconnu."))
+    known = {str(frame.get("videoID")) for frame in project.get("frames", []) if not dataset_split.is_imported_frame(frame) and not frame.get("heldOut")}
+    if video_id not in known:
+        raise RuntimeError(localized("Dieses Video gehört nicht zum Training.", "This video is not part of the training.", "Este vídeo no forma parte del entrenamiento.", "Cette vidéo ne fait pas partie de l’entraînement."))
+    roles = dict(project.get("videoRoles") or {})
+    if role == "auto":
+        roles.pop(video_id, None)
+    else:
+        roles[video_id] = role
+    backup_project(root, "video-rolle")
+    if roles:
+        project["videoRoles"] = roles
+    else:
+        project.pop("videoRoles", None)
+    project["updatedAt"] = utc_now()
+    atomic_json(root / "project.json", project)
+    STATE.update(project=project)
+
+
 def review_candidate(payload: dict) -> None:
     root = STATE.project_root
     project = STATE.project
@@ -4140,6 +4179,11 @@ class Handler(BaseHTTPRequestHandler):
                 if STATE.busy:
                     raise RuntimeError(localized("Ein lokaler Vorgang läuft bereits.", "A local operation is already running.", "Ya hay una operación local en curso.", "Une opération locale est déjà en cours."))
                 remove_training_frame(payload)
+                self.json_response({"ok": True, "status": STATE.snapshot()})
+            elif self.path == "/api/video-role":
+                if STATE.busy:
+                    raise RuntimeError(localized("Ein lokaler Vorgang läuft bereits.", "A local operation is already running.", "Ya hay una operación local en curso.", "Une opération locale est déjà en cours."))
+                set_video_role(payload)
                 self.json_response({"ok": True, "status": STATE.snapshot()})
             elif self.path == "/api/review-candidate":
                 if STATE.busy:

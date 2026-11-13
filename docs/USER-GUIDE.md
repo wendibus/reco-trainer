@@ -162,6 +162,8 @@ Reco Trainer splits your images by **whole videos**: neighbouring frames of one 
 
 Since 0.31.8 the chips above the image list show how many images train, validate and test (and which are not in training yet, for example unlabelled ones); click a chip to show only those images. Every image shows its role, and the **Train locally** dialog shows the split of the next run with a warning when there are no test images or very few validation images. For more variety in validation and test (other fields, sides, light), add more videos.
 
+**Choose the role of a video.** Under the chips above the image list, **Roles of the videos** lists every video with its role in the next training and a choice: Automatic, Training, Validation or Test. A video always stays whole in its role. If validation or test is not given to any video, the app picks it from the videos left over, as long as one video stays for training; set a video to Training to keep it out of that. The choice is saved in the project and used by every training and export. It needs at least two videos.
+
 **New images and the test.** When there are images you reviewed since the last training (candidates from the ball-tracking simulation or from **Expand dataset**), the **Train locally** dialog asks how many of them should serve as test and not be trained on: none, 10, 20, 30 or 50 percent. The chosen images stay test in later trainings, so the test does not change from run to run. Images from the same video look alike, so the test scores come out a little too good; for an honest test use a separate video under **Independent model test**. **Label the images without boxes** in the same dialog closes it and shows the images that are not in training yet, so you can label them.
 
 **Refreshing keeps your work.** Since 0.31.8 **Safely refresh frames** keeps the images and boxes of videos that are no longer in the working folder, so you can move videos to an external drive once their frames are extracted. Videos that were prepared before are not extracted again; only new videos are. To add videos from another folder and pre-label only those, use **Extend dataset**.
@@ -251,6 +253,14 @@ A step-by-step guide opens every time you open the studio. Tick **Don't show aga
 ### Model packages (`.recomodel`)
 
 A trained model can be exported as a single `.recomodel` package — useful for moving a model between machines, sharing it with a teammate, or backing it up. On import (and again immediately before any actual use, such as training, auto-labeling, or export), Reco Trainer checks the package against its manifest checksum and additionally loads it through PyTorch's safe-loading mode, which rejects anything containing more than plain model weights — such as executable code that would otherwise run automatically when the file is opened. This matters because a checksum alone only proves a file matches its own manifest, not that it's safe: whoever builds a package also controls its checksum. Treat model packages the same way you'd treat any other file from someone else — only import ones you trust.
+
+### Model Hub
+
+The **Model Hub** (button in the model library) lists ready-made models from other users for your sport, to start your own training from. Only this click goes online. Scores are the authors' own, on their own images; the trainer measures before and after on your own validation images.
+
+**Sharing a model.** **Share in hub** on a model you trained yourself uploads only its cleaned weights, as a safetensors file that cannot run code, and opens a pull request in the hub repository, which a maintainer reviews. No pictures, videos or local paths go along; you confirm that you hold the rights to the model and the data.
+
+**YOLO26 models.** Since 0.37.0, models trained with YOLO (Nano, Small or Medium) can be shared and loaded the same way. They travel as weights only, in the same safetensors format. Whoever loads one rebuilds the model locally from the weights, which must fit a YOLO26 model of that size exactly, and exports it as ONNX, so no Ultralytics checkpoint is ever shared or opened. YOLO26 is licensed under the **AGPL-3.0**, and so are models trained with it: the hub shows the license, the uploader confirms it, and you agree to it before a YOLO model is loaded. Ultralytics is installed for that if it is missing. Imported ONNX models cannot be shared, only models trained here. Older versions of Reco Trainer do not list YOLO models.
 
 ## 6. Tips, troubleshooting, and good habits
 

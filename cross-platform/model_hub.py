@@ -28,11 +28,24 @@ HUB_CLIENT_ID = os.environ.get("RECO_HUB_CLIENT_ID", "Ov23li21PjXNuonHJEYK")
 HUB_ASSET_PREFIX = os.environ.get("RECO_HUB_ASSET_PREFIX", f"https://github.com/{HUB_REPO}/releases/download/")
 
 HUB_SIZES = {"nano": 384, "small": 512, "medium": 576}
+ALL_SIZES = [*HUB_SIZES, "yolo-nano", "yolo-small", "yolo-medium"]
 # Parameter counts are too close to tell the sizes apart; the position embedding of the backbone is not.
 POSITION_TOKENS = {577: "nano", 1025: "small", 1297: "medium"}
 POSITION_KEY = "backbone.0.encoder.encoder.embeddings.position_embeddings"
 CLASS_HEAD_KEY = "transformer.enc_out_class_embed.0.bias"
 RIGHTS_STATEMENT_VERSION = 1
+# YOLO26 (Ultralytics, AGPL-3.0) travels like RF-DETR: weights only, as safetensors, and whoever
+# downloads it rebuilds the model locally. The size names carry the family.
+YOLO_ARCHITECTURE = "yolo26"
+YOLO_LICENSE = "AGPL-3.0"
+YOLO_RIGHTS_STATEMENT_VERSION = 2
+YOLO_TRAINER_MIN = "0.37.0"
+YOLO_SIZES = {"yolo-nano": 16, "yolo-small": 32, "yolo-medium": 64}  # width of the first convolution
+YOLO_LETTERS = {"yolo-nano": "n", "yolo-small": "s", "yolo-medium": "m"}
+YOLO_FIRST_KEY = "model.0.conv.weight"
+YOLO_CLASS_KEYS = tuple(f"model.23.cv3.{head}.2.weight" for head in range(3))
+YOLO_IMAGE_SIZES = (640, 960, 1280)
+YOLO_TENSOR_KEY = re.compile(r"^model\.\d+\.[A-Za-z0-9_.]+$")
 MAX_WEIGHTS_BYTES = 500_000_000
 TENSOR_KEY = re.compile(r"^[A-Za-z0-9_.]+$")
 MODEL_ID = re.compile(r"^[a-z0-9][a-z0-9-]{1,62}$")
@@ -79,6 +92,8 @@ def read_safetensors_header(path: Path) -> dict[str, Any]:
 def inspect_weights(path: Path) -> dict[str, Any]:
     """Size class and class count, read from the weights instead of taken from the uploader."""
     header = read_safetensors_header(path)
+    if YOLO_FIRST_KEY in header:
+        return inspect_yolo_header(header)
     try:
         tokens = header[POSITION_KEY]["shape"][1]
         head = header[CLASS_HEAD_KEY]["shape"][0]
@@ -88,6 +103,62 @@ def inspect_weights(path: Path) -> dict[str, Any]:
     if size is None:
         raise HubError("only RF-DETR Nano, Small and Medium can be shared")
     return {"size": size, "classCount": head - 1}
+
+
+def inspect_yolo_header(header: dict[str, Any]) -> dict[str, Any]:
+    """Size and class count of YOLO26 weights from the header alone: the width of the first
+    convolution gives the size, the three class heads give the number of classes."""
+    if not all(YOLO_TENSOR_KEY.match(name) for name in header) or not 500 <= len(header) <= 1000:
+        raise HubError("these weights are not a YOLO26 detection model")
+    try:
+        width = header[YOLO_FIRST_KEY]["shape"][0]
+        heads = [header[key]["shape"] for key in YOLO_CLASS_KEYS]
+    except (KeyError, IndexError, TypeError) as error:
+        raise HubError("these weights are not a YOLO26 detection model") from error
+    size = {value: name for name, value in YOLO_SIZES.items()}.get(width)
+    if size is None:
+        raise HubError("only YOLO26 Nano, Small and Medium can be shared")
+    counts = {shape[0] for shape in heads}
+    if len(counts) != 1 or any(len(shape) != 4 or shape[1] != 4 * width for shape in heads):
+        raise HubError("these weights are not a YOLO26 detection model")
+    return {"size": size, "classCount": counts.pop(), "architecture": YOLO_ARCHITECTURE}
+
+
+def sanitize_yolo_checkpoint(checkpoint: Path, output: Path) -> list[str]:
+    """Only the weights go out, as safetensors, in the order of the class ids. An Ultralytics
+    checkpoint is a pickled Python object with training arguments (local paths, the user name);
+    it is read here by Ultralytics itself, from a file this computer trained, and never shared."""
+    from safetensors.torch import save_file
+    from ultralytics import YOLO
+
+    net = YOLO(str(checkpoint)).model
+    names = getattr(net, "names", None)
+    if not names:
+        raise HubError("this checkpoint has no class names")
+    classes = [str(names[index]) for index in range(len(names))]
+    # Half precision, as Ultralytics stores best.pt itself: nothing is lost and the file is half the size.
+    state = {name: (tensor.half() if tensor.is_floating_point() else tensor).detach().cpu().contiguous().clone() for name, tensor in net.state_dict().items()}
+    save_file(state, str(output), metadata={"format": "pt"})
+    return classes
+
+
+def rebuild_yolo_checkpoint(safetensors_path: Path, classes: list[str], size: str, output: Path) -> None:
+    """A YOLO26 checkpoint Ultralytics can load and continue from, built locally from the shared
+    weights: the model is created from its own definition and the weights must fit it exactly."""
+    import torch
+    from safetensors.torch import load_file
+    from ultralytics.nn.tasks import DetectionModel
+
+    if size not in YOLO_LETTERS:
+        raise HubError("unknown YOLO size")
+    net = DetectionModel(f"yolo26{YOLO_LETTERS[size]}.yaml", nc=len(classes), verbose=False)
+    try:
+        net.load_state_dict(load_file(str(safetensors_path)), strict=True)
+    except RuntimeError as error:
+        raise HubError("the weights do not fit a YOLO26 model of this size") from error
+    net.names = {index: name for index, name in enumerate(classes)}
+    net.args = {"task": "detect"}
+    torch.save({"model": net.half(), "train_args": {"task": "detect"}}, output)
 
 
 def sanitize_checkpoint(checkpoint: Path, output: Path) -> list[str]:
@@ -159,13 +230,13 @@ def filter_models(index: dict[str, Any], sport: str, classes: list[str], trainer
     other classes the detection head starts over and only the backbone helps."""
     found = []
     for model in index.get("models", []):
-        if model.get("sport") != sport or model.get("deprecated") or model.get("size") not in HUB_SIZES:
+        if model.get("sport") != sport or model.get("deprecated") or model.get("size") not in ALL_SIZES:
             continue
         if version_key(model.get("compat", {}).get("trainer_min", "0")) > version_key(trainer_version):
             continue
         same = not classes or set(model.get("classes", [])) == set(classes)
         found.append({**model, "classMatch": "same" if same else "different"})
-    return sorted(found, key=lambda item: (list(HUB_SIZES).index(item["size"]), str(item.get("published_at", ""))), reverse=False)
+    return sorted(found, key=lambda item: (ALL_SIZES.index(item["size"]), str(item.get("published_at", ""))), reverse=False)
 
 
 def find_model(index: dict[str, Any], sport: str, size: str, model_id: str) -> dict[str, Any]:
@@ -233,6 +304,30 @@ def library_manifest(model: dict[str, Any], weights_file: str, weights_sha: str)
     }
 
 
+def yolo_library_manifest(model: dict[str, Any], onnx_file: str, onnx_sha: str, train_weights: str, image_size: int) -> dict[str, Any]:
+    """Library entry for a downloaded YOLO26 model: the ONNX the app runs and the rebuilt PyTorch
+    checkpoint the next YOLO training can continue from (see yolo_library_parent)."""
+    now = datetime.now(timezone.utc)
+    names = list(model["classes"])
+    return {
+        "schemaVersion": 1,
+        "packageID": f"hub-{model['sport']}-{model['size']}-{model['id']}-{model['version']}".replace("_", "-"),
+        "displayName": f"{model['name']} {model['version']}",
+        "createdAt": now.isoformat(),
+        "sport": model["sport"], "modelSize": model["size"], "yoloVariant": model["size"],
+        "classes": sorted(set(names)), "classNames": names, "format": "onnx-yolo", "inputSize": image_size,
+        "description": str(model.get("description", ""))[:400],
+        "source": "hub",
+        "framework": {"name": "ultralytics", "version": (model.get("framework") or {}).get("version")},
+        "license": model.get("license", YOLO_LICENSE), "licenseUrl": "https://github.com/ultralytics/ultralytics/blob/main/LICENSE",
+        "statistics": {"frameCount": int(model.get("training", {}).get("images") or 0)},
+        "weights": {"file": onnx_file, "sha256": onnx_sha},
+        "trainWeights": train_weights,
+        "privacy": "This library entry contains model weights and aggregate metadata only; no videos or frames.",
+        "hub": {"lineage": lineage(model), "author": model.get("author"), "selfReported": model.get("metrics", {}).get("self_reported"), "training": model.get("training")},
+    }
+
+
 def lineage(model: dict[str, Any]) -> str:
     return f"{model['sport']}/{model['size']}/{model['id']}@{model['version']}"
 
@@ -248,18 +343,27 @@ def check_public_text(text: str) -> None:
 
 
 def build_model_json(*, name: str, description: str, version: str, sport: str, size: str, classes: list[str], parent: str | None, author: str, training: dict[str, Any],
-                     self_reported: dict[str, Any], trainer_version: str, sha256: str, size_bytes: int, source_url: str) -> dict[str, Any]:
+                     self_reported: dict[str, Any], trainer_version: str, sha256: str, size_bytes: int, source_url: str,
+                     architecture: str = "rf-detr", image_size: int | None = None, framework_version: str | None = None) -> dict[str, Any]:
     check_public_text(f"{name} {description}")
     model_id = slug(name)
     if not MODEL_ID.match(model_id):
         raise HubError("the name needs at least two letters or digits")
-    return {
-        "schema": 1, "id": model_id, "name": name, "version": version, "sport": sport, "size": size, "architecture": "rf-detr", "parent": parent, "author": author,
-        "license": "Apache-2.0", "description": description, "classes": classes, "input_resolution": HUB_SIZES[size], "training": training, "checkpoint_sanitized": True,
-        "rights": {"confirmed_by": author, "confirmed_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"), "statement_version": RIGHTS_STATEMENT_VERSION},
-        "metrics": {"self_reported": self_reported}, "compat": {"trainer_min": trainer_version},
+    yolo = architecture == YOLO_ARCHITECTURE
+    if yolo and (size not in YOLO_SIZES or image_size not in YOLO_IMAGE_SIZES or not framework_version):
+        raise HubError("a YOLO26 model needs its size, image size and Ultralytics version")
+    model = {
+        "schema": 1, "id": model_id, "name": name, "version": version, "sport": sport, "size": size, "architecture": architecture, "parent": parent, "author": author,
+        "license": YOLO_LICENSE if yolo else "Apache-2.0", "description": description, "classes": classes, "input_resolution": image_size if yolo else HUB_SIZES[size], "training": training, "checkpoint_sanitized": True,
+        "rights": {"confirmed_by": author, "confirmed_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"), "statement_version": YOLO_RIGHTS_STATEMENT_VERSION if yolo else RIGHTS_STATEMENT_VERSION},
+        "metrics": {"self_reported": self_reported},
+        # Older trainers do not know YOLO26 models: the index hides them from them.
+        "compat": {"trainer_min": max(trainer_version, YOLO_TRAINER_MIN, key=version_key) if yolo else trainer_version},
         "files": [{"format": "safetensors", "source_url": source_url, "sha256": sha256, "size_bytes": size_bytes}],
     }
+    if yolo:
+        model["framework"] = {"name": "ultralytics", "version": framework_version}
+    return model
 
 
 class GitHub:

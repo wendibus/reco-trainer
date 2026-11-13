@@ -1,5 +1,16 @@
 # Änderungen
 
+## 0.37.0
+
+Rolle je Video wählbar; YOLO26-Modelle im Model Hub teilen und laden (AGPL-3.0, gleiches Sicherheitskonzept wie RF-DETR).
+
+- Rollen: Unter den Chips der Bilderliste legt „Rollen der Videos“ je Video Training, Validierung oder Test fest (`/api/video-role`, `project.json` `videoRoles`, bleibt beim Aktualisieren der Bilder erhalten). `dataset_split.split_frames(frames, language, video_roles)`: Ein Video bleibt ganz in seiner Rolle; fehlt Validierung oder Test, wird sie aus den übrigen Videos gewählt, solange eines zum Training bleibt (Training wählen hält ein Video heraus). Alle fünf Trainings- und Exportpfade in `ml_worker.py` lesen `videoRoles`. Ohne Wahl unverändert.
+- Hub, YOLO26: `model_hub.py` teilt und lädt YOLO26 (Nano, Small, Medium) als safetensors, nur Gewichte. Teilen: `sanitize_yolo_checkpoint` liest das selbst trainierte `best.pt` mit Ultralytics, speichert die Gewichte in halber Genauigkeit und entfernt damit Trainingsargumente und lokale Pfade; Größe und Klassenzahl kommen aus dem Kopf der Datei (`inspect_yolo_header`: Breite der ersten Faltung, drei Klassenköpfe). Nur lokal trainierte Modelle (`source: local-training`, mit PyTorch-Gewichten); importierte ONNX-Modelle bleiben ausgeschlossen. Laden: sha256 prüfen, Kopf prüfen, `rebuild_yolo_checkpoint` baut das Modell aus der eigenen Definition (`yolo26<n|s|m>.yaml`) und lädt die Gewichte mit `strict=True` (passen sie nicht, Abbruch), dann ONNX-Export (`yolo_training.export_onnx`); die Bibliothek bekommt ein `onnx-yolo`-Paket mit `trainWeights`, das als Elternmodell für das nächste YOLO-Training dient (`parent` im Hub-Eintrag).
+- Lizenz: Einträge tragen `architecture: yolo26`, `license: AGPL-3.0`, `framework` (Ultralytics-Version), Rechte-Erklärung Version 2 und `compat.trainer_min` mindestens 0.37.0, damit ältere Trainer sie nicht listen. Die Oberfläche zeigt die Lizenz, verlangt die Zustimmung vor dem Laden (und installiert Ultralytics bei Bedarf) und beim Hochladen eine zweite Bestätigung.
+- Hub-Repo: Der Prüfcode im Hub-Repo (`scripts/hub_tools.py`) muss YOLO26 kennen, bevor jemand hochlädt: Pull Request wendibus/reco-models#3 (Merge vor dem ersten YOLO-Upload).
+- Geprüft: 524 Tests. Echter Durchlauf mit Ultralytics 8.4.180 für Nano, Small und Medium: Gewichte bereinigen (kein lokaler Pfad in der Datei), Prüfung mit dem Hub-Code, lokal neu aufbauen, ONNX-Export und Lauf in onnxruntime (Ausgabe 1×300×6); falsche Größe oder Klassenzahl wird abgelehnt. Nicht getestet: ein echter Upload oder Download über GitHub, ein mit echten Daten trainiertes YOLO-Modell, die Oberfläche im Browser.
+- Offen: Der Hub hat noch kein Modell; der Fall „Hub-Modell laden, weitertrainieren, zurückteilen“ (`parent`) ist nur durch Tests abgedeckt.
+
 ## 0.36.0
 
 Simulation mit freier Länge und Anteilen, Frage nach neuem Ausschnitt; Test-Anteil für neue Bilder; „Nicht im Training“ nachlabeln.

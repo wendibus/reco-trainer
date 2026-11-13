@@ -169,6 +169,12 @@ def eval_folder(run_dir: Path, split: str) -> dict[str, Any]:
     return {"project": str(run_dir), "name": f"eval-{split}", "exist_ok": True}
 
 
+def export_onnx(model: Any, image_size: int) -> Path:
+    """ONNX with NMS inside the graph -> output 1 x 300 x 6 (x1, y1, x2, y2, confidence, class id),
+    what OnnxYoloModel reads. A low conf keeps weak boxes for the confidence sweep and auto-label."""
+    return Path(str(model.export(format="onnx", imgsz=int(image_size), simplify=False, dynamic=False, device="cpu", nms=True, conf=0.01, iou=0.7, max_det=300)))
+
+
 def train(
     variant: str,
     start_weights: Path,
@@ -215,9 +221,7 @@ def train(
     if "test: images/test" in data_yaml.read_text(encoding="utf-8"):
         test = trained.val(data=str(data_yaml), split="test", imgsz=int(image_size), device=device, plots=False, verbose=False, **eval_folder(run_dir, "test"))
         test_metrics = metrics_from(getattr(test, "results_dict", {}) or {}, "test")
-    # NMS inside the graph -> output 1 x 300 x 6 (x1, y1, x2, y2, confidence, class id), what
-    # OnnxYoloModel reads. A low conf keeps weak boxes for the confidence sweep and auto-label.
-    exported = Path(str(trained.export(format="onnx", imgsz=int(image_size), simplify=False, dynamic=False, device="cpu", nms=True, conf=0.01, iou=0.7, max_det=300)))
+    exported = export_onnx(trained, image_size)
     epochs_completed = None
     results_csv = run_dir / "results.csv"
     if results_csv.is_file():

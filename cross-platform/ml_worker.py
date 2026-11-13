@@ -2906,7 +2906,7 @@ def build_dataset(
     anonymize_fraction = min(max(anonymize_fraction, 0.0), 0.5)
     anonymizer = training_anonymizer(project_root, anonymize_fraction, language)
     anonymized_count = 0
-    splits, warning = split_frames(frames, language)
+    splits, warning = split_frames(frames, language, document.get("videoRoles"))
     if warning:
         emit(localized(language, f"Hinweis: {warning}", f"Note: {warning}"))
 
@@ -3069,7 +3069,7 @@ def export_dataset(args: argparse.Namespace) -> None:
     if not categories:
         raise SystemExit(localized(args.language, "Noch keine Objekte markiert.", "No objects have been annotated yet."))
     class_index = {name: index for index, name in enumerate(categories)}
-    splits, warning = split_frames(frames, args.language)
+    splits, warning = split_frames(frames, args.language, document.get("videoRoles"))
     if warning:
         emit(localized(args.language, f"Hinweis: {warning}", f"Note: {warning}"))
 
@@ -3880,7 +3880,7 @@ def train(args: argparse.Namespace) -> None:
 
     refreshed = require_project(project_root, args.language)
     refreshed_frames = [frame for frame in refreshed.get("frames", []) if trains_on(frame)]
-    refreshed_splits, _ = split_frames(refreshed_frames, args.language)
+    refreshed_splits, _ = split_frames(refreshed_frames, args.language, refreshed.get("videoRoles"))
     all_annotations = [
         annotation
         for frame in refreshed_frames
@@ -4072,7 +4072,7 @@ def train_yolo(args: argparse.Namespace, project_root: Path, document: dict[str,
 
     refreshed = require_project(project_root, args.language)
     frames = [frame for frame in refreshed.get("frames", []) if trains_on(frame)]
-    splits, _ = split_frames(frames, args.language)
+    splits, _ = split_frames(frames, args.language, refreshed.get("videoRoles"))
     annotations = [annotation for frame in frames for annotation in frame.get("annotations", [])]
     training_result = {
         "completedAt": datetime.now(timezone.utc).isoformat(), "model": variant, "family": "yolo", "device": device,
@@ -4109,6 +4109,8 @@ def train_yolo(args: argparse.Namespace, project_root: Path, document: dict[str,
         "trainWeights": "weights/best.pt",
         "privacy": "This library entry contains model weights and aggregate metadata only; no videos or frames.",
     }
+    if parent is not None and parent[1].get("source") == "hub" and (parent[1].get("hub") or {}).get("lineage"):
+        manifest["parent"] = parent[1]["hub"]["lineage"]  # a model that continues from a hub model names it
     final = project_root / "models" / "library" / package_id
     staging = project_root / "models" / f".archive-{uuid.uuid4().hex}"
     try:
@@ -4200,6 +4202,12 @@ def hub_install(args: argparse.Namespace) -> None:
         index = model_hub.fetch_index(project_root / "hub" / "index.json")
         model = model_hub.find_model(index, str(document["sport"]), args.size, args.id)
         entry = model_hub.weights_entry(model)
+        yolo = model.get("architecture") == model_hub.YOLO_ARCHITECTURE
+        if yolo:
+            if not yolo_training.installed():
+                raise model_hub.HubError(yolo_unavailable_message(args.language))
+            if model.get("size") not in model_hub.YOLO_SIZES or int(model.get("input_resolution") or 0) not in model_hub.YOLO_IMAGE_SIZES or model.get("license") != model_hub.YOLO_LICENSE:
+                raise model_hub.HubError("invalid model entry")
         package_id = f"hub-{model['sport']}-{model['size']}-{model['id']}-{model['version']}".replace("_", "-")
         if not re.fullmatch(r"[A-Za-z0-9._-]{1,120}", package_id) or set(model.get("classes") or []) - set(sport_categories(str(document["sport"]))):
             raise model_hub.HubError("invalid model entry")
@@ -4214,10 +4222,23 @@ def hub_install(args: argparse.Namespace) -> None:
                 found = model_hub.inspect_weights(weights)
                 if found["size"] != model["size"] or found["classCount"] != len(model["classes"]):
                     raise model_hub.HubError("the weights do not match the description of the model")
-                checkpoint = staging / "weights" / "checkpoint_hub.pth"
-                model_hub.rebuild_checkpoint(weights, list(model["classes"]), checkpoint)
-                weights.unlink()
-                atomic_json(staging / "manifest.json", model_hub.library_manifest(model, "weights/checkpoint_hub.pth", sha256_file(checkpoint)))
+                if yolo:
+                    # Rebuilt here from the weights, which must fit a YOLO26 model of this size exactly.
+                    from ultralytics import YOLO
+                    yolo_training.configure_environment(Path(sys.prefix).parent / "ultralytics-settings")
+                    image_size = int(model["input_resolution"])
+                    checkpoint = staging / "weights" / "best.pt"
+                    model_hub.rebuild_yolo_checkpoint(weights, list(model["classes"]), model["size"], checkpoint)
+                    exported = yolo_training.export_onnx(YOLO(str(checkpoint)), image_size)
+                    onnx_name = f"weights/{package_id}.onnx"
+                    shutil.move(str(exported), str(staging / onnx_name))
+                    weights.unlink()
+                    atomic_json(staging / "manifest.json", model_hub.yolo_library_manifest(model, onnx_name, sha256_file(staging / onnx_name), "weights/best.pt", image_size))
+                else:
+                    checkpoint = staging / "weights" / "checkpoint_hub.pth"
+                    model_hub.rebuild_checkpoint(weights, list(model["classes"]), checkpoint)
+                    weights.unlink()
+                    atomic_json(staging / "manifest.json", model_hub.library_manifest(model, "weights/checkpoint_hub.pth", sha256_file(checkpoint)))
                 final.parent.mkdir(parents=True, exist_ok=True)
                 staging.replace(final)
             finally:
@@ -4253,16 +4274,27 @@ def hub_share(args: argparse.Namespace) -> None:
     try:
         if not args.rights_confirmed:
             raise model_hub.HubError("the rights confirmation is missing")
-        if manifest.get("source") == "hub" or manifest.get("ensemble") or is_onnx_manifest(manifest) or size not in model_hub.HUB_SIZES:
+        # A YOLO26 model trained here (its PyTorch weights are in the package) travels like RF-DETR.
+        yolo = is_onnx_manifest(manifest) and manifest.get("source") == "local-training" and size in model_hub.YOLO_SIZES and bool(manifest.get("trainWeights"))
+        if manifest.get("source") == "hub" or manifest.get("ensemble") or (is_onnx_manifest(manifest) and not yolo) or size not in (model_hub.YOLO_SIZES if yolo else model_hub.HUB_SIZES):
             raise model_hub.HubError("only models you trained yourself, Nano, Small or Medium, can be shared")
+        if yolo and not yolo_training.installed():
+            raise model_hub.HubError(yolo_unavailable_message(args.language))
         model_hub.check_public_text(f"{args.name} {args.description} {args.camera}")
         with tempfile.TemporaryDirectory(dir=project_root) as folder:
             stage(1, 5, localized(args.language, "Gewichte bereinigen", "Clean the weights", "Limpiar los pesos", "Nettoyer les poids"))
-            checkpoint = manifest_path.parent / str(manifest["weights"]["file"])
-            verify_weights_pickle_safety(checkpoint, args.language, checkpoint.name)
             name_slug = model_hub.slug(args.name)
             weights = Path(folder) / f"{document['sport']}-{size}-{name_slug}.safetensors"
-            classes = model_hub.sanitize_checkpoint(checkpoint, weights)
+            if yolo:
+                yolo_training.configure_environment(Path(sys.prefix).parent / "ultralytics-settings")
+                checkpoint = (manifest_path.parent / str(manifest["trainWeights"])).resolve()
+                if manifest_path.parent.resolve() not in checkpoint.parents or not checkpoint.is_file():
+                    raise model_hub.HubError("the PyTorch weights of this model are missing")
+                classes = model_hub.sanitize_yolo_checkpoint(checkpoint, weights)
+            else:
+                checkpoint = manifest_path.parent / str(manifest["weights"]["file"])
+                verify_weights_pickle_safety(checkpoint, args.language, checkpoint.name)
+                classes = model_hub.sanitize_checkpoint(checkpoint, weights)
             found = model_hub.inspect_weights(weights)
             if found["size"] != size or found["classCount"] != len(classes):
                 raise model_hub.HubError("the weights do not match the library entry")
@@ -4279,6 +4311,7 @@ def hub_share(args: argparse.Namespace) -> None:
             model = model_hub.build_model_json(
                 name=args.name, description=args.description, version=args.version, sport=str(document["sport"]), size=size, classes=classes,
                 parent=manifest.get("parent"), author=author, trainer_version=args.trainer_version, sha256=sha256_file(weights), size_bytes=weights.stat().st_size, source_url="",
+                **({"architecture": model_hub.YOLO_ARCHITECTURE, "image_size": int(manifest.get("inputSize") or 640), "framework_version": str((manifest.get("framework") or {}).get("version") or yolo_training.ULTRALYTICS_VERSION)} if yolo else {}),
                 training={"images": int(summary.get("frameCount") or manifest.get("statistics", {}).get("frameCount") or 0), "games": args.games, "synthetic_images": hub_synthetic_images(document), "camera": args.camera, "venue": args.venue, "epochs": summary.get("epochsCompleted") or summary.get("epochs")},
                 self_reported={"mAP50": metrics.get("val/mAP_50"), "mAP50_95": metrics.get("val/mAP_50_95"), "validation_images": (summary.get("splits") or {}).get("valid")},
             )
@@ -4332,7 +4365,7 @@ def sweep_validation_frames(project_root: Path, document: dict[str, Any], langua
     the studio's split in dataset/valid: the project's own split can hold its training images."""
     if (document.get("augmentation") or {}).get("mode") not in {"mixed", "real-only"}:
         frames = [frame for frame in document.get("frames", []) if trains_on(frame)]
-        splits, _ = split_frames(frames, language)
+        splits, _ = split_frames(frames, language, document.get("videoRoles"))
         return [frame for frame in splits.get("valid", []) if frame.get("annotations")], None
     folder = project_root / "dataset" / "valid"
     dataset = load_json(folder / "_annotations.coco.json")
