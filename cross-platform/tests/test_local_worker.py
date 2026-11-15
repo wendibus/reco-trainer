@@ -95,6 +95,33 @@ class GroundTruthTests(unittest.TestCase):
             self.assertFalse((benchmark / "latest.json").exists())
             self.assertTrue(any((root / "backups").glob("project-*.json")))
 
+    def test_remove_unlabelled_frames_keeps_labelled_empty_and_candidate_images(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            folder = Path(temporary)
+            root = folder / ".reco-training"
+            names = ["blank", "boxed", "empty", "candidate", "held"]
+            for name in names:
+                path = root / "frames" / f"{name}.jpg"
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(b"synthetic")
+            box = {"id": "b", "category": "ball", "x": 1, "y": 2, "width": 3, "height": 4, "source": "manual"}
+            project = {"sport": "basketball", "frames": [
+                {"id": "blank", "relativePath": "frames/blank.jpg", "annotations": []},
+                {"id": "boxed", "relativePath": "frames/boxed.jpg", "annotations": [box]},
+                {"id": "empty", "relativePath": "frames/empty.jpg", "annotations": [], "emptyConfirmed": True},
+                {"id": "candidate", "relativePath": "frames/candidate.jpg", "annotations": [], "reviewStatus": "candidate"},
+                {"id": "held", "relativePath": "frames/held.jpg", "annotations": [], "heldOut": True},
+            ]}
+            local_worker.atomic_json(root / "project.json", project)
+            local_worker.STATE.update(selected_folder=folder, project_root=root, project=project)
+
+            local_worker.remove_unlabelled_frames({"frameIds": names})
+
+            self.assertEqual([item["id"] for item in local_worker.STATE.project["frames"]], ["boxed", "empty", "candidate", "held"])
+            self.assertFalse((root / "frames" / "blank.jpg").exists())
+            for name in names[1:]:
+                self.assertTrue((root / "frames" / f"{name}.jpg").exists())
+
     def test_candidate_requires_human_decision_before_training(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary) / ".reco-training"

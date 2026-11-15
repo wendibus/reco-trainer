@@ -2749,13 +2749,22 @@ def ensure_cuda_torch(venv_python: Path) -> None:
         "PyTorch est une version CPU alors qu’une carte NVIDIA est présente. Installation de la version CUDA …",
     ))
     for index in CUDA_TORCH_INDEXES:
-        try:
-            run_logged([str(venv_python), "-m", "pip", "install", "--force-reinstall", "--no-deps", f"torch=={base}", f"torchvision=={vision}", "--index-url", f"https://download.pytorch.org/whl/{index}"])
-        except RuntimeError as error:
-            STATE.append_log(f"CUDA {index}: {error}")
+        installed = False
+        # First the same version as the CPU build; the CUDA indexes lag behind PyPI by a release or
+        # two (torch 2.15 had no cu126/cu128 build yet), so then the newest build the index has.
+        for packages in ([f"torch=={base}", f"torchvision=={vision}"], ["torch", "torchvision"]):
+            try:
+                run_logged([str(venv_python), "-m", "pip", "install", "--force-reinstall", "--no-deps", *packages, "--index-url", f"https://download.pytorch.org/whl/{index}"])
+                installed = True
+                break
+            except RuntimeError as error:
+                STATE.append_log(f"CUDA {index}: {error}")
+        if not installed:
             continue
-        if torch_cuda_report(venv_python).get("works"):
-            STATE.append_log(localized(f"Die NVIDIA-Karte wird jetzt genutzt (PyTorch {base}, {index}).", f"The NVIDIA card is used now (PyTorch {base}, {index}).", f"Ahora se usa la tarjeta NVIDIA (PyTorch {base}, {index}).", f"La carte NVIDIA est maintenant utilisée (PyTorch {base}, {index})."))
+        after = torch_cuda_report(venv_python)
+        if after.get("works"):
+            used = str(after.get("version") or base).split("+")[0]
+            STATE.append_log(localized(f"Die NVIDIA-Karte wird jetzt genutzt (PyTorch {used}, {index}).", f"The NVIDIA card is used now (PyTorch {used}, {index}).", f"Ahora se usa la tarjeta NVIDIA (PyTorch {used}, {index}).", f"La carte NVIDIA est maintenant utilisée (PyTorch {used}, {index})."))
             return
     STATE.append_log(localized(
         "Die CUDA-Version von PyTorch konnte nicht eingerichtet werden. Das Training läuft auf der CPU.",
@@ -3862,6 +3871,50 @@ def remove_training_frame(payload: dict) -> None:
     STATE.update(project=project, message=message)
 
 
+def remove_unlabelled_frames(payload: dict) -> None:
+    """Remove the training images the UI lists as "not in training because nobody labelled them":
+    no boxes, not confirmed as empty, not a review candidate, not the independent test. The UI
+    sends the ids; every one is checked again here, anything that does not fit is kept. Only
+    derived images are deleted, never a source video."""
+    root = STATE.project_root
+    project = STATE.project
+    if root is None or project is None:
+        raise RuntimeError(localized("Kein lokales Projekt geöffnet.", "No local project is open.", "No hay ningún proyecto local abierto.", "Aucun projet local n’est ouvert."))
+    ids = payload.get("frameIds")
+    if not isinstance(ids, list):
+        raise RuntimeError(localized("Ungültige Bildliste.", "Invalid image list.", "Lista de imágenes no válida.", "Liste d’images non valide."))
+    wanted = {str(item) for item in ids}
+    frames = project.get("frames", [])
+    frames_root = (root / "frames").resolve()
+    doomed = []
+    for frame in frames:
+        if str(frame.get("id")) not in wanted:
+            continue
+        if frame.get("annotations") or frame.get("emptyConfirmed") or frame.get("reviewStatus") == "candidate" or frame.get("heldOut"):
+            continue
+        target = (root / str(frame.get("relativePath", ""))).resolve()
+        if frames_root not in target.parents:
+            continue
+        doomed.append((frame, target))
+    if doomed:
+        backup_project(root, "bilder-entfernt")
+        for frame, target in doomed:
+            target.unlink(missing_ok=True)
+            for split in ("train", "valid", "test"):
+                (root / "dataset" / split / target.name).unlink(missing_ok=True)
+        gone = {id(frame) for frame, _ in doomed}
+        project["frames"] = [frame for frame in frames if id(frame) not in gone]
+        project["updatedAt"] = utc_now()
+        atomic_json(root / "project.json", project)
+        for name in ("ground-truth.json", "latest.json"):
+            (root / "benchmarks" / name).unlink(missing_ok=True)
+    count = len(doomed)
+    STATE.update(project=project, message=localized(
+        f"{count} Bilder ohne Markierung lokal entfernt. Die Quellvideos bleiben unverändert.", f"{count} unlabelled images removed locally. The source videos remain unchanged.",
+        f"{count} imágenes sin marcar eliminadas localmente. Los vídeos de origen no cambian.", f"{count} images sans annotation supprimées localement. Les vidéos sources restent inchangées.",
+    ))
+
+
 def set_video_role(payload: dict) -> None:
     """Choose which role a whole video has in the next training: train, valid, test, or "auto" to
     let the app decide again. Stored in project.json as videoRoles {videoID: role}."""
@@ -4273,6 +4326,11 @@ class Handler(BaseHTTPRequestHandler):
                 if STATE.busy:
                     raise RuntimeError(localized("Ein lokaler Vorgang läuft bereits.", "A local operation is already running.", "Ya hay una operación local en curso.", "Une opération locale est déjà en cours."))
                 remove_training_frame(payload)
+                self.json_response({"ok": True, "status": STATE.snapshot()})
+            elif self.path == "/api/remove-unlabelled-frames":
+                if STATE.busy:
+                    raise RuntimeError(localized("Ein lokaler Vorgang läuft bereits.", "A local operation is already running.", "Ya hay una operación local en curso.", "Une opération locale est déjà en cours."))
+                remove_unlabelled_frames(payload)
                 self.json_response({"ok": True, "status": STATE.snapshot()})
             elif self.path == "/api/video-role":
                 if STATE.busy:

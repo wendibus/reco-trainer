@@ -8,6 +8,15 @@ type Item = { title: string; text: string };
  *  number in the header opens it again. Add the next version's entry at the top. */
 export const WHATS_NEW: { version: string; items: Record<Language, Item[]> }[] = [
   {
+    version: '0.38.1',
+    items: {
+      de: [{ title: 'Offene Auto-Boxen finden', text: 'Über der Bilderliste zeigt der Filter „Auto offen“ nur Bilder mit unbestätigten Auto-Boxen. „Nächstes offenes Bild“ springt zum nächsten davon.' }, { title: 'Bilder ohne Markierung entfernen', text: 'Bei aktivem Chip „Nicht im Training“ löscht ein Knopf alle Bilder ohne Boxen, die nicht als leer bestätigt sind. Quellvideos bleiben unverändert.' }],
+      en: [{ title: 'Find pending auto boxes', text: 'Above the image list, the “Auto pending” filter shows only images with unconfirmed automatic boxes. “Next pending image” jumps to the next one.' }, { title: 'Remove unlabelled images', text: 'With the “Not in training” chip active, a button deletes all images without boxes that are not confirmed as empty. Source videos remain unchanged.' }],
+      es: [{ title: 'Encontrar cuadros automáticos pendientes', text: 'Sobre la lista de imágenes, el filtro «Auto pendiente» muestra solo imágenes con cuadros automáticos sin confirmar. «Siguiente imagen pendiente» salta a la siguiente.' }, { title: 'Quitar imágenes sin marcar', text: 'Con el chip «Fuera del entrenamiento» activo, un botón elimina todas las imágenes sin cuadros que no están confirmadas como vacías. Los vídeos de origen no cambian.' }],
+      fr: [{ title: 'Trouver les boîtes automatiques en attente', text: 'Au-dessus de la liste d’images, le filtre « Auto en attente » n’affiche que les images avec des boîtes automatiques non confirmées. « Image en attente suivante » passe à la suivante.' }, { title: 'Retirer les images sans annotation', text: 'Quand la puce « Hors entraînement » est active, un bouton supprime toutes les images sans boîtes non confirmées vides. Les vidéos sources restent inchangées.' }],
+    },
+  },
+  {
     version: '0.38.0',
     items: {
       de: [

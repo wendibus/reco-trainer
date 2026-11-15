@@ -2,13 +2,18 @@ type Language = 'de' | 'en' | 'es' | 'fr';
 
 export type SplitRole = 'train' | 'valid' | 'test';
 export type SplitPreview = { roles: Record<string, SplitRole>; counts: Record<SplitRole, number>; warning?: string | null; problems: string[]; newImages?: number };
-export type SplitFilterValue = 'all' | SplitRole | 'none';
+export type SplitFilterValue = 'all' | SplitRole | 'none' | 'auto';
 
-const TEXT: Record<Language, { all: string; none: string; roles: Record<SplitRole, string>; hint: string; noneHint: string; summary: (counts: Record<SplitRole, number>) => string; perVideo: string }> = {
+const TEXT: Record<Language, { all: string; none: string; roles: Record<SplitRole, string>; hint: string; noneHint: string; auto: string; autoHint: string; nextAuto: string; nextAutoHint: string; removeUnlabelled: (n: number) => string; removeUnlabelledHint: string; removeUnlabelledConfirm: (n: number) => string; summary: (counts: Record<SplitRole, number>) => string; perVideo: string }> = {
   de: {
     all: 'Alle', none: 'Nicht im Training', roles: { train: 'Training', valid: 'Validierung', test: 'Test' },
     hint: 'Zeigt nur die Bilder dieser Rolle. Die Rollen ergeben sich aus den Videos: Ein Video landet immer ganz in einer Rolle, damit fast gleiche Nachbarbilder nicht Training und Bewertung vermischen.',
     noneHint: 'Bilder, die das nächste Training nicht nutzt: noch ohne Markierung und nicht als leer bestätigt, Prüfkandidaten und der unabhängige Test.',
+    auto: 'Auto offen', autoHint: 'Zeigt nur Bilder mit Auto-Boxen, die noch niemand bestätigt oder korrigiert hat.',
+    nextAuto: 'Nächstes offenes Bild', nextAutoHint: 'Springt zum nächsten Bild mit unbestätigter Auto-Box, ab dem gewählten Bild.',
+    removeUnlabelled: n => `${n} Bilder ohne Markierung entfernen`,
+    removeUnlabelledHint: 'Löscht die gelisteten Bilder ohne Boxen, die nicht als leer bestätigt sind (z. B. Halbzeit, Kameraaufbau). Die Quellvideos bleiben unverändert.',
+    removeUnlabelledConfirm: n => `${n} extrahierte Bilder ohne Markierung entfernen? Sie hatten keine Boxen und waren nicht als leer bestätigt. Die Quellvideos bleiben unverändert.`,
     summary: (c) => `Nächstes Training: ${c.train} Training · ${c.valid} Validierung · ${c.test} Test`,
     perVideo: 'Aufgeteilt nach ganzen Videos: ab drei Videos wird je eins Validierung und Test.',
   },
@@ -16,6 +21,11 @@ const TEXT: Record<Language, { all: string; none: string; roles: Record<SplitRol
     all: 'All', none: 'Not in training', roles: { train: 'Training', valid: 'Validation', test: 'Test' },
     hint: 'Shows only the images in this role. Roles follow the videos: a video always goes into one role as a whole, so near-identical neighboring frames never mix training and evaluation.',
     noneHint: 'Images the next training does not use: not labelled yet and not confirmed as empty, review candidates and the independent test.',
+    auto: 'Auto pending', autoHint: 'Shows only images with automatic boxes nobody has confirmed or corrected yet.',
+    nextAuto: 'Next pending image', nextAutoHint: 'Jumps to the next image with an unconfirmed automatic box, starting after the selected image.',
+    removeUnlabelled: n => `Remove ${n} unlabelled images`,
+    removeUnlabelledHint: 'Deletes the listed images without boxes that are not confirmed as empty (e.g. half time, camera set-up). The source videos remain unchanged.',
+    removeUnlabelledConfirm: n => `Remove ${n} extracted images without labels? They have no boxes and are not confirmed as empty. The source videos remain unchanged.`,
     summary: (c) => `Next training: ${c.train} training · ${c.valid} validation · ${c.test} test`,
     perVideo: 'Split by whole videos: from three videos on, one becomes validation and one test.',
   },
@@ -23,6 +33,11 @@ const TEXT: Record<Language, { all: string; none: string; roles: Record<SplitRol
     all: 'Todas', none: 'Fuera del entrenamiento', roles: { train: 'Entrenamiento', valid: 'Validación', test: 'Prueba' },
     hint: 'Muestra solo las imágenes de este rol. Los roles siguen a los vídeos: un vídeo siempre va entero a un rol, para que fotogramas vecinos casi iguales no mezclen entrenamiento y evaluación.',
     noneHint: 'Imágenes que el próximo entrenamiento no usa: aún sin marcar y no confirmadas como vacías, candidatos de revisión y la prueba independiente.',
+    auto: 'Auto pendiente', autoHint: 'Muestra solo imágenes con cuadros automáticos que nadie ha confirmado ni corregido.',
+    nextAuto: 'Siguiente imagen pendiente', nextAutoHint: 'Salta a la siguiente imagen con un cuadro automático sin confirmar, a partir de la imagen elegida.',
+    removeUnlabelled: n => `Quitar ${n} imágenes sin marcar`,
+    removeUnlabelledHint: 'Elimina las imágenes listadas sin cuadros que no están confirmadas como vacías (p. ej. descanso, montaje de la cámara). Los vídeos de origen no cambian.',
+    removeUnlabelledConfirm: n => `¿Quitar ${n} imágenes extraídas sin marcar? No tienen cuadros y no están confirmadas como vacías. Los vídeos de origen no cambian.`,
     summary: (c) => `Próximo entrenamiento: ${c.train} entrenamiento · ${c.valid} validación · ${c.test} prueba`,
     perVideo: 'División por vídeos completos: a partir de tres vídeos, uno es validación y otro prueba.',
   },
@@ -30,6 +45,11 @@ const TEXT: Record<Language, { all: string; none: string; roles: Record<SplitRol
     all: 'Toutes', none: 'Hors entraînement', roles: { train: 'Entraînement', valid: 'Validation', test: 'Test' },
     hint: 'N’affiche que les images de ce rôle. Les rôles suivent les vidéos : une vidéo va toujours entière dans un rôle, pour que des images voisines presque identiques ne mélangent pas entraînement et évaluation.',
     noneHint: 'Images que le prochain entraînement n’utilise pas : pas encore annotées ni confirmées vides, candidats de révision et le test indépendant.',
+    auto: 'Auto en attente', autoHint: 'N’affiche que les images avec des boîtes automatiques que personne n’a confirmées ni corrigées.',
+    nextAuto: 'Image en attente suivante', nextAutoHint: 'Passe à l’image suivante avec une boîte automatique non confirmée, à partir de l’image choisie.',
+    removeUnlabelled: n => `Retirer ${n} images sans annotation`,
+    removeUnlabelledHint: 'Supprime les images listées sans boîtes et non confirmées vides (p. ex. mi-temps, installation de la caméra). Les vidéos sources restent inchangées.',
+    removeUnlabelledConfirm: n => `Retirer ${n} images extraites sans annotation ? Elles n’ont pas de boîtes et ne sont pas confirmées vides. Les vidéos sources restent inchangées.`,
     summary: (c) => `Prochain entraînement : ${c.train} entraînement · ${c.valid} validation · ${c.test} test`,
     perVideo: 'Répartition par vidéos entières : à partir de trois vidéos, une sert à la validation et une au test.',
   },
@@ -83,28 +103,39 @@ export function roleOf(splits: SplitPreview | null | undefined, frameId: string)
   return splits?.roles[frameId] ?? null;
 }
 
-export function filterFrames<T extends { id: string }>(frames: T[], splits: SplitPreview | null | undefined, filter: SplitFilterValue): T[] {
+export function hasPendingAuto(frame: { annotations?: Array<{ source?: string }> }): boolean {
+  return Boolean(frame.annotations?.some((box) => box.source === 'auto'));
+}
+
+export function filterFrames<T extends { id: string; annotations?: Array<{ source?: string }> }>(frames: T[], splits: SplitPreview | null | undefined, filter: SplitFilterValue): T[] {
+  if (filter === 'auto') return frames.filter(hasPendingAuto);
   if (!splits || filter === 'all') return frames;
   return frames.filter((frame) => filter === 'none' ? !splits.roles[frame.id] : splits.roles[frame.id] === filter);
 }
 
 /** Chips above the image list: how many images train, validate and test, as a filter. */
-export function SplitFilter({ language, splits, frameIds, value, onChange }: { language: Language; splits: SplitPreview | null | undefined; frameIds: string[]; value: SplitFilterValue; onChange: (value: SplitFilterValue) => void }) {
-  if (!splits) return null;
+export function SplitFilter({ language, splits, frameIds, autoCount = 0, unlabelledCount = 0, value, onChange, onNextAuto, onRemoveUnlabelled }: { language: Language; splits: SplitPreview | null | undefined; frameIds: string[]; autoCount?: number; unlabelledCount?: number; value: SplitFilterValue; onChange: (value: SplitFilterValue) => void; onNextAuto?: () => void; onRemoveUnlabelled?: () => void }) {
+  if (!splits && !autoCount) return null;
   const t = TEXT[language];
-  const none = frameIds.filter((id) => !splits.roles[id]).length;
+  const roles = splits?.roles ?? {};
+  const none = frameIds.filter((id) => !roles[id]).length;
   const options: Array<[SplitFilterValue, string, number, string]> = [
     ['all', t.all, frameIds.length, t.hint],
-    ['train', t.roles.train, splits.counts.train, t.hint],
-    ['valid', t.roles.valid, splits.counts.valid, t.hint],
-    ['test', t.roles.test, splits.counts.test, t.hint],
-    ['none', t.none, none, t.noneHint],
+    ...(splits ? [
+      ['train', t.roles.train, splits.counts.train, t.hint],
+      ['valid', t.roles.valid, splits.counts.valid, t.hint],
+      ['test', t.roles.test, splits.counts.test, t.hint],
+      ['none', t.none, none, t.noneHint],
+    ] as Array<[SplitFilterValue, string, number, string]> : []),
+    ...(autoCount ? [['auto', t.auto, autoCount, t.autoHint]] as Array<[SplitFilterValue, string, number, string]> : []),
   ];
   return <div className="split-filter">
-    <div className="split-chips" role="group" aria-label={t.summary(splits.counts)}>
+    <div className="split-chips" role="group" aria-label={splits ? t.summary(splits.counts) : t.all}>
       {options.map(([key, label, count, hint]) => <button data-hint={hint} type="button" key={key} className={`split-chip split-${key}${value === key ? ' active' : ''}`} aria-pressed={value === key} onClick={() => onChange(key)}>{label}<strong>{count}</strong></button>)}
     </div>
-    {splits.problems.map((problem) => <p key={problem} className="split-problem">{problem}</p>)}
+    {autoCount > 0 && onNextAuto && <button data-hint={t.nextAutoHint} type="button" className="secondary-button" onClick={onNextAuto}>{t.nextAuto}</button>}
+    {value === 'none' && unlabelledCount > 0 && onRemoveUnlabelled && <button data-hint={t.removeUnlabelledHint} type="button" className="secondary-button" onClick={onRemoveUnlabelled}>{t.removeUnlabelled(unlabelledCount)}</button>}
+    {splits?.problems.map((problem) => <p key={problem} className="split-problem">{problem}</p>)}
   </div>;
 }
 

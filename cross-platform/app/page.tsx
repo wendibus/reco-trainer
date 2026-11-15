@@ -5,7 +5,7 @@ import FieldGeometryEditor, { type FieldGeometry } from './FieldGeometryEditor';
 import { extraText } from './extraText';
 import { editorText } from './editorText';
 import { JobDialog, jobTitle, type Job, type Jobs } from './JobDialog';
-import { SplitFilter, VideoRoles, filterFrames, roleOf, splitText, type SplitFilterValue, type SplitPreview } from './SplitView';
+import { SplitFilter, VideoRoles, filterFrames, hasPendingAuto, roleOf, splitText, type SplitFilterValue, type SplitPreview } from './SplitView';
 import GpuDialogs, { gpuText, type GpuInfo } from './GpuDialogs';
 import { rocmText, type RocmStatus } from './amdTraining';
 import { ExportDialog, ExportResult, type RegistryModel } from './ExportDialog';
@@ -74,7 +74,7 @@ const DEFAULT_API = import.meta.env.DEV ? 'http://127.0.0.1:8766' : window.locat
 // Single source of truth for this web UI's own version - bump alongside
 // VERSION in cross-platform/scripts/package-platforms.sh at every release.
 // Compared against GitHub's latest release tag to power the update banner.
-const CURRENT_VERSION = '0.38.0';
+const CURRENT_VERSION = '0.38.1';
 const WHATS_NEW_SEEN_KEY = 'reco-whats-new-seen-v1';
 // One clearly different colour per class, so boxes can be told apart at a glance.
 // Auto-label suggestions are dashed (not recoloured), so the colour always means the class.
@@ -273,7 +273,10 @@ export default function Home() {
   const flaggedFrames = frames.filter((frame) => isFlaggedForReview(frame) && frame.reviewStatus !== 'candidate');
   const [flaggedOnly, setFlaggedOnly] = useState(false);
   const [splitFilter, setSplitFilter] = useState<SplitFilterValue>('all');
-  const listedFrames = filterFrames(flaggedOnly && flaggedFrames.length ? flaggedFrames : frames, worker?.splits, splitFilter);
+  const pendingAutoFrames = frames.filter(hasPendingAuto);
+  const removableUnlabelled = (worker?.splits ? frames.filter((frame) => !worker.splits!.roles[frame.id] && frame.reviewStatus !== 'candidate' && !frame.heldOut && !frame.annotations.length && !frame.emptyConfirmed) : []);
+  const effectiveFilter: SplitFilterValue = splitFilter === 'auto' && !pendingAutoFrames.length ? 'all' : splitFilter;
+  const listedFrames = filterFrames(flaggedOnly && flaggedFrames.length ? flaggedFrames : frames, worker?.splits, effectiveFilter);
   const candidates = frames.filter((frame) => frame.reviewStatus === 'candidate' && !frame.heldOut).sort((left, right) => {
     const flagged = Number(isFlaggedForReview(right)) - Number(isFlaggedForReview(left));
     if (flagged !== 0) return flagged;
@@ -506,6 +509,13 @@ export default function Home() {
       setSelectedAnnotationID(null); setHistory([]); setFuture([]);
     } catch (error) { setWorker((current) => current ? { ...current, error: String(error) } : current); }
   }
+  async function removeUnlabelledFrames() {
+    if (isWorking || !removableUnlabelled.length || !window.confirm(splitText[language].removeUnlabelledConfirm(removableUnlabelled.length))) return;
+    try {
+      await post('/api/remove-unlabelled-frames', { frameIds: removableUnlabelled.map((frame) => frame.id) });
+      setSelectedFrameID(null); setSelectedAnnotationID(null); setHistory([]); setFuture([]);
+    } catch (error) { setWorker((current) => current ? { ...current, error: String(error) } : current); }
+  }
   async function revealTrainingFolder() {
     try { await post('/api/reveal-training-folder'); }
     catch (error) { setWorker((current) => current ? { ...current, error: String(error) } : current); }
@@ -707,6 +717,13 @@ export default function Home() {
   async function rejectAutomatic() { if (!selectedFrame) return; await commitAnnotations(selectedFrame.annotations.filter((item) => item.source !== 'auto')); setSelectedAnnotationID(null); }
   async function undo() { if (!selectedFrame || !history.length) return; const previous = history[history.length - 1]; setHistory((items) => items.slice(0, -1)); setFuture((items) => [...items, cloneAnnotations(selectedFrame.annotations)].slice(-10)); await commitAnnotations(previous, false); }
   async function redo() { if (!selectedFrame || !future.length) return; const next = future[future.length - 1]; setFuture((items) => items.slice(0, -1)); setHistory((items) => [...items, cloneAnnotations(selectedFrame.annotations)].slice(-10)); await commitAnnotations(next, false); }
+  // Next image with an unconfirmed automatic box after the selected one; wraps around at the end.
+  function jumpToPendingAuto() {
+    if (!pendingAutoFrames.length) return;
+    const index = selectedFrame ? frames.findIndex((frame) => frame.id === selectedFrame.id) : -1;
+    const next = frames.slice(index + 1).find(hasPendingAuto) ?? pendingAutoFrames[0];
+    chooseFrame(next.id);
+  }
   function chooseFrame(id: string) { setSelectedFrameID(id); applyView({ zoom: 1, pan: { x: 0, y: 0 } }); }
 
   /// The flagged frame to show after the current one leaves the review list.
@@ -786,7 +803,7 @@ export default function Home() {
         <section className="side-section"><label>2 · {t.videos}</label><button data-hint={h.chooseFolder} type="button" className="secondary-button folder-button" onClick={chooseFolder} disabled={!workerOnline || isWorking}>▣&nbsp; {t.choose}</button><button data-hint={h.importDataset} type="button" className="secondary-button folder-button" onClick={() => void runML('/api/import-labels', { sport })} disabled={!workerOnline || isWorking || !folderName}>⇪&nbsp; {x.importDataset}</button><span className={folderName ? 'fake-path selected' : 'fake-path'}>{worker?.selectedFolder || t.noFolder}</span>{worker?.folderEmpty && !framesReady && <p className="folder-empty-hint" role="status">{h.folderEmpty}</p>}<label className="frame-count-label" htmlFor="frames-per-video">{ft.count}</label><input id="frames-per-video" className="frame-count-input" type="number" min="0" max="5000" step="20" value={framesPerVideo} disabled={isWorking} onChange={(event) => setFramesPerVideo(clamp(Number(event.target.value) || 4, 4, 5000))} /><small className="frame-count-hint">{ft.countHint}</small><button data-hint={h.prepare} type="button" className="primary-button" onClick={preparePreview} disabled={!folderName || isWorking}>{isWorking && ['scanning', 'extracting'].includes(worker?.operation ?? '') ? t.analyzing : framesReady ? t.refresh : t.analyze}</button>{folderName && <small className="folder-safety">{t.folderReady}</small>}{!workerOnline && <small className="worker-offline">{t.offline}</small>}</section>
         <section className={`side-section active-learning-section${trainedModel ? ' next-step' : ''}`}><label>{at.title}</label><button data-hint={h.activeLearning} type="button" className={trainedModel && !candidates.length ? 'primary-button' : 'secondary-button'} onClick={() => withFieldOffer(() => void startActiveLearning())} disabled={!framesReady || isWorking}>＋ {at.start}</button><small>{at.detail}</small>{trainedModel && !candidates.length && <small className="next-step-note">{at.nextStep}</small>}{candidates.length > 0 && <strong>{candidates.length} {at.queue}</strong>}</section>
         <section className="side-section active-learning-section"><label>{at.independentTitle}</label><button data-hint={h.independent} type="button" className="secondary-button" onClick={() => withFieldOffer(() => void startIndependentValidation())} disabled={!framesReady || isWorking}>＋ {at.independentStart}</button><small>{at.independentDetail}</small>{independentCandidates.length > 0 && <strong>{independentCandidates.length} {at.independentQueue}</strong>}</section>
-        <section className="side-section frames-section"><label>3 · {t.images}</label>{flaggedFrames.length > 0 && <div className="flagged-tools"><button data-hint={h.reviewFlagged} type="button" className="secondary-button" onClick={() => showFlagged(reviewing && selectedFrame ? selectedFrame.id : flaggedFrames[0].id)} disabled={isWorking}>⚠️ {rl.review(flaggedFrames.length)}</button><label className="cuda-toggle" data-hint={h.flaggedOnly}><input type="checkbox" checked={flaggedOnly} onChange={(event) => setFlaggedOnly(event.target.checked)} />{rl.only}</label></div>}{framesReady && <SplitFilter language={language} splits={worker?.splits} frameIds={frames.map((frame) => frame.id)} value={splitFilter} onChange={setSplitFilter} />}{framesReady && <VideoRoles language={language} frames={frames} splits={worker?.splits} videoRoles={worker?.videoRoles} busy={isWorking} onChange={(videoID, role) => void chooseVideoRole(videoID, role)} />}<div className="frame-list">{framesReady ? listedFrames.map((frame) => <button data-hint={h.frame} type="button" className={`${selectedFrame?.id === frame.id ? 'frame active' : 'frame'} ${frame.reviewStatus === 'candidate' ? 'candidate' : ''}`} key={frame.id} onClick={() => chooseFrame(frame.id)}><img className="frame-thumb" src={`${api}/api/frame?id=${encodeURIComponent(frame.id)}`} alt="" loading="lazy" decoding="async" />{isFlaggedForReview(frame) && <span className="frame-flag" data-hint={(frame.reviewFlags ?? []).map(reviewFlagLabel).join(', ')}>⚠️</span>}<span>{frame.videoName}<small>{String(Math.floor(frame.timestamp / 60)).padStart(2, '0')}:{String(Math.floor(frame.timestamp % 60)).padStart(2, '0')} · {frame.annotations.length}{frame.reviewStatus === 'candidate' ? ` · ${frame.heldOut ? at.independentQueue : at.queue}` : ''}{roleOf(worker?.splits, frame.id) ? <em className={`frame-role split-${roleOf(worker?.splits, frame.id)}`}>{splitText[language].roles[roleOf(worker?.splits, frame.id)!]}</em> : null}</small></span></button>) : <p className="empty-frames">{worker?.message || t.emptyFrames}</p>}</div></section>
+        <section className="side-section frames-section"><label>3 · {t.images}</label>{flaggedFrames.length > 0 && <div className="flagged-tools"><button data-hint={h.reviewFlagged} type="button" className="secondary-button" onClick={() => showFlagged(reviewing && selectedFrame ? selectedFrame.id : flaggedFrames[0].id)} disabled={isWorking}>⚠️ {rl.review(flaggedFrames.length)}</button><label className="cuda-toggle" data-hint={h.flaggedOnly}><input type="checkbox" checked={flaggedOnly} onChange={(event) => setFlaggedOnly(event.target.checked)} />{rl.only}</label></div>}{framesReady && <SplitFilter language={language} splits={worker?.splits} frameIds={frames.map((frame) => frame.id)} autoCount={pendingAutoFrames.length} unlabelledCount={removableUnlabelled.length} value={effectiveFilter} onChange={setSplitFilter} onNextAuto={jumpToPendingAuto} onRemoveUnlabelled={() => void removeUnlabelledFrames()} />}{framesReady && <VideoRoles language={language} frames={frames} splits={worker?.splits} videoRoles={worker?.videoRoles} busy={isWorking} onChange={(videoID, role) => void chooseVideoRole(videoID, role)} />}<div className="frame-list">{framesReady ? listedFrames.map((frame) => <button data-hint={h.frame} type="button" className={`${selectedFrame?.id === frame.id ? 'frame active' : 'frame'} ${frame.reviewStatus === 'candidate' ? 'candidate' : ''}`} key={frame.id} onClick={() => chooseFrame(frame.id)}><img className="frame-thumb" src={`${api}/api/frame?id=${encodeURIComponent(frame.id)}`} alt="" loading="lazy" decoding="async" />{isFlaggedForReview(frame) && <span className="frame-flag" data-hint={(frame.reviewFlags ?? []).map(reviewFlagLabel).join(', ')}>⚠️</span>}<span>{frame.videoName}<small>{String(Math.floor(frame.timestamp / 60)).padStart(2, '0')}:{String(Math.floor(frame.timestamp % 60)).padStart(2, '0')} · {frame.annotations.length}{frame.reviewStatus === 'candidate' ? ` · ${frame.heldOut ? at.independentQueue : at.queue}` : ''}{roleOf(worker?.splits, frame.id) ? <em className={`frame-role split-${roleOf(worker?.splits, frame.id)}`}>{splitText[language].roles[roleOf(worker?.splits, frame.id)!]}</em> : null}</small></span></button>) : <p className="empty-frames">{worker?.message || t.emptyFrames}</p>}</div></section>
         <div className="privacy-lock"><span>●</span> {t.privacy}</div>
       </aside>
       {workspaceView === 'augment' ? <AugmentationStudio language={language} api={api} busy={isWorking} modelSize={modelSize} post={post} projectKey={`${worker?.projectRoot ?? ''}|${worker?.mlReady ? 1 : 0}`} /> : workspaceView === 'benchmark' ? <BenchmarkPanel language={language} busy={isWorking} operation={worker?.operation} progress={worker?.progress ?? 0} message={worker?.message} error={worker?.error} log={worker?.log} frameCount={stats.frameCount} automaticCount={stats.automaticCount} sport={worker?.sport ?? sport} sportLabel={sportName} models={worker?.modelLibrary?.packages ?? []} benchmark={worker?.benchmark} post={post} /> : workspaceView === 'simulation' ? <BallTrackingPlayer language={language} api={api} busy={isWorking} operation={worker?.operation} progress={worker?.progress ?? 0} message={worker?.message} error={worker?.error} stage={worker?.stage} simulation={worker?.simulation} simulationB={worker?.simulationB} models={worker?.modelLibrary?.packages ?? []} modelSize={modelSize} sport={worker?.sport ?? sport} projectKey={worker?.projectRoot ?? ''} post={post} /> : <section className={`workspace ${framesReady ? '' : 'empty-workspace'}`}>

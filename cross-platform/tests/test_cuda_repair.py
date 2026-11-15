@@ -64,8 +64,23 @@ class RepairTests(unittest.TestCase):
 
         self.worker.run_logged = failing
         self.run_with([CPU])
-        self.assertEqual(len(self.commands), 2)
+        self.assertEqual(len(self.commands), 4)  # pinned and newest, on both indexes
         self.assertTrue(any("CPU" in line for line in self.logs))
+
+    def test_the_newest_cuda_build_is_used_when_the_index_lacks_the_cpu_version(self):
+        def lagging(command, extra_env=None):
+            self.commands.append(command)
+            if any(item.startswith("torch==") for item in command):
+                raise RuntimeError("No matching distribution found for torch==2.15.0")
+
+        self.worker.run_logged = lagging
+        self.run_with([{**CPU, "version": "2.15.0+cpu", "vision": "0.30.0+cpu"}, {**WORKING, "version": "2.14.1+cu126"}])
+        self.assertEqual(len(self.commands), 2)
+        newest = self.commands[1]
+        self.assertIn("torch", newest)
+        self.assertFalse(any("==" in item for item in newest))
+        self.assertEqual(newest[newest.index("--index-url") + 1], "https://download.pytorch.org/whl/cu126")
+        self.assertTrue(any("2.14.1" in line and "used now" in line for line in self.logs))
 
     def test_a_cuda_build_that_does_not_compute_is_not_reinstalled(self):
         self.run_with([{**WORKING, "works": False, "error": "no kernel image"}])

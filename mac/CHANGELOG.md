@@ -1,5 +1,15 @@
 # Änderungen
 
+## 0.38.1
+
+Bilder mit offenen Auto-Boxen finden: Filter „Auto offen“ und „Nächstes offenes Bild“ über der Bilderliste.
+
+- Bilderliste: Neuer Filter „Auto offen (n)“ neben den Rollen-Chips zeigt nur Bilder mit mindestens einer Auto-Box (`source == "auto"`), die noch nicht bestätigt oder korrigiert wurde. Der Filter ist auch ohne Rollen-Vorschau da und fällt auf „Alle“ zurück, sobald nichts mehr offen ist (`SplitView.tsx`: `hasPendingAuto`, `filterFrames`, `SplitFilter`).
+- „Nächstes offenes Bild“ springt ab dem gewählten Bild zum nächsten Bild mit Auto-Box und beginnt am Ende wieder vorn (`jumpToPendingAuto` in `page.tsx`).
+- Ergänzung: Ist der Chip „Nicht im Training“ aktiv, bietet ein Knopf „n Bilder ohne Markierung entfernen“ (mit Rückfrage) an, alle Bilder ohne Boxen zu löschen, die nicht als leer bestätigt sind (Halbzeit, Kameraaufbau). `/api/remove-unlabelled-frames` / `local_worker.remove_unlabelled_frames` prüft jede Id erneut, behält beschriftete, als leer bestätigte, Prüfkandidaten und den unabhängigen Test, legt ein Projekt-Backup an und löscht nur abgeleitete Bilder, nie Quellvideos. Die Benchmark-Referenz wird ungültig wie beim Einzel-Entfernen.
+- NVIDIA unter Windows (stille Korrektur zu 0.38.0, keine Neuigkeit im Dialog): `ensure_cuda_torch` verlangte dieselbe PyTorch-Version wie die CPU-Version (`torch==2.15.0`), aber die CUDA-Indizes hinken PyPI hinterher (cu126 bis 2.14.1, cu128 bis 2.11.0). Auf einer MX450 scheiterte die Reparatur deshalb. Jetzt wird erst die gleiche Version versucht, dann die neueste CUDA-Version des Index; die Erfolgsmeldung nennt die wirklich installierte Version.
+- Geprüft: Typecheck, 549 Tests. Nicht geprüft: die Oberfläche im Browser.
+
 ## 0.38.0
 
 YOLO auf AMD-Karten mit MIOpen-Problem, Spielfeld vor dem Vormarkieren anbieten, nur trainierte Klassen im unabhängigen Test; stilles Update für NVIDIA unter Windows.
