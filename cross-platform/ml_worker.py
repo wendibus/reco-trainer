@@ -22,6 +22,7 @@ import queue
 import re
 import shutil
 import signal
+import ssl
 import stat
 import struct
 import subprocess
@@ -29,6 +30,7 @@ import sys
 import tempfile
 import threading
 import time
+import urllib.error
 import urllib.request
 import uuid
 import zipfile
@@ -4800,6 +4802,44 @@ def download_registry_model(project_root: Path, model_id: str, language: str = "
     return target
 
 
+def tls_contexts() -> list[ssl.SSLContext]:
+    """Verified TLS contexts, tried in order. Python's own store misses roots that antivirus or proxies re-sign with."""
+    contexts: list[ssl.SSLContext] = [ssl.create_default_context()]
+    if sys.platform == "win32":
+        try:
+            windows = ssl.create_default_context()
+            for store in ("ROOT", "CA"):
+                for cert, encoding, _trust in ssl.enum_certificates(store):
+                    if encoding == "x509_asn":
+                        try:
+                            windows.load_verify_locations(cadata=ssl.DER_cert_to_PEM_cert(cert))
+                        except ssl.SSLError:
+                            continue
+            contexts.append(windows)
+        except Exception:
+            pass
+    try:
+        import certifi  # type: ignore[import-not-found]
+        contexts.append(ssl.create_default_context(cafile=certifi.where()))
+    except Exception:
+        pass
+    return contexts
+
+
+def open_verified_url(request: urllib.request.Request, timeout: int = 60):
+    """urlopen that keeps certificate checks on, but retries with the system and certifi stores."""
+    failure: Exception | None = None
+    for context in tls_contexts():
+        try:
+            return urllib.request.urlopen(request, timeout=timeout, context=context)
+        except urllib.error.URLError as error:
+            if not isinstance(error.reason, ssl.SSLCertVerificationError):
+                raise
+            failure = error
+    assert failure is not None
+    raise failure
+
+
 def fetch_verified(entry: dict[str, Any], url: str, sha256: str, size: int, target: Path, language: str, progress_base: int = 0, progress_total: int = 0) -> None:
     """Download url to target via <target>.part and keep it only when the SHA-256 matches."""
     if not str(url).startswith("https://"):
@@ -4809,7 +4849,7 @@ def fetch_verified(entry: dict[str, Any], url: str, sha256: str, size: int, targ
     digest = hashlib.sha256()
     try:
         request = urllib.request.Request(url, headers={"User-Agent": "RecoTrainer"})
-        with urllib.request.urlopen(request, timeout=60) as response, partial.open("wb") as sink:
+        with open_verified_url(request) as response, partial.open("wb") as sink:
             total = progress_total or int(response.headers.get("Content-Length") or size or 0)
             done = progress_base
             while chunk := response.read(1024 * 1024):

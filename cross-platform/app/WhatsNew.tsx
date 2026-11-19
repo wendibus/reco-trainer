@@ -8,6 +8,15 @@ type Item = { title: string; text: string };
  *  number in the header opens it again. Add the next version's entry at the top. */
 export const WHATS_NEW: { version: string; items: Record<Language, Item[]> }[] = [
   {
+    version: '0.38.2',
+    items: {
+      de: [{ title: 'Modell-Download unter Windows repariert', text: 'Der Download des YOLO-Basismodells scheiterte auf manchen Windows-Rechnern mit einem Zertifikatsfehler. Er nutzt jetzt auch den Windows-Zertifikatsspeicher.' }, { title: 'Klarere Spalten im Batch-Bericht', text: 'Aus „Beste Confidence“ und „Je Klasse“ wurden „Beste Schwelle“ und „Schwelle je Klasse“. „ball 70 %“ ist keine Trefferquote, sondern die Mindest-Sicherheit mit dem besten Ergebnis.' }],
+      en: [{ title: 'Model download fixed on Windows', text: 'Downloading the YOLO base model failed on some Windows computers with a certificate error. It now also uses the Windows certificate store.' }, { title: 'Clearer columns in the batch report', text: '“Best confidence” and “Per class” are now “Best threshold” and “Threshold per class”. “ball 70 %” is not an accuracy but the minimum confidence with the best result.' }],
+      es: [{ title: 'Descarga del modelo corregida en Windows', text: 'La descarga del modelo base YOLO fallaba en algunos equipos Windows con un error de certificado. Ahora usa también el almacén de certificados de Windows.' }, { title: 'Columnas más claras en el informe por lotes', text: '«Mejor confianza» y «Por clase» ahora son «Mejor umbral» y «Umbral por clase». «ball 70 %» no es una precisión, sino la confianza mínima con el mejor resultado.' }],
+      fr: [{ title: 'Téléchargement du modèle corrigé sous Windows', text: 'Le téléchargement du modèle de base YOLO échouait sur certains ordinateurs Windows avec une erreur de certificat. Il utilise maintenant aussi le magasin de certificats de Windows.' }, { title: 'Colonnes plus claires dans le rapport par lots', text: '« Meilleure confiance » et « Par classe » deviennent « Meilleur seuil » et « Seuil par classe ». « ball 70 % » n’est pas une précision, mais la confiance minimale donnant le meilleur résultat.' }],
+    },
+  },
+  {
     version: '0.38.1',
     items: {
       de: [{ title: 'Offene Auto-Boxen finden', text: 'Über der Bilderliste zeigt der Filter „Auto offen“ nur Bilder mit unbestätigten Auto-Boxen. „Nächstes offenes Bild“ springt zum nächsten davon.' }, { title: 'Bilder ohne Markierung entfernen', text: 'Bei aktivem Chip „Nicht im Training“ löscht ein Knopf alle Bilder ohne Boxen, die nicht als leer bestätigt sind. Quellvideos bleiben unverändert.' }],

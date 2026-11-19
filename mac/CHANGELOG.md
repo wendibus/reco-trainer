@@ -1,5 +1,14 @@
 # Änderungen
 
+## 0.38.2
+
+Download des YOLO-Basismodells scheitert nicht mehr an Zertifikatsfehlern; klarere Spaltenüberschriften im Bericht „Letztes Training im Batch“.
+
+- Behoben: Auf manchen Windows-Rechnern (Antivirus mit HTTPS-Prüfung, Proxy) brach der Download mit `CERTIFICATE_VERIFY_FAILED` ab, sodass kein Modell des Batch-Trainings fertig wurde. Der Download versucht es jetzt zusätzlich mit dem Windows-Zertifikatsspeicher und `certifi`. Die Zertifikatsprüfung bleibt an, die SHA-256-Prüfung der Datei ebenso.
+
+- „Beste Confidence“ heißt jetzt „Beste Schwelle“, „Je Klasse“ heißt „Schwelle je Klasse“ (de/en/es/fr). Ein Hinweis an beiden Überschriften erklärt, dass es die Mindest-Sicherheit mit dem besten Ergebnis ist und keine Genauigkeit („ball 70 %“ = nur Treffer ab 70 % nehmen); die Qualität zeigt mAP50. Anlass: Ein Tester las „ball 70 %“ als Trefferquote.
+- Geprüft: Typecheck, Python-Tests inklusive neuer Tests für den Download. Nicht geprüft: die Oberfläche im Browser und der Windows-Zertifikatsspeicher auf einem Windows-Rechner.
+
 ## 0.38.1
 
 Bilder mit offenen Auto-Boxen finden: Filter „Auto offen“ und „Nächstes offenes Bild“ über der Bilderliste.
