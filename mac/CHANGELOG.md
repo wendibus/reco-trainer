@@ -1,5 +1,15 @@
 # Änderungen
 
+## 0.38.3
+
+Bilderliste mit Suche, Filtern und Sortierung; Prüfkandidaten mit Boxen lassen sich ins Training übernehmen. Anlass: Ein Tester hatte viele beschriftete Bilder unter „Nicht im Training“ und fand Bilder mit nur Ball (ohne Spieler) nicht wieder.
+
+- Über der Liste: Suche nach Video oder Zeit, Boxen von … bis …, Klasse „mit“ oder „ohne“, Sortierung nach Boxen. Die Pfeiltasten und ←/→ folgen der gefilterten Liste; das geöffnete Bild bleibt beim Nachbessern in der Liste. Die Auswahl wird beim Neustart wiederhergestellt.
+- Neuer Filter „Klasse fehlt“: Bilder mit Boxen, denen eine Klasse fehlt, die mindestens 60 % der markierten Bilder haben (ab 8 markierten Bildern), zum Beispiel nur Ball, keine Spieler.
+- Neuer Knopf „Als Training übernehmen“ bei Prüfkandidaten mit Boxen (nutzt die bestehende Entscheidung „confirm“, die Boxen gelten danach als bestätigt).
+- Farbpunkte je Klasse in der Bilderliste; der Hinweis an „Nicht im Training“ erklärt, dass dort auch Prüfkandidaten mit Boxen stehen.
+- Geprüft: Typecheck, Python-Tests und die Filterlogik in einem Skript. Nicht geprüft: die Oberfläche im Browser. „Klasse fehlt“ und die Schwelle von 60 % wurden an keinen echten Projektdaten ausprobiert.
+
 ## 0.38.2
 
 Download des YOLO-Basismodells scheitert nicht mehr an Zertifikatsfehlern; klarere Spaltenüberschriften im Bericht „Letztes Training im Batch“.

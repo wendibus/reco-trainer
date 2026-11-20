@@ -8,6 +8,31 @@ type Item = { title: string; text: string };
  *  number in the header opens it again. Add the next version's entry at the top. */
 export const WHATS_NEW: { version: string; items: Record<Language, Item[]> }[] = [
   {
+    version: '0.38.3',
+    items: {
+      de: [
+        { title: 'Suchen, filtern und sortieren', text: 'Über der Bilderliste kannst du nach Video oder Zeit suchen, nach der Zahl der Boxen filtern (z. B. 1 bis 3), Bilder mit oder ohne eine Klasse finden und nach Boxen sortieren. Die Pfeiltasten folgen der Liste, und deine Auswahl bleibt beim nächsten Start erhalten.' },
+        { title: 'Klasse fehlt', text: 'Ein neuer Filter zeigt Bilder, in denen eine Klasse fehlt, die fast alle anderen Bilder haben, zum Beispiel Bilder mit Ball, aber ohne Spieler.' },
+        { title: 'Als Training übernehmen', text: 'Prüfkandidaten mit Boxen lassen sich mit einem Klick ins Training übernehmen. Kleine Farbpunkte in der Liste zeigen, welche Klassen ein Bild hat.' },
+      ],
+      en: [
+        { title: 'Search, filter and sort', text: 'Above the image list you can search by video or time, filter by the number of boxes (for example 1 to 3), find images with or without a class and sort by boxes. The arrow keys follow the list, and your choice is kept for the next start.' },
+        { title: 'Class missing', text: 'A new filter shows images that lack a class almost all other images have, for example images with a ball but no players.' },
+        { title: 'Use for training', text: 'Review candidates that already have boxes can be put into training with one click. Small colour dots in the list show which classes an image has.' },
+      ],
+      es: [
+        { title: 'Buscar, filtrar y ordenar', text: 'Sobre la lista de imágenes puedes buscar por vídeo o tiempo, filtrar por número de cuadros (por ejemplo de 1 a 3), encontrar imágenes con o sin una clase y ordenar por cuadros. Las flechas siguen la lista y tu elección se conserva al reiniciar.' },
+        { title: 'Falta una clase', text: 'Un filtro nuevo muestra las imágenes a las que les falta una clase que casi todas las demás tienen, por ejemplo imágenes con balón pero sin jugadores.' },
+        { title: 'Usar para entrenar', text: 'Los candidatos de revisión que ya tienen cuadros se pueden incluir en el entrenamiento con un clic. Pequeños puntos de color en la lista muestran qué clases tiene una imagen.' },
+      ],
+      fr: [
+        { title: 'Chercher, filtrer et trier', text: 'Au-dessus de la liste d’images, vous pouvez chercher par vidéo ou temps, filtrer par nombre de boîtes (par exemple de 1 à 3), trouver les images avec ou sans une classe et trier par boîtes. Les flèches suivent la liste et votre choix est conservé au prochain démarrage.' },
+        { title: 'Classe manquante', text: 'Un nouveau filtre montre les images auxquelles manque une classe que presque toutes les autres ont, par exemple des images avec ballon mais sans joueurs.' },
+        { title: 'Utiliser pour l’entraînement', text: 'Les candidats de révision qui ont déjà des boîtes peuvent être mis dans l’entraînement en un clic. De petits points de couleur dans la liste montrent les classes d’une image.' },
+      ],
+    },
+  },
+  {
     version: '0.38.2',
     items: {
       de: [{ title: 'Modell-Download unter Windows repariert', text: 'Der Download des YOLO-Basismodells scheiterte auf manchen Windows-Rechnern mit einem Zertifikatsfehler. Er nutzt jetzt auch den Windows-Zertifikatsspeicher.' }, { title: 'Klarere Spalten im Batch-Bericht', text: 'Aus „Beste Confidence“ und „Je Klasse“ wurden „Beste Schwelle“ und „Schwelle je Klasse“. „ball 70 %“ ist keine Trefferquote, sondern die Mindest-Sicherheit mit dem besten Ergebnis.' }],

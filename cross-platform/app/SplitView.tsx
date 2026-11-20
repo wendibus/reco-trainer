@@ -8,7 +8,7 @@ const TEXT: Record<Language, { all: string; none: string; roles: Record<SplitRol
   de: {
     all: 'Alle', none: 'Nicht im Training', roles: { train: 'Training', valid: 'Validierung', test: 'Test' },
     hint: 'Zeigt nur die Bilder dieser Rolle. Die Rollen ergeben sich aus den Videos: Ein Video landet immer ganz in einer Rolle, damit fast gleiche Nachbarbilder nicht Training und Bewertung vermischen.',
-    noneHint: 'Bilder, die das nächste Training nicht nutzt: noch ohne Markierung und nicht als leer bestätigt, Prüfkandidaten und der unabhängige Test.',
+    noneHint: 'Bilder, die das nächste Training nicht nutzt: noch ohne Markierung und nicht als leer bestätigt, Prüfkandidaten und der unabhängige Test. Auch Prüfkandidaten mit Boxen (z. B. aus dem Ball-Tracking) stehen hier, bis du sie mit „Als Training übernehmen“ bestätigst.',
     auto: 'Auto offen', autoHint: 'Zeigt nur Bilder mit Auto-Boxen, die noch niemand bestätigt oder korrigiert hat.',
     nextAuto: 'Nächstes offenes Bild', nextAutoHint: 'Springt zum nächsten Bild mit unbestätigter Auto-Box, ab dem gewählten Bild.',
     removeUnlabelled: n => `${n} Bilder ohne Markierung entfernen`,
@@ -20,7 +20,7 @@ const TEXT: Record<Language, { all: string; none: string; roles: Record<SplitRol
   en: {
     all: 'All', none: 'Not in training', roles: { train: 'Training', valid: 'Validation', test: 'Test' },
     hint: 'Shows only the images in this role. Roles follow the videos: a video always goes into one role as a whole, so near-identical neighboring frames never mix training and evaluation.',
-    noneHint: 'Images the next training does not use: not labelled yet and not confirmed as empty, review candidates and the independent test.',
+    noneHint: 'Images the next training does not use: not labelled yet and not confirmed as empty, review candidates and the independent test. Review candidates that already have boxes (for example from ball tracking) are listed here until you confirm them with “Use for training”.',
     auto: 'Auto pending', autoHint: 'Shows only images with automatic boxes nobody has confirmed or corrected yet.',
     nextAuto: 'Next pending image', nextAutoHint: 'Jumps to the next image with an unconfirmed automatic box, starting after the selected image.',
     removeUnlabelled: n => `Remove ${n} unlabelled images`,
@@ -32,7 +32,7 @@ const TEXT: Record<Language, { all: string; none: string; roles: Record<SplitRol
   es: {
     all: 'Todas', none: 'Fuera del entrenamiento', roles: { train: 'Entrenamiento', valid: 'Validación', test: 'Prueba' },
     hint: 'Muestra solo las imágenes de este rol. Los roles siguen a los vídeos: un vídeo siempre va entero a un rol, para que fotogramas vecinos casi iguales no mezclen entrenamiento y evaluación.',
-    noneHint: 'Imágenes que el próximo entrenamiento no usa: aún sin marcar y no confirmadas como vacías, candidatos de revisión y la prueba independiente.',
+    noneHint: 'Imágenes que el próximo entrenamiento no usa: aún sin marcar y no confirmadas como vacías, candidatos de revisión y la prueba independiente. Los candidatos con cuadros (p. ej. del seguimiento del balón) aparecen aquí hasta que los confirmes con «Usar para entrenar».',
     auto: 'Auto pendiente', autoHint: 'Muestra solo imágenes con cuadros automáticos que nadie ha confirmado ni corregido.',
     nextAuto: 'Siguiente imagen pendiente', nextAutoHint: 'Salta a la siguiente imagen con un cuadro automático sin confirmar, a partir de la imagen elegida.',
     removeUnlabelled: n => `Quitar ${n} imágenes sin marcar`,
@@ -44,7 +44,7 @@ const TEXT: Record<Language, { all: string; none: string; roles: Record<SplitRol
   fr: {
     all: 'Toutes', none: 'Hors entraînement', roles: { train: 'Entraînement', valid: 'Validation', test: 'Test' },
     hint: 'N’affiche que les images de ce rôle. Les rôles suivent les vidéos : une vidéo va toujours entière dans un rôle, pour que des images voisines presque identiques ne mélangent pas entraînement et évaluation.',
-    noneHint: 'Images que le prochain entraînement n’utilise pas : pas encore annotées ni confirmées vides, candidats de révision et le test indépendant.',
+    noneHint: 'Images que le prochain entraînement n’utilise pas : pas encore annotées ni confirmées vides, candidats de révision et le test indépendant. Les candidats déjà dotés de boîtes (p. ex. du suivi du ballon) restent ici tant que vous ne les confirmez pas avec « Utiliser pour l’entraînement ».',
     auto: 'Auto en attente', autoHint: 'N’affiche que les images avec des boîtes automatiques que personne n’a confirmées ni corrigées.',
     nextAuto: 'Image en attente suivante', nextAutoHint: 'Passe à l’image suivante avec une boîte automatique non confirmée, à partir de l’image choisie.',
     removeUnlabelled: n => `Retirer ${n} images sans annotation`,

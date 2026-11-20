@@ -439,3 +439,17 @@ select { height: 30px; padding: 0 8px; }
 .reco-export-classes legend { padding: 0 0 4px; font-size: 12px; font-weight: 650; color: var(--label); }
 .reco-export-dialog .reco-export-classes label { display: flex; align-items: center; gap: 8px; font-weight: 400; font-size: 13px; }
 .reco-export-dialog .reco-export-classes input { padding: 0; margin: 0; }
+
+.frame-filters { display: grid; gap: 6px; margin-bottom: 8px; }
+.frame-filters input[type="search"], .frame-filters input[type="text"], .frame-filters select { min-height: 26px; padding: 3px 8px; border: 0; border-radius: 8px; background: var(--fill-2); color: var(--label); font-size: 12px; }
+.frame-filters input[type="search"] { width: 100%; box-sizing: border-box; }
+.frame-filter-row { display: grid; grid-template-columns: 56px 1fr 1fr; align-items: center; gap: 6px; font-size: 11px; color: var(--label-2); }
+label.frame-filter-row { grid-template-columns: 56px 1fr; }
+.frame-filter-row input[type="text"] { width: 100%; box-sizing: border-box; }
+.frame-filter-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; color: var(--label-2); }
+.frame-filters input:focus-visible, .frame-filters select:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+.class-dots { display: inline-flex; gap: 3px; margin-left: 6px; vertical-align: middle; }
+.class-dots i { width: 7px; height: 7px; border-radius: 50%; display: inline-block; }
+.frame-incomplete { justify-self: start; }
+.frame-incomplete.active { background: color-mix(in srgb, #f59e0b 22%, transparent); }
