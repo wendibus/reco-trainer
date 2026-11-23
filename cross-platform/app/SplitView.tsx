@@ -114,7 +114,7 @@ export function filterFrames<T extends { id: string; annotations?: Array<{ sourc
 }
 
 /** Chips above the image list: how many images train, validate and test, as a filter. */
-export function SplitFilter({ language, splits, frameIds, autoCount = 0, unlabelledCount = 0, value, onChange, onNextAuto, onRemoveUnlabelled }: { language: Language; splits: SplitPreview | null | undefined; frameIds: string[]; autoCount?: number; unlabelledCount?: number; value: SplitFilterValue; onChange: (value: SplitFilterValue) => void; onNextAuto?: () => void; onRemoveUnlabelled?: () => void }) {
+export function SplitFilter({ language, splits, frameIds, autoCount = 0, unlabelledCount = 0, adoptable = 0, adoptText, value, onChange, onNextAuto, onRemoveUnlabelled, onAdopt }: { language: Language; splits: SplitPreview | null | undefined; frameIds: string[]; autoCount?: number; unlabelledCount?: number; adoptable?: number; adoptText?: { label: (n: number) => string; hint: string }; value: SplitFilterValue; onChange: (value: SplitFilterValue) => void; onNextAuto?: () => void; onRemoveUnlabelled?: () => void; onAdopt?: () => void }) {
   if (!splits && !autoCount) return null;
   const t = TEXT[language];
   const roles = splits?.roles ?? {};
@@ -134,6 +134,7 @@ export function SplitFilter({ language, splits, frameIds, autoCount = 0, unlabel
       {options.map(([key, label, count, hint]) => <button data-hint={hint} type="button" key={key} className={`split-chip split-${key}${value === key ? ' active' : ''}`} aria-pressed={value === key} onClick={() => onChange(key)}>{label}<strong>{count}</strong></button>)}
     </div>
     {autoCount > 0 && onNextAuto && <button data-hint={t.nextAutoHint} type="button" className="secondary-button" onClick={onNextAuto}>{t.nextAuto}</button>}
+    {value === 'none' && adoptable > 0 && adoptText && onAdopt && <button data-hint={adoptText.hint} type="button" className="secondary-button candidate-yes" onClick={onAdopt}>✓ {adoptText.label(adoptable)}</button>}
     {value === 'none' && unlabelledCount > 0 && onRemoveUnlabelled && <button data-hint={t.removeUnlabelledHint} type="button" className="secondary-button" onClick={onRemoveUnlabelled}>{t.removeUnlabelled(unlabelledCount)}</button>}
     {splits?.problems.map((problem) => <p key={problem} className="split-problem">{problem}</p>)}
   </div>;

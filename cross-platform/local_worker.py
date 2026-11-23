@@ -3983,6 +3983,36 @@ def review_candidate(payload: dict) -> None:
     ))
 
 
+def adopt_candidate_frames(payload: dict) -> None:
+    """Put review candidates that already carry boxes into training in one step (one backup, one write).
+    The UI sends the ids; each is checked again: only ordinary candidates with boxes qualify, the
+    independent test (heldOut) and candidates without boxes are left alone. The boxes count as confirmed."""
+    root = STATE.project_root
+    project = STATE.project
+    if root is None or project is None:
+        raise RuntimeError(localized("Kein lokales Projekt geöffnet.", "No local project is open.", "No hay ningún proyecto local abierto.", "Aucun projet local n’est ouvert."))
+    ids = payload.get("frameIds")
+    if not isinstance(ids, list):
+        raise RuntimeError(localized("Ungültige Bildliste.", "Invalid image list.", "Lista de imágenes no válida.", "Liste d’images non valide."))
+    wanted = {str(item) for item in ids}
+    adopted = [frame for frame in project.get("frames", []) if str(frame.get("id")) in wanted and frame.get("reviewStatus") == "candidate" and not frame.get("heldOut") and frame.get("annotations")]
+    if adopted:
+        backup_project(root, "kandidaten-uebernommen")
+        now = utc_now()
+        for frame in adopted:
+            for annotation in frame.get("annotations", []):
+                annotation["source"] = "manual"
+            frame["reviewStatus"] = "reviewed"
+            frame["reviewedAt"] = now  # "new image" until the next training has seen it (dataset_split.is_new_image)
+        project["updatedAt"] = now
+        atomic_json(root / "project.json", project)
+    count = len(adopted)
+    STATE.update(project=project, message=localized(
+        f"{count} Bilder mit Boxen wurden in den Trainingssatz übernommen.", f"{count} images with boxes were added to the training set.",
+        f"{count} imágenes con cuadros se añadieron al conjunto de entrenamiento.", f"{count} images avec boîtes ont été ajoutées au jeu d’entraînement.",
+    ))
+
+
 class Handler(BaseHTTPRequestHandler):
     def handle(self) -> None:
         # A browser closing a keep-alive connection is normal, not an error worth a traceback.
@@ -4331,6 +4361,11 @@ class Handler(BaseHTTPRequestHandler):
                 if STATE.busy:
                     raise RuntimeError(localized("Ein lokaler Vorgang läuft bereits.", "A local operation is already running.", "Ya hay una operación local en curso.", "Une opération locale est déjà en cours."))
                 remove_unlabelled_frames(payload)
+                self.json_response({"ok": True, "status": STATE.snapshot()})
+            elif self.path == "/api/adopt-candidates":
+                if STATE.busy:
+                    raise RuntimeError(localized("Ein lokaler Vorgang läuft bereits.", "A local operation is already running.", "Ya hay una operación local en curso.", "Une opération locale est déjà en cours."))
+                adopt_candidate_frames(payload)
                 self.json_response({"ok": True, "status": STATE.snapshot()})
             elif self.path == "/api/video-role":
                 if STATE.busy:

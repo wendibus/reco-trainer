@@ -8,6 +8,27 @@ type Item = { title: string; text: string };
  *  number in the header opens it again. Add the next version's entry at the top. */
 export const WHATS_NEW: { version: string; items: Record<Language, Item[]> }[] = [
   {
+    version: '0.38.4',
+    items: {
+      de: [
+        { title: 'Bilder ins Training zurückholen', text: 'Unter „Nicht im Training“ übernimmt ein Knopf alle Prüfkandidaten mit Boxen auf einmal ins Training. Für ein einzelnes Bild steht „Als Training übernehmen“ jetzt direkt über dem Bild.' },
+        { title: 'Größere Bilderliste', text: 'Die Seitenleiste scrollt immer, die Bilderliste behält eine brauchbare Höhe, und die Vorschaubilder sind größer. Suche und Filter sind in „Suchen und sortieren“ eingeklappt.' },
+      ],
+      en: [
+        { title: 'Bring images back into training', text: 'Under “Not in training” a button puts all review candidates with boxes into training at once. For a single image, “Use for training” now sits right above the image.' },
+        { title: 'Larger image list', text: 'The sidebar always scrolls, the image list keeps a usable height, and the thumbnails are larger. Search and filters are folded into “Search and sort”.' },
+      ],
+      es: [
+        { title: 'Devolver imágenes al entrenamiento', text: 'En «Fuera del entrenamiento», un botón incluye de una vez todos los candidatos de revisión con cuadros. Para una sola imagen, «Usar para entrenar» está ahora justo encima de la imagen.' },
+        { title: 'Lista de imágenes más grande', text: 'La barra lateral siempre se desplaza, la lista de imágenes conserva una altura útil y las miniaturas son más grandes. La búsqueda y los filtros están plegados en «Buscar y ordenar».' },
+      ],
+      fr: [
+        { title: 'Remettre des images dans l’entraînement', text: 'Sous « Hors entraînement », un bouton met d’un coup tous les candidats de révision avec boîtes dans l’entraînement. Pour une seule image, « Utiliser pour l’entraînement » se trouve maintenant juste au-dessus de l’image.' },
+        { title: 'Liste d’images plus grande', text: 'La barre latérale défile toujours, la liste d’images garde une hauteur utilisable et les vignettes sont plus grandes. La recherche et les filtres sont repliés dans « Chercher et trier ».' },
+      ],
+    },
+  },
+  {
     version: '0.38.3',
     items: {
       de: [

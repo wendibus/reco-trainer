@@ -122,6 +122,30 @@ class GroundTruthTests(unittest.TestCase):
             for name in names[1:]:
                 self.assertTrue((root / "frames" / f"{name}.jpg").exists())
 
+    def test_adopt_candidate_frames_takes_only_ordinary_candidates_with_boxes(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / ".reco-training"
+            box = lambda: {"id": "b", "category": "ball", "x": 1, "y": 2, "width": 3, "height": 4, "source": "auto"}
+            project = {"sport": "basketball", "frames": [
+                {"id": "with-box", "relativePath": "frames/a.jpg", "reviewStatus": "candidate", "annotations": [box()]},
+                {"id": "no-box", "relativePath": "frames/b.jpg", "reviewStatus": "candidate", "annotations": []},
+                {"id": "held", "relativePath": "frames/c.jpg", "reviewStatus": "candidate", "heldOut": True, "annotations": [box()]},
+                {"id": "plain", "relativePath": "frames/d.jpg", "annotations": [box()]},
+            ]}
+            local_worker.atomic_json(root / "project.json", project)
+            local_worker.STATE.update(project_root=root, project=project)
+
+            local_worker.adopt_candidate_frames({"frameIds": ["with-box", "no-box", "held", "plain"]})
+
+            frames = {item["id"]: item for item in local_worker.STATE.project["frames"]}
+            self.assertEqual(frames["with-box"]["reviewStatus"], "reviewed")
+            self.assertEqual(frames["with-box"]["annotations"][0]["source"], "manual")
+            self.assertIn("reviewedAt", frames["with-box"])
+            self.assertEqual(frames["no-box"]["reviewStatus"], "candidate")
+            self.assertEqual(frames["held"]["reviewStatus"], "candidate")
+            self.assertEqual(frames["plain"]["annotations"][0]["source"], "auto")
+            self.assertTrue(any((root / "backups").glob("project-*.json")))
+
     def test_candidate_requires_human_decision_before_training(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary) / ".reco-training"

@@ -453,3 +453,7 @@ label.frame-filter-row { grid-template-columns: 56px 1fr; }
 .class-dots i { width: 7px; height: 7px; border-radius: 50%; display: inline-block; }
 .frame-incomplete { justify-self: start; }
 .frame-incomplete.active { background: color-mix(in srgb, #f59e0b 22%, transparent); }
+
+.frame-filters-box { margin-bottom: 8px; }
+.frame-filters-box > summary { cursor: pointer; padding: 4px 0; color: var(--label-2); font-size: 11px; font-weight: 600; }
+.frame-filters-box > .frame-filters { margin-top: 4px; }

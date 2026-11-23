@@ -1,5 +1,14 @@
 # Änderungen
 
+## 0.38.4
+
+Bilder wieder ins Training holen und eine nutzbare Bilderliste unter Windows. Anlass: Ein Tester fand den Knopf für Bilder außerhalb des Trainings nicht, und die Liste links war zu kurz und zu klein.
+
+- Neu: Unter „Nicht im Training“ übernimmt ein Knopf alle Prüfkandidaten mit Boxen auf einmal (nach Rückfrage; der unabhängige Test und Bilder ohne Boxen bleiben unberührt). Neuer Worker-Endpunkt `/api/adopt-candidates`: ein Backup, ein Schreibvorgang.
+- „Als Training übernehmen“ steht jetzt auch neben „Bild ist leer“ über dem Bild.
+- Die Seitenleiste scrollt immer; die Bilderliste hat mindestens 240 px Höhe; Vorschaubilder 72×45 statt 54×34; die Filter sind in „Suchen und sortieren“ eingeklappt (Punkt bei aktivem Filter).
+- Geprüft: Typecheck, alle Python-Tests inklusive neuem Test. Nicht geprüft: die Oberfläche im Browser und unter Windows.
+
 ## 0.38.3
 
 Bilderliste mit Suche, Filtern und Sortierung; Prüfkandidaten mit Boxen lassen sich ins Training übernehmen. Anlass: Ein Tester hatte viele beschriftete Bilder unter „Nicht im Training“ und fand Bilder mit nur Ball (ohne Spieler) nicht wieder.
