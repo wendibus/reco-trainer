@@ -19,6 +19,8 @@ type Props = {
 };
 
 const MAX_POINTS = 32;
+const MIN_HIDE = 0.02;
+type Rect = [number, number, number, number];
 const EDGE_SNAP_PX = 8;
 
 /** True when two non-neighbouring edges of the closed outline cross (points clicked out of order). */
@@ -50,6 +52,11 @@ export default function FieldGeometryEditor({ language, api, frame, existing, vi
   const [confirmRemove, setConfirmRemove] = useState(false);
   const imageRef = useRef<HTMLImageElement>(null);
   const dragIndex = useRef<number | null>(null);
+  const [hidden, setHidden] = useState<Rect[]>([]);
+  const [hiding, setHiding] = useState(false);
+  const [draft, setDraft] = useState<Rect | null>(null);
+  const [finding, setFinding] = useState(false);
+  const [found, setFound] = useState<number | null>(null);
 
   const count = corners.length;
   const crosses = count >= 4 && outlineCrosses(corners);
@@ -65,7 +72,7 @@ export default function FieldGeometryEditor({ language, api, frame, existing, vi
   }
 
   function addPoint(event: React.MouseEvent<HTMLDivElement>) {
-    if (count >= MAX_POINTS) return;
+    if (hiding || count >= MAX_POINTS) return;
     const point = fractionFrom(event);
     if (point) setCorners((current) => [...current, point]);
   }
@@ -81,6 +88,43 @@ export default function FieldGeometryEditor({ language, api, frame, existing, vi
     const point = fractionFrom(event);
     if (index == null || !point) return;
     setCorners((current) => current.map((entry, position) => position === index ? point : entry));
+  }
+
+  function startHide(event: React.PointerEvent<HTMLDivElement>) {
+    if (!hiding) return;
+    const point = fractionFrom(event);
+    if (!point) return;
+    event.currentTarget.setPointerCapture(event.pointerId);
+    setDraft([point[0], point[1], point[0], point[1]]);
+  }
+
+  function moveHide(event: React.PointerEvent<HTMLDivElement>) {
+    const point = fractionFrom(event);
+    if (draft && point) setDraft([draft[0], draft[1], point[0], point[1]]);
+  }
+
+  function endHide() {
+    if (draft && Math.abs(draft[2] - draft[0]) >= MIN_HIDE && Math.abs(draft[3] - draft[1]) >= MIN_HIDE) {
+      setHidden((current) => [...current, [Math.min(draft[0], draft[2]), Math.min(draft[1], draft[3]), Math.max(draft[0], draft[2]), Math.max(draft[1], draft[3])]]);
+    }
+    setDraft(null);
+  }
+
+  async function findAutomatically() {
+    setFinding(true);
+    setError(null);
+    try {
+      const response = await fetch(`${api}/api/field-detect`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ frameId: frame.id, ignore: hidden, language }) });
+      const result = (await response.json()) as { error?: string; corners?: number[][] };
+      if (!response.ok || !result.corners) throw new Error(result.error || 'Local worker failed');
+      setCorners(result.corners);
+      setFound(result.corners.length);
+      setHiding(false);
+    } catch (failure) {
+      setError(failure instanceof Error ? failure.message : String(failure));
+    } finally {
+      setFinding(false);
+    }
   }
 
   async function save() {
@@ -122,12 +166,20 @@ export default function FieldGeometryEditor({ language, api, frame, existing, vi
         <button data-hint={hintText[language].removePoint} type="button" className="secondary-button" onClick={() => setCorners((current) => current.slice(0, -1))} disabled={!count}>{t.removeLast}</button>
         <button data-hint={hintText[language].resetPoints} type="button" className="secondary-button" onClick={() => setCorners([])} disabled={!count}>{t.reset}</button>
       </div>
+      <div className="field-editor-controls">
+        <button data-hint={t.autoHint} type="button" className="primary-button" onClick={() => void findAutomatically()} disabled={finding || saving}>{finding ? t.autoFinding : t.autoFind}</button>
+        <button data-hint={t.hideHint} type="button" className={`secondary-button${hiding ? ' active' : ''}`} onClick={() => setHiding((current) => !current)} disabled={finding}>{hiding ? t.hideDone : t.hideAreas}</button>
+        {hidden.length > 0 && <button data-hint={t.hideClear} type="button" className="secondary-button" onClick={() => setHidden([])} disabled={finding}>{t.hideClear} · {t.hideCount(hidden.length)}</button>}
+      </div>
+      {hiding ? <p className="field-editor-hint">{t.hideHint}</p> : found !== null && <p className="field-editor-hint">{t.autoDone(found)}</p>}
       <p className="field-editor-hint">{t.moreHint}</p>
       <div className="field-editor-stage">
-        {imageFailed ? <div className="field-editor-missing">{t.frameMissing}</div> : <div className="field-editor-image-wrap" onClick={addPoint}>
+        {imageFailed ? <div className="field-editor-missing">{t.frameMissing}</div> : <div className={`field-editor-image-wrap${hiding ? ' hiding' : ''}`} onClick={addPoint} onPointerDown={startHide} onPointerMove={moveHide} onPointerUp={endHide} onPointerCancel={() => setDraft(null)}>
           <span className="field-editor-edge-catcher" aria-hidden="true" />
           <img ref={imageRef} src={`${api}/api/frame?id=${encodeURIComponent(frame.id)}`} alt="" draggable={false} onError={() => setImageFailed(true)} />
           <svg viewBox="0 0 1 1" preserveAspectRatio="none" aria-hidden="true">
+            {count >= 4 && !crosses && <path className="field-editor-outside" fillRule="evenodd" d={`M0,0H1V1H0Z M${points.replace(/ /g, ' L').replace(/^/, '')}Z`} />}
+            {[...hidden, ...(draft ? [[Math.min(draft[0], draft[2]), Math.min(draft[1], draft[3]), Math.max(draft[0], draft[2]), Math.max(draft[1], draft[3])] as Rect] : [])].map(([x0, y0, x1, y1], index) => <rect key={index} className="field-editor-hidden" x={x0} y={y0} width={x1 - x0} height={y1 - y0} vectorEffect="non-scaling-stroke" />)}
             {count >= 2 && (count >= 4
               ? <polygon points={points} className={`field-editor-shape closed${crosses ? ' crossing' : ''}`} vectorEffect="non-scaling-stroke" />
               : <polyline points={points} className="field-editor-shape" vectorEffect="non-scaling-stroke" />)}

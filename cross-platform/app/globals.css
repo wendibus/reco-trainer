@@ -609,3 +609,8 @@ button:disabled[data-hint] { pointer-events:none; }
 
 .active-learning-section.next-step { border-left:3px solid var(--accent, #2f81f7); padding-left:10px; }
 .next-step-note { opacity:.85; }
+
+.field-editor-image-wrap.hiding { cursor:cell; touch-action:none; }
+.field-editor-outside { fill:rgba(6,12,24,.55); pointer-events:none; }
+.field-editor-hidden { fill:rgba(220,38,38,.28); stroke:#dc2626; stroke-width:1.5; stroke-dasharray:5 3; }
+.field-editor-controls .secondary-button.active { border-color:var(--blue); color:var(--blue); }

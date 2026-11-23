@@ -3691,6 +3691,29 @@ def save_field_geometry(payload: dict) -> None:
     STATE.update(project=project, message=localized("Spielfeld lokal gespeichert.", "Field boundaries saved locally.", "Límites del campo guardados localmente.", "Limites du terrain enregistrées localement."))
 
 
+def detect_field_for_frame(payload: dict) -> dict:
+    """Propose a field outline for one frame (light detection, nothing is saved).
+    payload: frameId, optional ignore = rectangles [x0, y0, x1, y1] in fractions."""
+    root = STATE.project_root
+    project = STATE.project or {}
+    frame = next((item for item in project.get("frames", []) if item.get("id") == payload.get("frameId")), None)
+    if root is None or frame is None:
+        raise RuntimeError(localized("Bild nicht gefunden.", "Frame not found.", "Imagen no encontrada.", "Image introuvable."))
+    target = (root / frame["relativePath"]).resolve()
+    if (root / "frames").resolve() not in target.parents or not target.is_file():
+        raise RuntimeError(localized("Bild nicht gefunden.", "Frame not found.", "Imagen no encontrada.", "Image introuvable."))
+    ignore = payload.get("ignore") if isinstance(payload.get("ignore"), list) else []
+    import field_detect  # needs numpy and Pillow, which the worker only loads when asked
+    try:
+        return field_detect.detect_field(target, ignore[:12])
+    except field_detect.FieldNotFound:
+        raise RuntimeError(localized(
+            "Das Spielfeld wurde nicht gefunden. Blende Störendes aus oder setze die Punkte von Hand.",
+            "No field found. Hide distracting areas or place the points by hand.",
+            "No se encontró el campo. Oculta lo que molesta o coloca los puntos a mano.",
+            "Terrain introuvable. Masquez les zones gênantes ou placez les points à la main.")) from None
+
+
 def remove_field_geometry(root: Path, project: dict, payload: dict) -> None:
     """Delete the field outline of one video, or of all with applyToAll (backup first)."""
     videos = field_geometry.project_videos(project)
@@ -4346,6 +4369,8 @@ class Handler(BaseHTTPRequestHandler):
             elif self.path == "/api/annotations":
                 save_annotations(payload)
                 self.json_response({"ok": True, "status": STATE.snapshot()})
+            elif self.path == "/api/field-detect":
+                self.json_response({"ok": True, **detect_field_for_frame(payload)})
             elif self.path == "/api/field-geometry":
                 save_field_geometry(payload)
                 self.json_response({"ok": True, "status": STATE.snapshot()})

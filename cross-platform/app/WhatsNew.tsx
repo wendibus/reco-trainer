@@ -8,6 +8,23 @@ type Item = { title: string; text: string };
  *  number in the header opens it again. Add the next version's entry at the top. */
 export const WHATS_NEW: { version: string; items: Record<Language, Item[]> }[] = [
   {
+    version: '0.38.5',
+    items: {
+      de: [
+        { title: 'Spielfeld automatisch finden', text: 'Im Dialog „Spielfeld festlegen“ sucht „Automatisch finden“ nur den Rand des Spielfelds, ohne Linien oder Sportart. Mit „Bereiche ausblenden“ markierst du Störendes (Netze, Nachbarfeld, Zuschauer), das die Suche ignoriert. Das Ergebnis lässt sich wie gewohnt verschieben.' },
+      ],
+      en: [
+        { title: 'Find the field automatically', text: 'In the field dialog, “Find automatically” looks only for the edge of the field, with no lines or sport. “Hide areas” marks distractions (nets, neighbouring court, spectators) that the search ignores. Adjust the result by dragging points as before.' },
+      ],
+      es: [
+        { title: 'Buscar el campo automáticamente', text: 'En el diálogo del campo, «Buscar automáticamente» solo busca el borde del campo, sin líneas ni deporte. «Ocultar zonas» marca lo que molesta (redes, campo vecino, público) y la búsqueda lo ignora. El resultado se ajusta arrastrando puntos.' },
+      ],
+      fr: [
+        { title: 'Trouver le terrain automatiquement', text: 'Dans la boîte de dialogue du terrain, « Trouver automatiquement » ne cherche que le bord du terrain, sans lignes ni sport. « Masquer des zones » marque ce qui gêne (filets, terrain voisin, public) et la recherche l’ignore. Le résultat reste ajustable en déplaçant les points.' },
+      ],
+    },
+  },
+  {
     version: '0.38.4',
     items: {
       de: [

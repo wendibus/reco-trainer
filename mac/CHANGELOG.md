@@ -1,5 +1,13 @@
 # Änderungen
 
+## 0.38.5
+
+Spielfeld automatisch finden, als schlanke Variante der Kalibrierung. Anlass: Die Linienkalibrierung von Reco Minimap scheitert in Mehrzweckhallen; hier genügt der Rand des Feldes.
+
+- Neu: Im Dialog „Spielfeld festlegen/bearbeiten“ sucht „Automatisch finden“ die Umrandung der Spielfläche (Farbgruppen, größte zusammenhängende Fläche, höchstens 10 Punkte). Keine Linien, keine Sportart, nur numpy und Pillow. Neuer Worker-Endpunkt `/api/field-detect` (speichert nichts).
+- Neu: „Bereiche ausblenden“ – Rechtecke über Störendes ziehen; die Suche ignoriert sie. Außerhalb der Umrandung wird das Bild in der Vorschau abgedunkelt.
+- Geprüft: Typecheck, alle Python-Tests inklusive neuer; an einem Hallenbild mit Ausblenden korrekt, ohne Ausblenden reichte die Umrandung in die unteren Ecken. Nicht geprüft: die Oberfläche im Browser und unter Windows.
+
 ## 0.38.4
 
 Bilder wieder ins Training holen und eine nutzbare Bilderliste unter Windows. Anlass: Ein Tester fand den Knopf für Bilder außerhalb des Trainings nicht, und die Liste links war zu kurz und zu klein.
